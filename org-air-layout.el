@@ -25,7 +25,7 @@
 (declare-function svg-image "svg")
 (declare-function org-air-view--svg-image-cached "org-air-view")
 ;; Bound by `org-air-view--render' to the displaying window's live char
-;; metrics (C2/C3); used here only to size the cosmetic header marker bar.
+;; metrics; used here only to size the cosmetic header marker bar.
 (defvar org-air-view--pill-char-w)
 (defvar org-air-view--pill-char-h)
 
@@ -34,24 +34,22 @@
 (defcustom org-air-glyphs
   '((origin . ("▤" . "."))
     (inbox . ("□" . "I"))
-    ;; R93: the two icons follow the two meanings.  Overdue took the
-    ;; urgent ▲ that Needs attention used to carry (a missed date IS the
-    ;; alarm); Needs attention took the retired Stale ○ (a quiet item is
-    ;; an absence, not an alarm).  No new glyph was invented.
+    ;; The two icons follow the two meanings: a missed date IS an alarm,
+    ;; so Overdue carries the urgent ▲; a quiet item is an absence, not
+    ;; an alarm, so Needs attention carries the neutral ○.
     (overdue . ("▲" . "!"))
     (attention . ("○" . "~"))
-    ;; R94: the Untracked section icon — ◌, attention's ○ with its outline
-    ;; broken, which is exactly the relation between the two sections: one
-    ;; has a clock that ran out, the other has no clock at all.  Quiet by
-    ;; construction (it is a statement, never an alarm).  No SAFE middle
-    ;; tier, like every other section icon (▲ ○ ◆ ★ ≡ ▽): it degrades
-    ;; straight to ASCII when the frame's font cannot draw it.
+    ;; Untracked is ◌ — attention's ○ with its outline broken, which is
+    ;; exactly the relation between the two sections: one has a clock
+    ;; that ran out, the other has no clock at all.  Quiet by
+    ;; construction (a statement, never an alarm).  No SAFE middle tier,
+    ;; like every other section icon (▲ ○ ◆ ★ ≡ ▽): it degrades straight
+    ;; to ASCII when the frame's font cannot draw it.
     (untracked . ("◌" . "."))
     (upcoming . ("◆" . ">"))
     (high-priority . ("★" . "*"))
     (notes . ("≣" . "="))
-    ;; R83: the Backlog section icon — ▽ (deferred), the calm inverse of
-    ;; attention's ▲; degrades by the S5b tier table, user-overridable.
+    ;; Backlog is ▽ (deferred), the calm inverse of Overdue's ▲.
     (backlog . ("▽" . "-"))
     (calendar-item . ("●" . "o"))
     (today . ("■" . "#"))
@@ -83,21 +81,19 @@
     (flip . ("⇄" . "<>"))
     (visited . ("✓" . "v"))
     (scanning . ("⟳" . "~"))
-    ;; R63-2d: the four REVIEW section icons (board section-header
-    ;; treatment; degrade by the S5b tier table like every glyph).
+    ;; The four REVIEW section icons.
     (completed . ("✓" . "+"))
     (time . ("◔" . "%"))
     (started . ("▷" . ">"))
     (carried . ("↻" . "~"))
-    ;; R84 D2e: the conditional REVIEW "Dropped" section icon — ⊘ (circled
-    ;; slash) reads "cancelled", visually distinct from completed's ✓;
-    ;; degrades by the S5b tier table like every glyph.
+    ;; The conditional REVIEW "Dropped" icon: ⊘ (circled slash) reads
+    ;; "cancelled", visually distinct from completed's ✓.
     (dropped . ("⊘" . "x")))
   "Glyph table used by org-air as (PREFERRED . ASCII) fallbacks.
-PREFERRED is the GUI glyph (already the safer S5b default: attention ○,
-today ■, inbox □); ASCII is a pure-ASCII terminal fallback.  An intermediate
-SAFE tier for thin GUI fonts lives in `org-air-layout-safe-glyphs'.
-Selection is `org-air-layout-glyph'.  User-overridable."
+PREFERRED is the GUI glyph, ASCII is a pure-ASCII terminal fallback.  An
+intermediate SAFE tier for thin GUI fonts lives in
+`org-air-layout-safe-glyphs'.  Selection is `org-air-layout-glyph'.
+User-overridable."
   :type '(alist :key-type symbol
                 :value-type (cons string string))
   :group 'org-air)
@@ -105,7 +101,7 @@ Selection is `org-air-layout-glyph'.  User-overridable."
 (defcustom org-air-layout-safe-glyphs
   '((origin . "·")
     (clear . "×"))
-  "Intermediate SAFE glyphs for thin GUI fonts (S5b middle tier).
+  "Intermediate SAFE glyphs for thin GUI fonts (the middle tier).
 When a glyph's PREFERRED form is not `char-displayable-p' in a graphical
 frame, `org-air-layout-glyph' tries the SAFE form here before the ASCII
 fallback.  Names absent here degrade straight from PREFERRED to ASCII,
@@ -143,7 +139,7 @@ while a frame or window is being dragged into a single re-render."
        (seq-every-p #'char-displayable-p (append string nil))))
 
 (defun org-air-layout-glyph (name)
-  "Return the best displayable glyph for NAME (S5b 3-tier selection).
+  "Return the best displayable glyph for NAME (3-tier selection).
 Graphical frame: PREFERRED if `char-displayable-p', else the SAFE tier
 \(`org-air-layout-safe-glyphs') if displayable, else the ASCII fallback.
 A TTY always gets ASCII."
@@ -159,14 +155,14 @@ A TTY always gets ASCII."
 
 (defun org-air-layout-current-height (&optional buffer)
   "Return the body height in lines of the window displaying BUFFER.
-The vertical analogue of `org-air-layout-current-width' (S6): measures
-the window actually showing BUFFER so the dashboard can fill its full
+The vertical analogue of `org-air-layout-current-width': measures the
+window actually showing BUFFER so the dashboard can fill its full
 height.  Falls back to the selected window, then a sane default."
   (let* ((buffer (or buffer (current-buffer)))
-         ;; C1: prefer the selected window when it is the one showing BUFFER
-         ;; (the resize/config hook runs inside `with-selected-window' on the
-         ;; window being re-rendered), so a split re-renders to ITS height —
-         ;; never a stale full-frame value — then any window showing BUFFER.
+         ;; Prefer the selected window when it is the one showing BUFFER
+         ;; (the resize/config hook runs inside `with-selected-window' on
+         ;; the window being re-rendered), so a split re-renders to ITS
+         ;; height — never a stale full-frame value.
          (window (or (and (eq buffer (window-buffer (selected-window)))
                           (selected-window))
                      (get-buffer-window buffer t))))
@@ -177,7 +173,7 @@ height.  Falls back to the selected window, then a sane default."
      (t 24))))
 
 (defun org-air-layout--usable-rows (window)
-  "Return the number of FULL text rows usable in WINDOW (R2).
+  "Return the number of FULL text rows usable in WINDOW.
 Derived by flooring the body pixel height by the line pixel height
 \(font height plus `line-spacing'), so a fractional final row — which
 `window-body-height' rounds into its count but which cannot actually
@@ -206,10 +202,10 @@ revision passed PIXELWISE to `window-body-width', which made the renderer
 compose against a pixel count and pushed the calendar rail far off the
 visible area."
   (let* ((buffer (or buffer (current-buffer)))
-         ;; C1: prefer the selected window when it displays BUFFER so a
-         ;; split/narrow re-render (the hook runs in `with-selected-window'
-         ;; on the affected window) measures the ACTUAL displaying-window
-         ;; width and never overflows; otherwise any window showing BUFFER.
+         ;; Prefer the selected window when it displays BUFFER so a
+         ;; split/narrow re-render (the hook runs in
+         ;; `with-selected-window' on the affected window) measures the
+         ;; ACTUAL displaying-window width and never overflows.
          (window (or (and (eq buffer (window-buffer (selected-window)))
                           (selected-window))
                      (get-buffer-window buffer t))))
@@ -217,18 +213,18 @@ visible area."
      ((window-live-p window) (org-air-layout--usable-columns window))
      ((window-live-p (selected-window))
       (org-air-layout--usable-columns (selected-window)))
-     ;; SEAM A (R31-1): no live window shows BUFFER and no live selected
-     ;; window to measure — the LAST raw-column term.  Route it through
-     ;; the frame-tier usable primitive so a fringe-less graphic frame
-     ;; reserves the continuation-glyph column here too (no composition
-     ;; can ever be sized to usable+1).  TTY/batch reserve none, so the
-     ;; value is byte-identical there.
+     ;; No live window shows BUFFER and none is selected: the last
+     ;; raw-column term.  Route it through the frame-tier usable
+     ;; primitive so a fringe-less graphic frame reserves the
+     ;; continuation-glyph column here too — no composition can ever be
+     ;; sized to usable+1.  TTY/batch reserve none, so the value is
+     ;; byte-identical there.
      (t (org-air-layout--usable-frame-columns)))))
 
 (defun org-air-layout--usable-frame-columns (&optional frame)
   "Return the columns usable for a full line on FRAME with no window to query.
-Frame-tier analogue of `org-air-layout--usable-columns' (R31-1, Seam A):
-when neither the buffer nor the selected window is live there is no
+Frame-tier analogue of `org-air-layout--usable-columns': when neither
+the buffer nor the selected window is live there is no
 window whose `window-max-chars-per-line' we can read, so mirror the
 reserve the fringe-less continuation column costs — on a graphical frame
 return one less than `frame-width', on a TTY/batch frame the plain
@@ -241,11 +237,11 @@ return one less than `frame-width', on a TTY/batch frame the plain
   "Pure width model: columns a full board line may occupy for BODY text-columns.
 GRAPHIC-P is non-nil on a graphical frame; BODY is `window-body-width'
 \(fringes and scroll-bar WIDTH already excluded).  On ANY graphical frame
-reserve ONE right column (R37): the last body column can be stolen by the
-continuation glyph (fringe-less GUI, R29-1), sit under a RIGHT scroll bar,
-or be a PARTIAL cell when the body pixels are not an exact multiple of the
-char advance (fringed+right-scrollbar — this user; the R34 miss) — a glyph
-there clips.  Reserving one column is correct for all three and costs at
+reserve ONE right column: the last body column can be stolen by the
+continuation glyph (fringe-less GUI), sit under a RIGHT scroll bar, or be
+a PARTIAL cell when the body pixels are not an exact multiple of the char
+advance (fringed plus right scroll bar) — a glyph there clips.
+Reserving one column is correct for all three and costs at
 most one spare column on a fringed, no-scroll-bar frame.  On a TTY/mock
 return the plain BODY width so every batch golden is byte-identical.  The
 result NEVER exceeds BODY.  (Extra fringe/scroll-bar args are accepted and
@@ -254,20 +250,20 @@ ignored — the reserve is unconditional on graphical frames.)"
 
 (defun org-air-layout--usable-columns (window)
   "Return the columns a full board line may occupy in WINDOW.
-On a graphical frame reserve one right column (R37 universal safety
-margin): the last `window-body-width' column can be stolen by the
+On a graphical frame reserve one right column: the last
+`window-body-width' column can be stolen by the
 continuation glyph (fringe-less GUI), sit under a RIGHT scroll bar, or be
 a PARTIAL cell when the body pixels are not an exact multiple of the char
 advance — a glyph there clips.  On a TTY/mock return the plain
 `window-body-width' so goldens are byte-identical.  The fringe/scroll-bar
-geometry is now advisory only; the reserve is unconditional on graphical
+geometry is advisory only; the reserve is unconditional on graphical
 frames.
 
-R29-1 previously used `window-max-chars-per-line', which is NOT bounded
-by the text-column count: it divides the body pixels by the default-face
-font's average advance, so a font narrower than the frame canonical cell
-\(one set after frame creation, say) returns MORE than
-`window-body-width' and overflows the text area by one column (R34-1)."
+Do NOT switch this back to `window-max-chars-per-line': that is NOT
+bounded by the text-column count.  It divides the body pixels by the
+default-face font's average advance, so a font narrower than the frame
+canonical cell (one set after frame creation, say) returns MORE than
+`window-body-width' and overflows the text area by one column."
   (if (and (windowp window)
            (display-graphic-p (window-frame window)))
       (org-air-layout--usable-columns-for
@@ -278,9 +274,9 @@ font's average advance, so a font narrower than the frame canonical cell
                                               (label-face 'org-air-face-rail-title)
                                               (rule-face 'org-air-face-pane-border)
                                               (suffix-face 'org-air-face-rail-title))
-  "Return a D5 labelled-rule string of display WIDTH for the context rail.
+  "Return a labelled-rule string of display WIDTH for the context rail.
 Form: ‹cap›‹rule› LABEL ‹fill…› [‹SUFFIX›], where the leading cap glyph
-\(`hrule-cap', a rounded stub) echoes the rounded left edge of a D1-D3
+\(`hrule-cap', a rounded stub) echoes the rounded left edge of an item
 pill so the rail rules and the item-pane pills share one rounded
 language.  The rule glyphs render in RULE-FACE, LABEL in LABEL-FACE, and
 the optional right-anchored SUFFIX (e.g. the calendar `‹ ›' nav) in
@@ -304,17 +300,17 @@ truncates.  An empty LABEL yields a bare capped rule."
     (concat left fill suffix-str)))
 
 (defcustom org-air-rail-header-style 'marker
-  "How a rail/calendar section header renders (D-P6).
-`marker' (default) draws a clean prefix-marked header (a slim rounded svg
+  "How a rail/calendar section header renders.
+`marker' (default) draws a prefix-marked header: a slim rounded svg
 accent bar over a reserved 1-col marker on a GUI, the plain `rail-marker'
-glyph in TTY) with a legible `org-air-face-rail-header' label.  `rule'
-restores the round-10 hl-block labelled rule."
+glyph in TTY, with a legible `org-air-face-rail-header' label.  `rule'
+draws a highlighted-block labelled rule instead."
   :type '(choice (const marker) (const rule))
   :group 'org-air)
 
 (defun org-air-layout-marker-image ()
-  "Return an svg image of a slim rounded accent bar one char wide (D-P6), or nil.
-GUI only; uses the displaying window's live char metrics when bound (C2/C3),
+  "Return an svg image of a slim rounded accent bar one char wide, or nil.
+GUI only; uses the displaying window's live char metrics when bound,
 else the frame char metrics.  The image is locked to one char cell so the
 reserved marker column's alignment is unchanged."
   (when (and (display-graphic-p) (require 'svg nil t))
@@ -325,9 +321,9 @@ reserved marker column's alignment is unchanged."
                      (frame-char-height)))
              (bw (max 1 (round (* cw 0.45))))
              (color (or (face-foreground 'org-air-face-rail-marker nil t) "gray"))
-             ;; R18 D-P1a: the rail/project marker bar repeats per header — a
-             ;; pure function of (colour, cw, ch); build it once and share the
-             ;; image via the view layer's svg cache when it is loaded.
+             ;; The marker bar repeats per header and is a pure function
+             ;; of (colour, cw, ch); build it once and share the image
+             ;; via the view layer's svg cache when that is loaded.
              (build (lambda ()
                       (let ((svg (svg-create cw ch)))
                         (svg-rectangle svg 0.5 (* ch 0.1) bw (* ch 0.8)
@@ -339,14 +335,14 @@ reserved marker column's alignment is unchanged."
 
 (cl-defun org-air-layout-rail-header-string (label width &key suffix
                                                    (suffix-face 'org-air-face-rail-header))
-  "Return a D-P6 prefix-marked rail header line as TEXT, padded to WIDTH.
+  "Return a prefix-marked rail header line as TEXT, padded to WIDTH.
 Form: `<marker> LABEL <fill> [SUFFIX]'.  The 1-col prefix marker is the
 `rail-marker' glyph (left-half-block, ascii `|') faced `org-air-face-rail-
 marker'; on a GUI it also carries a slim rounded svg accent bar via
 `display' (locked to one char cell).  LABEL is faced `org-air-face-rail-
 header' (legible, not faded); the optional right-anchored SUFFIX (e.g. the
-calendar `‹ ›' nav) is faced SUFFIX-FACE.  No bg/overline/rule glyphs
-\(reverses round-10 D-P2.A).  The byte/TTY layer is `<marker> LABEL'."
+calendar `‹ ›' nav) is faced SUFFIX-FACE.  No background, overline or
+rule glyphs.  The byte/TTY layer is `<marker> LABEL'."
   (let* ((img (org-air-layout-marker-image))
          (mk (org-air-layout-glyph 'rail-marker))
          (marker (propertize mk 'face 'org-air-face-rail-marker))

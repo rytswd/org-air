@@ -10,14 +10,14 @@
 
 ;;; Commentary:
 
-;; F5: render an Air-managed documentation tree (like `airctl status') as
+;; Render an Air-managed documentation tree (like `airctl status') as
 ;; a separate view from the GTD task board.  Air docs carry a state
 ;; (draft/ready/work-in-progress/complete/dropped), tags and a
-;; title; this module reads them and (D-P5) renders them through
-;; org-air-view's shared row primitive (`org-air-view--insert-row'): state
-;; buckets become sections (icon + title + count badge), each doc a row
-;; with the title LEFT and a date / tags / path cluster (the same D-P1
-;; svg pills as the board).  Group by state / directory / tag.  The view
+;; title; this module reads them and renders them through org-air-view's
+;; shared row primitive (`org-air-view--insert-row'): state buckets
+;; become sections (icon + title + count badge), each doc a row with the
+;; title LEFT and a date / tags / path cluster (the same svg pills as the
+;; board).  Group by state / directory / tag.  The view
 ;; is buffer TEXT so it is fully byte-testable; the state badge degrades
 ;; from emoji to a `[D]'-style label off a graphical frame.
 
@@ -30,23 +30,23 @@
 (require 'org-air-view)
 (require 'org-air-calendar)
 
-;; R97 D1 — surface preconditions for this module's commands.
+;; Surface preconditions for this module's commands.
 
 (defun org-air-project--require-view ()
-  "Refuse unless the current buffer is the org-air project tree (R97 D1)."
+  "Refuse unless the current buffer is the org-air project tree."
   (org-air-require-surface "an org-air project view" "org-air-project"
                           'org-air-project-mode))
 
 (defun org-air-project--require-doc-session ()
-  "Refuse unless this buffer is a live org-air project DOC session (R97 D1)."
+  "Refuse unless this buffer is a live org-air project DOC session."
   (org-air-require-surface "an org-air project doc session" "org-air-project"
                           'org-air-doc-session-mode))
 
-;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
+;; `bookmark-make-record-function' is bookmark.el's (not preloaded);
 ;; the mode sets it buffer-locally without requiring bookmark at load.
 (defvar bookmark-make-record-function)
 
-;; R54-3: the Revisit view (org-air-revisit.el) loads after this file;
+;; The Revisit view (org-air-revisit.el) loads after this file;
 ;; the `N' key names its entry point, resolved at press time.
 (declare-function org-air-revisit "org-air-revisit" ())
 
@@ -83,7 +83,7 @@ Integer pins an exact composition width (the batch/test seam, mirroring
   :group 'org-air)
 
 (defcustom org-air-project-rail-placement nil
-  "PROJECT override for `org-air-rail-placement' (R49-2).
+  "PROJECT override for `org-air-rail-placement'.
 nil (the default) inherits the shared `org-air-rail-placement'; `inline'
 or `side-window' pins the project view regardless of the shared default.
 Resolved through `org-air-rail--placement'."
@@ -92,7 +92,7 @@ Resolved through `org-air-rail--placement'."
   :group 'org-air)
 
 (defcustom org-air-project-show-inspector t
-  "When non-nil, the project view hosts a mid-rail inspector (R14 D-P1.B).
+  "When non-nil, the project view hosts a mid-rail inspector.
 Mirrors `org-air-show-inspector' for the board: above
 `org-air-rail-min-width' the view is two-pane (doc sections + a project
 rail of Summary + Inspector); below it the view is board-only."
@@ -100,14 +100,14 @@ rail of Summary + Inspector); below it the view is board-only."
   :group 'org-air)
 
 (defcustom org-air-project-collapse-dropped t
-  "When non-nil (the DEFAULT), fold dropped-like docs per group (R48-3).
-Docs in a TERMINAL-NEGATIVE state (`org-air-project-dropped-states' — R98
-turned this from the single keyword `dropped' into a family) are hidden
-per group behind a compact `… N dropped — TAB to show' fold row; TAB/RET
-on the row reveals them (greyed, `org-air-face-project-dropped'), TAB on
-a revealed dropped-like row re-collapses the group.  nil: no folding
-anywhere — those rows render inline exactly in today's positions (but
-still greyed; R48-2 is unconditional).  A LIVE tag filter suspends
+  "When non-nil (the DEFAULT), fold dropped-like docs per group.
+Docs in a TERMINAL-NEGATIVE state (`org-air-project-dropped-states') are
+hidden per group behind a compact `… N dropped — TAB to show' fold row;
+TAB/RET on the row reveals them (greyed,
+`org-air-face-project-dropped'), TAB on a revealed dropped-like row
+re-collapses the group.  nil: no folding anywhere — those rows render
+inline in their natural positions, still greyed, because the dimming is
+unconditional.  A LIVE tag filter suspends
 folding entirely so filter output always shows its matches.  Spelled
 `collapse' (not `show') so the default is the truthy value, matching
 `org-air-project-show-inspector'."
@@ -116,16 +116,15 @@ folding entirely so filter output always shows its matches.  Spelled
 
 (defcustom org-air-project-dropped-states
   '("dropped" "canceled" "cancelled" "out" "off")
-  "Air doc states that read as TERMINAL-NEGATIVE — the dropped FAMILY (R98).
+  "Air doc states that read as TERMINAL-NEGATIVE — the dropped FAMILY.
 
-Before R98 every dropped-ness test in the project view was a literal
-`(equal state \"dropped\")', in nine places.  Air's vocabulary had already
-moved on: a doc parked `off', handed `out', or spelled `canceled' /
-`cancelled' (both spellings are in real use) is just as finished as one
-spelled `dropped', but the view treated each of them as a LIVE doc that
-happened to have an odd keyword — or, worse, as an unknown-state metadata
-bug.  This list is the ONE place that vocabulary is stated, and
-`org-air-project--dropped-state-p' is the ONE test that reads it.
+A doc parked `off', handed `out', or spelled `canceled' / `cancelled'
+\(both spellings are in real use) is just as finished as one spelled
+`dropped'.  This list is the ONE place that vocabulary is stated, and
+`org-air-project--dropped-state-p' is the ONE test that reads it; a
+literal `(equal state \"dropped\")' anywhere else re-creates the bug
+where a terminal doc reads as LIVE, or as an unknown-state metadata
+error.
 
 WHAT MEMBERSHIP MEANS — GROUPING, NOT IDENTITY:
   * the per-group fold (`org-air-project-collapse-dropped') hides every
@@ -156,21 +155,21 @@ Compared case-insensitively against the doc's own downcased state."
   :group 'org-air)
 
 (defvar-local org-air-project--expanded-dropped nil
-  "Per-buffer list of EXPANDED dropped-fold group keys (R48-3).
+  "Per-buffer list of EXPANDED dropped-fold group keys.
 Mirror of the board's `org-air-view--expanded-sections'.  Each key is a
 cons (GROUPING . ID) — (directory . \"v0.2\") (the dir node's :path,
 \"\" for the root-docs node), (state . \"dropped\"), (tag . \"#ui\") —
 grouping-qualified so each grouping mode keeps its own expansions and
 the s/d/t switches never misapply them.  Compared with `equal'.
-Survives refresh/resize/sort/flip/filter/rail-toggle because the R26-5
+Survives refresh/resize/sort/flip/filter/rail-toggle because the
 idempotent entry never wipes locals; a key whose group disappears is
 harmless (never rendered).")
 
 (defcustom org-air-project-group 'directory
   "Default grouping for the Air project view: `state', `directory' or `tag'.
-Mirrors `airctl status' -a / -Da / -Ta.  R20-5: the default is `directory'
-— the NESTED directory tree that matches `airctl status -Da' (the most
-useful view).  The `state' / `tag' modes stay reachable via the commands
+Mirrors `airctl status' -a / -Da / -Ta.  The default is `directory' —
+the NESTED directory tree that matches `airctl status -Da'.  The
+`state' / `tag' modes stay reachable via the commands
 `org-air-project-group-by-state' / `org-air-project-group-by-tag' (no key),
 so they never shadow the shared board keys s / d / t."
   :type '(choice (const state) (const directory) (const tag))
@@ -178,23 +177,20 @@ so they never shadow the shared board keys s / d / t."
 
 (defconst org-air-project--state-display-order
   '("ready" "work-in-progress" "complete" "out" "off" "dropped" "draft")
-  "Canonical airctl `-Da' state order for the COUNT surfaces (R20-5).
-R80: out/off join the rollup after complete, before dropped.  NOTE:
+  "Canonical airctl `-Da' state order for the COUNT surfaces.
+Out/off join the rollup after complete, before dropped.  NOTE:
 airctl's Rust state enum does not yet know out/off, so INCLUDING them here
 makes org-air's per-dir rollup RICHER than `airctl status -Da' until
 airctl gains the vocabulary (a documented forward divergence,
-PRODUCT-CONFIRM in the R80 spec).
+PRODUCT-CONFIRM in the spec).
 Drives the per-dir letter-count summaries (`--dir-count-summary') ONLY —
 the LETTER order is the `airctl status -Da' byte-parity contract
-\(`R4(+1) C14(+14) X1(+9) D2(+8)', re-verified and pinned at the R48
-closeout).  R51-2 split the doc ROW ordering OUT deliberately: rows rank
-via `org-air-project--state-sort-rank' (dropped LAST) — the two orders
-serve different contracts and may differ.  R25-3 dropped the phantom
-`review' state (Air has no such state).  R80 registers `out'/`off' as
-first-class parked states.")
+\(`R4(+1) C14(+14) X1(+9) D2(+8)').  The doc ROW ordering is deliberately
+SEPARATE: rows rank via `org-air-project--state-sort-rank' (dropped
+LAST).  The two orders serve different contracts and may differ.")
 
 (defcustom org-air-project-sort-key 'name
-  "INITIAL sort key for the Air project view (R16 D-P4).
+  "INITIAL sort key for the Air project view.
 Keys: `name', `created', `updated' (reserved for later: scheduled,
 deadline).  The runtime commands (`o' cycle, `g s' select) override this
 per-buffer via `org-air-project--sort-key'.  The resulting doc order is
@@ -203,7 +199,7 @@ the byte contract."
   :group 'org-air)
 
 (defcustom org-air-project-sort-direction 'ascending
-  "INITIAL sort direction for the Air project view (R16 D-P4).
+  "INITIAL sort direction for the Air project view.
 `O' toggles it per-buffer via `org-air-project--sort-direction'."
   :type '(choice (const ascending) (const descending))
   :group 'org-air)
@@ -212,17 +208,15 @@ the byte contract."
   '("draft" "ready" "work-in-progress" "complete" "out" "off" "dropped")
   "Air doc states in display order.
 The canonical Air lifecycle: draft -> ready -> work-in-progress ->
-complete -> out -> off -> dropped.  R80 adds the parked/inactive pair
-\(out/off) after complete, before dropped.  R25-3 dropped the phantom
-`review' state (Air has no such state; a doc that writes a non-canonical
-state ranks as Unknown)."
+complete -> out -> off -> dropped.  The parked/inactive pair (out/off)
+sits after complete, before dropped.  There is no `review' state; a doc
+that writes a non-canonical state ranks as Unknown."
   :type '(repeat string)
   :group 'org-air)
 
 (defcustom org-air-project-sections
   '("draft" "ready" "work-in-progress" "complete" "out" "off" "dropped")
-  "State buckets, in order, rendered as project-view SECTIONS (D-P5.C).
-R80 adds the out/off sections after complete.
+  "State buckets, in order, rendered as project-view SECTIONS.
 Each present bucket becomes a section heading (badge icon + title + count
 badge) with its doc rows beneath; empty buckets are omitted, exactly like
 the board's empty sections."
@@ -238,9 +232,9 @@ the board's empty sections."
     ("off"              . ("\N{DOUBLE VERTICAL BAR}\N{VARIATION SELECTOR-16}" . "OFF"))
     ("dropped"          . ("\N{WASTEBASKET}\N{VARIATION SELECTOR-16}"        . "DROP")))
   "Per-state badge as (STATE . (EMOJI . TTY)).
-The GUI shows EMOJI (R23-4) when `org-air-project-state-style' is `emoji';
-the byte gate (no graphical frame) always shows TTY.  R26-2: the TTY slots
-are the canonical short WORDS (`org-air-project--state-words'), padded to
+The GUI shows EMOJI when `org-air-project-state-style' is `emoji';
+the byte gate (no graphical frame) always shows TTY.  The TTY slots are
+the canonical short WORDS (`org-air-project--state-words'), padded to
 the uniform `org-air-project--state-cell-w' cell by `--state-token'.  Each
 emoji ends in `\N{VARIATION SELECTOR-16}' so it renders in COLOUR
 presentation at a consistent width-2, matching the icons `airctl status
@@ -249,14 +243,14 @@ presentation at a consistent width-2, matching the icons `airctl status
   :group 'org-air)
 
 (defcustom org-air-project-state-style 'svg
-  "How the project per-doc STATE badge renders (R24-3).
+  "How the project per-doc STATE badge renders.
 `svg' (default) draws a LEGIBLE, cell-locked filled colour chip on a
 graphical frame (`org-air-project--state-svg-badge', reusing
 `org-air-view--svg-pillify'), occupying EXACTLY the token's text-cell box so
-it can never jitter the R24-2 rails/columns; `nerd' shows a fixed nerd-font
+it can never jitter the rails/columns; `nerd' shows a fixed nerd-font
 glyph (`org-air-project-state-nerd-glyphs'); `text' is the plain coloured
-token; `emoji' is the R23-4 colour emoji (opt-in, may misalign on some
-fonts); `badge' keeps the R21-4 small hairline chip.  Every non-`svg' choice
+token; `emoji' is the colour emoji (opt-in, may misalign on some
+fonts); `badge' keeps the small hairline chip.  Every non-`svg' choice
 degrades to the byte/TTY `[R]'... token off-GUI, so the byte goldens are
 unchanged and the cell never grows past `org-air-project--state-cell-w'."
   :type '(choice (const :tag "Filled svg chip on GUI" svg)
@@ -271,10 +265,10 @@ unchanged and the cell never grows past `org-air-project--state-cell-w'."
     ("ready"            . "\uf192")   ; nf-fa-dot_circle_o  (target)
     ("work-in-progress" . "\uf013")   ; nf-fa-cog
     ("complete"         . "\uf058")   ; nf-fa-check_circle
-    ("out"              . "\uf08b")   ; nf-fa-sign_out    (R80)
-    ("off"              . "\uf011")   ; nf-fa-power_off   (R80)
+    ("out"              . "\uf08b")   ; nf-fa-sign_out
+    ("off"              . "\uf011")   ; nf-fa-power_off
     ("dropped"          . "\uf014"))  ; nf-fa-trash
-  "Per-state nerd-font glyph for `org-air-project-state-style' = `nerd' (R24-3).
+  "Per-state nerd-font glyph for `org-air-project-state-style' = `nerd'.
 Used only on a graphical frame whose font can display the glyph; otherwise
 the terse `[R]'... token shows.  Codepoints are the Nerd Fonts private-use
 area; remap to taste (e.g. nf-md-* / nf-cod-*)."
@@ -332,11 +326,11 @@ such as README or SKILL, NOT a trackable work item -- so it must never
 reach the per-dir state counts.")
 
 (defun org-air-project--overview-file-p (file)
-  "Non-nil when FILE is a non-trackable summary/metadata file (R20-5 fix).
+  "Non-nil when FILE is a non-trackable summary/metadata file.
 Matches airctl exactly: the file stem (sans extension), case-folded, is
 README, OVERVIEW or SKILL.  Air filters these directory-summary docs out
-of document scanning, so org-air must not count their (stateless) bodies
-as `draft' the way `org-air-project--collect-docs' silently did before."
+of document scanning, so org-air must not count their stateless bodies
+as `draft'."
   (and file
        (member (downcase (file-name-base file))
                org-air-project--non-tracked-file-stems)))
@@ -364,7 +358,7 @@ Point-independent; scans from the top of the current buffer."
          state tags title)
     (with-temp-buffer
       (insert-file-contents file)
-      ;; R20-5 fix: a doc WITHOUT a #+state: keyword is `unknown', exactly as
+      ;; A doc WITHOUT a #+state: keyword is `unknown', exactly as
       ;; airctl does (`extracted.state.unwrap_or(DocumentState::Unknown)') --
       ;; never silently `draft'.  `unknown' ranks last and renders faded.
       (setq state (downcase (or (org-air-project--read-keyword "state") "unknown"))
@@ -381,7 +375,7 @@ Point-independent; scans from the top of the current buffer."
      :relpath relpath)))
 
 (defun org-air-project--doc-created (file)
-  "Return FILE's creation time (R14 D-P1.A): #+created:/#+date: else ctime.
+  "Return FILE's creation time: #+created:/#+date: else ctime.
 Reads an in-buffer `#+created:' or `#+date:' keyword as an Org timestamp
 when present, else the file's status-change (ctime) attribute."
   (or (ignore-errors
@@ -399,8 +393,8 @@ when present, else the file's status-change (ctime) attribute."
 (defun org-air-project--collect-docs (root)
   "Return the list of `org-air-doc' under ROOT's Air directory.
 Non-trackable summary/metadata files (OVERVIEW/README/SKILL) are EXCLUDED
-exactly as `airctl status' excludes them (R20-5 fix,
-`org-air-project--overview-file-p'), so the total doc count and every
+exactly as `airctl status' excludes them
+\(`org-air-project--overview-file-p'), so the total doc count and every
 per-dir state badge match `airctl status -Da' instead of inflating Draft
 with the stateless directory-summary bodies."
   (let ((air (org-air-project--air-dir root)))
@@ -421,10 +415,10 @@ with the stateless directory-summary bodies."
     ("ready" 'org-air-face-air-state-ready)
     ("work-in-progress" 'org-air-face-air-state-wip)
     ("complete" 'org-air-face-air-state-complete)
-    ("out" 'org-air-face-air-state-out)     ; R80: first-class, standing out
-    ("off" 'org-air-face-air-state-off)     ; R80: first-class, standing out
+    ("out" 'org-air-face-air-state-out)
+    ("off" 'org-air-face-air-state-off)
     ("dropped" 'org-air-face-air-state-dropped)
-    ;; R98: a dropped-FAMILY state org-air has no explicit entry for
+    ;; A dropped-FAMILY state org-air has no explicit entry for
     ;; (`canceled', `cancelled', anything the user adds) reads as terminal-
     ;; negative, not as an unknown-state metadata bug.  A state outside the
     ;; family is still faded — that distinction is the whole point.
@@ -437,25 +431,25 @@ with the stateless directory-summary bodies."
   (mapconcat #'capitalize (split-string state "-") " "))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Row cells (D-P5.B — Air docs mapped onto the shared row primitive)
+;;;; Row cells — Air docs mapped onto the shared row primitive
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-project--doc-date-text (doc)
-  "Return the faded updated-stamp date cell for DOC (D-P5.B): \"↻ YYYY-MM-DD\"."
+  "Return the faded updated-stamp date cell for DOC: \"↻ YYYY-MM-DD\"."
   (propertize (concat (org-air-layout-glyph 'updated) " "
                       (format-time-string "%F" (org-air-doc-updated doc)))
               'face 'org-air-face-faded))
 
 (defun org-air-project--doc-tagstr (doc)
-  "Return DOC's #tags as the shared accent-faced svg pill string (D-P5.B).
-Reuses `org-air-view--item-tagstr' so the project view's tag pills are the
-SAME D-P1 pills as the board's (accent face + pad cols + svg overlay)."
+  "Return DOC's #tags as the shared accent-faced svg pill string.
+Reuses `org-air-view--item-tagstr' so the project view's tag pills are
+the SAME pills as the board's (accent face + pad cols + svg overlay)."
   (let* ((tags (org-air-doc-tags doc))
          (n (length tags)))
     (org-air-view--item-tagstr tags n n)))
 
 (defun org-air-project--doc-origin-text (doc)
-  "Return DOC's origin cell (D-P5.B): \"⌂ relpath\" (the dir grouping lives here)."
+  "Return DOC's origin cell: \"⌂ relpath\"."
   (concat (org-air-layout-glyph 'origin) " " (org-air-doc-relpath doc)))
 
 (defun org-air-project--doc-widths (docs)
@@ -469,21 +463,21 @@ columns line up exactly down the project list (board parity)."
             ow (max ow (string-width (org-air-project--doc-origin-text doc)))))
     (list dw tw ow)))
 
-;; R21-5: the per-render fixed metadata column widths over the DISPLAYED
+;; The per-render fixed metadata column widths over the DISPLAYED
 ;; docs, bound in `org-air-project--render' so the project's one-line rows
-;; line up exactly like the board's `org-air-view--meta-*-w' (V6 + R20-6
-;; "measure only what is shown").
+;; line up exactly like the board's `org-air-view--meta-*-w', measuring
+;; only what is shown.
 (defvar org-air-project--meta-date-w 0
-  "Per-render fixed date-cell width for the project rows (R21-5).")
+  "Per-render fixed date-cell width for the project rows.")
 (defvar org-air-project--meta-tags-w 0
-  "Per-render fixed tags-cell width for the project rows (R21-5).")
+  "Per-render fixed tags-cell width for the project rows.")
 (defvar org-air-project--meta-origin-w 0
-  "Per-render fixed origin-cell width for the project rows (R21-5).")
+  "Per-render fixed origin-cell width for the project rows.")
 
 (defconst org-air-project--state-words
   '(("draft" . "DRAFT") ("ready" . "READY") ("work-in-progress" . "WIP")
     ("complete" . "COMP") ("out" . "OUT") ("off" . "OFF") ("dropped" . "DROP"))
-  "Canonical short-word state labels (R26-2).  Longest = 5 cols.
+  "Canonical short-word state labels.  Longest = 5 cols.
 The single source for BOTH the TTY token (`--state-token', padded to the
 uniform 5-col cell) and the GUI pill label (`--state-svg-badge', the bare
 word centred in the same 5-col capsule).  DROP (not CANC, not X) because
@@ -491,12 +485,11 @@ Air's state is literally `dropped' — a truncation of the actual airctl
 vocabulary, never an invented near-synonym.")
 
 (defconst org-air-project--state-cell-w 5
-  "Reserved width of the project state token cell (R26-2: 5-col words).
-Was 3 (R21-5, `[R]'-style tokens); R26-2 relocks V6 at the word-pill
-width — DRAFT/READY/WIP/COMP/DROP all pad to this one cell.")
+  "Reserved width of the project state token cell — 5-col words.
+DRAFT/READY/WIP/COMP/DROP all pad to this one cell.")
 
 (defun org-air-project--fit-meta-widths (docs width)
-  "Return the fitted (DCOL TCOL OCOL) project column widths at WIDTH (R21-5).
+  "Return the fitted (DCOL TCOL OCOL) project column widths at WIDTH.
 Mirrors `org-air-view--compute-meta-widths' for the project rows: measures
 the displayed DOCS, caps the origin at `org-air-origin-max-width', then
 reclaims columns for the flex title (origin toward `org-air-origin-min',
@@ -507,7 +500,7 @@ task row share column positions (board parity, invariant #4)."
   (let* ((raw (org-air-project--doc-widths docs))
          (dw (nth 0 raw))
          (tw (nth 1 raw))
-         ;; R25-5: the project view drops the origin/path cell (redundant
+         ;; The project view drops the origin/path cell (redundant
          ;; with the dir tree + title) -> NO origin column; the freed columns
          ;; reclaim to the flex title.  The cap/shrink steps have no origin
          ;; to shrink (ow 0), and `--insert-doc-row' passes no `:origin-text'.
@@ -534,17 +527,17 @@ task row share column positions (board parity, invariant #4)."
     ;; 3) the date column is held (small, uniform); the title floor in
     ;;    `org-air-view--insert-row' (max 1) takes over on a board-only
     ;;    narrow tier -- never crash, never overflow.
-    (list dw tw 0)))                       ; R25-5: ocol pinned 0
+    (list dw tw 0)))                       ; ocol pinned 0
 
 (defun org-air-project--state-token (state)
-  "Return the uniform 5-col WORD state token for STATE (R26-2).
+  "Return the uniform 5-col WORD state token for STATE.
 \"READY\" \"DRAFT\" \"WIP  \" \"COMP \" \"DROP \" — the word left-padded-right
 to exactly `org-air-project--state-cell-w' cols, so every pill box is the
 SAME size.  The user-visible `org-air-project-state-badges' TTY slot wins
 when customized; canonical defaults come from
 `org-air-project--state-words'.  A non-canonical state falls back to the
 upcased 5-col truncation of its name (\"unknown\" -> \"UNKNO\") — replacing
-the R25-4 letter fallback IN THE TOKEN ONLY (the per-dir rollup letters
+the letter fallback IN THE TOKEN ONLY (the per-dir rollup letters
 stay `--state-letter').  This is the byte/TTY contract; the svg pill
 overlays it on GUI."
   (org-air-view--pad-to
@@ -565,17 +558,17 @@ back to the terse `[R]'... token (the byte/TTY contract)."
          emoji)))
 
 (defun org-air-project--state-svg-badge (state)
-  "Return STATE's token carrying a uniform WORD-pill SVG chip (R26-2).
+  "Return STATE's token carrying a uniform WORD-pill SVG chip.
 Reuses `org-air-view--svg-pillify' (shared box/pixel-lock/fallback) with the
-state colour as BOTH a salient border and a stronger fill.  R26-2: the box
-is the 5-col PADDED word token (the byte/TTY contract + the pixel-lock
-box), so every state's capsule is the SAME 5-col × char-px size; the drawn
-label is the BARE word (DRAFT/READY/WIP/COMP/DROP), centred + width-fitted
-\(D-P1.FIT, never clips), bold, in the state colour.  One pad col is
-reserved (the word never kisses the rounded edge) and the font-scale floor
-drops to 0.62 — a 5-char word wants a smaller scale than R25-2's giant
-single letter.  The fill stays the soft 0.22 tint.  Returns the plain
-token unchanged off-GUI / when svg is unavailable."
+state colour as BOTH a salient border and a stronger fill.  The box is
+the 5-col PADDED word token (the byte/TTY contract plus the pixel-lock
+box), so every state's capsule is the SAME 5-col × char-px size; the
+drawn label is the BARE word (DRAFT/READY/WIP/COMP/DROP), centred and
+width-fitted so it never clips, bold, in the state colour.  One pad col
+is reserved so the word never kisses the rounded edge, and the
+font-scale floor drops to 0.62 — a 5-char word wants a smaller scale
+than a single letter.  The fill stays the soft 0.22 tint.  Returns the
+plain token unchanged off-GUI or when svg is unavailable."
   (let* ((face   (org-air-project--state-face state))
          (token  (propertize (org-air-project--state-token state) 'face face))
          (word   (string-trim (substring-no-properties token)))
@@ -602,16 +595,16 @@ falls back to the terse `[R]'... token (the byte/TTY contract)."
          (propertize g 'face (org-air-project--state-face state)))))
 
 (defun org-air-project--state-badge-cell (state)
-  "Return STATE's badge cell per `org-air-project-state-style' (R24-3).
+  "Return STATE's badge cell per `org-air-project-state-style'.
 `svg' (the default) draws the LEGIBLE filled colour chip
 \(`org-air-project--state-svg-badge'); `nerd' a fixed nerd-font glyph;
-`text' the plain coloured token; `emoji' the R23-4 colour emoji; `badge' the
-R21-4 hairline chip.  Every branch degrades to the byte/TTY `[R]'... token
-off-GUI, so the byte gate (non-graphic) stays byte-identical.  Whatever this
-returns is the cell TEXT at the normal line height (never a `:height' face),
-so the row never grows (svg-never-grows-line); `--state-cell' pads it to the
-fixed `org-air-project--state-cell-w' so the title left edge / the R24-2
-rails stay V6-locked."
+`text' the plain coloured token; `emoji' the colour emoji; `badge' a
+hairline chip.  Every branch degrades to the byte/TTY token off-GUI, so
+the byte gate stays byte-identical.  Whatever this returns is the cell
+TEXT at the normal line height (never a `:height' face), so the row
+never grows; `--state-cell' pads it to the fixed
+`org-air-project--state-cell-w' so the title left edge and the column
+rails stay locked."
   (let* ((face  (org-air-project--state-face state))
          (token (propertize (org-air-project--state-token state) 'face face)))
     (pcase org-air-project-state-style
@@ -624,19 +617,19 @@ rails stay V6-locked."
       (_      (org-air-project--state-svg-badge state)))))
 
 (defun org-air-project--state-cell (state)
-  "Return a FIXED-width reserved STATE cell for the project row (R21-5).
+  "Return a FIXED-width reserved STATE cell for the project row.
 Mirrors the board's `org-air-view--todo-cell': the state TOKEN in its
 state face, left-justified and padded to `org-air-project--state-cell-w'
 plus a single trailing separator, so every doc title shares one left
-edge.  The token text is the byte/TTY contract; R21-4 overlays the svg
-keyword/state badge on GUI."
+edge.  The token text is the byte/TTY contract; the svg keyword/state
+badge is an overlay on GUI."
   (concat (org-air-view--pad-to
            (org-air-project--state-badge-cell state)
            org-air-project--state-cell-w)
           " "))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Sections (D-P5.C — state buckets become sections; parity with board)
+;;;; Sections — state buckets become sections; parity with the board
 ;;;; ---------------------------------------------------------------------
 
 (defvar org-air-project--width 80
@@ -650,11 +643,11 @@ keyword/state badge on GUI."
       80))
 
 (defun org-air-project--host-width ()
-  "Return the project compose width, rail-geometry aware (R27-2).
+  "Return the project compose width, rail-geometry aware.
 With the rail POPPED (and not suspended, and no batch width seam) the
 width is resolved through the shared `org-air-rail--host-width': the
 pinned side window is ensured FIRST, then the project window's ACTUAL
-body width is measured — so the doc rows and the V6 meta lock are
+body width is measured — so the doc rows and the meta lock are
 composed at the width they will really display at (trunk composed at a
 width measured at the WRONG moment of the resize cycle and never
 re-measured after the rail popped).  Every other path (inline, batch
@@ -668,13 +661,13 @@ seam) keeps `org-air-project--render-width' exactly as today."
     (org-air-project--render-width)))
 
 (defconst org-air-project--attention-states '("ready" "work-in-progress")
-  "States whose non-empty section count uses the attention badge (D-P5.C).")
+  "States whose non-empty section count uses the attention badge.")
 
 (defun org-air-project--sections (docs)
   "Return the ordered render sections for DOCS under the current group mode.
 Each section is a plist: :icon :icon-face :title :title-face :docs
-:attention :show-state.  R16 D-P4/D-P5: every section's members are ordered
-through the single comparator (`org-air-project--sort-section-docs') so
+:attention :show-state.  Every section's members are ordered through
+the single comparator (`org-air-project--sort-section-docs') so
 state-then-sort-key composition is uniform across all group modes."
   (let ((sections (pcase org-air-project-group
                     ('tag (org-air-project--sections-by-tag docs))
@@ -697,7 +690,7 @@ Buckets with zero docs are omitted; any state not listed is appended."
                              (lambda (d) (equal (org-air-doc-state d) state))
                              docs)))
                (when members
-                 ;; R21.1: route the section icon through the SAME shared
+                 ;; Route the section icon through the SAME shared
                  ;; svg keyword/state badge as the doc rows (svg chip on
                  ;; GUI, terse `[R]' token on TTY) -- no GUI emoji.
                  (list :icon (org-air-project--state-badge-cell state)
@@ -705,7 +698,7 @@ Buckets with zero docs are omitted; any state not listed is appended."
                        :title (org-air-project--state-title state)
                        :title-face 'org-air-face-section
                        :docs members
-                       ;; R98: the bucket's RAW state, so the dropped fold
+                       ;; The bucket's RAW state, so the dropped fold
                        ;; can key each family section on itself instead of
                        ;; on one hard-coded "dropped".
                        :state state
@@ -714,31 +707,30 @@ Buckets with zero docs are omitted; any state not listed is appended."
            order))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Nested directory tree (R20-5 — match airctl status -Da)
+;;;; Nested directory tree — matches `airctl status -Da'
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-project--doc-dir-segments (doc)
-  "Return DOC's directory path as a list of segments (R20-5).
+  "Return DOC's directory path as a list of segments.
 \"v0.1/air-context/x.org\" -> (\"v0.1\" \"air-context\"); a root doc -> nil."
   (let ((dir (file-name-directory (or (org-air-doc-relpath doc) ""))))
     (and dir (split-string (directory-file-name dir) "/" t))))
 
 (defconst org-air-project--state-sort-order
   '("ready" "work-in-progress" "complete" "draft" "out" "off")
-  "The R51-2 within-group ROW ordering for the states with a REGISTERED slot.
+  "The within-group ROW ordering for the states with a REGISTERED slot.
 A state listed here ranks at its position; anything else is ranked by
-`org-air-project--state-sort-rank' (unknown, then the R98 dropped family).
+`org-air-project--state-sort-rank' (unknown, then the dropped family).
 
-R98 MOVED out/off BELOW draft.  R80 gave the parked pair its own rank
-between `complete' and `draft'; R98 makes them members of the terminal
-family (`org-air-project-dropped-states'), and a family member sitting
-ABOVE a live `draft' row made the fold visibly incoherent: collapsed, the
-`… N dropped' row sat at the group BOTTOM; expanded, the very same rows
-reappeared mid-list above the drafts.  They keep a registered slot (their
-identity survives — out is not off, and neither is dropped), but the slot
-is now at the END of the live block, so revealing a fold puts the rows
-where the fold row was.  Their pinned R80 relations are untouched: both
-still rank after `complete', before unknown, and before `dropped'.
+out/off sit BELOW draft, at the END of the live block.  They are members
+of the terminal family (`org-air-project-dropped-states'), and a family
+member ranked ABOVE a live `draft' row makes the fold visibly
+incoherent: collapsed, the `… N dropped' row sits at the group BOTTOM;
+expanded, the very same rows reappear mid-list above the drafts.  They
+keep a registered slot so their identity survives — out is not off, and
+neither is dropped — but revealing a fold must put the rows where the
+fold row was.  Both still rank after `complete', before unknown, and
+before `dropped'.
 
 Dropped/canceled/cancelled are deliberately NOT members: they have no
 lifecycle slot to hold, so they take the terminal block past unknown.
@@ -746,12 +738,12 @@ Distinct from `org-air-project--state-display-order' (the airctl `-Da'
 LETTER order for the count summaries — a different contract).")
 
 (defun org-air-project--dropped-state-position (state)
-  "Return STATE's index in `org-air-project-dropped-states', or nil (R98)."
+  "Return STATE's index in `org-air-project-dropped-states', or nil."
   (and (stringp state)
        (seq-position org-air-project-dropped-states (downcase state) #'equal)))
 
 (defun org-air-project--dropped-state-p (state)
-  "Return non-nil when STATE is dropped-like (R98).
+  "Return non-nil when STATE is dropped-like.
 THE ONE dropped-ness test in the project view.  Every fold, face, sort,
 key and count that used to spell `(equal state \"dropped\")' asks this
 instead, so the whole `org-air-project-dropped-states' family moves
@@ -760,7 +752,7 @@ once.  Case-insensitive; nil/non-string is not dropped-like."
   (and (org-air-project--dropped-state-position state) t))
 
 (defun org-air-project--state-sort-rank (state)
-  "Return STATE's within-group row rank (R51-2/R98) — the dropped family LAST.
+  "Return STATE's within-group row rank — the dropped family LAST.
 The ONE rank source BOTH comparators (`org-air-project--state-first-lessp'
 and `org-air-project--doc-compare') call, so the collapsed fold row and
 the expanded/revealed dropped-like rows share one bottom-of-group
@@ -768,12 +760,12 @@ ordering.  Three tiers, in this order:
 
 1. A state with a REGISTERED lifecycle slot (`org-air-project--state-sort-
    order') gets its position: ready 0, work-in-progress 1, complete 2,
-   draft 3, out 4, off 5.  R98 moved the parked pair to the end of this
-   block so a revealed fold lands where its fold row was.
+   draft 3, out 4, off 5.  The parked pair sits at the end of this block
+   so a revealed fold lands where its fold row was.
 2. UNKNOWN — anything org-air does not recognise at all — ranks 6: past
    every live state, because an unrecognised state is a metadata bug on a
    doc that is probably still alive, and it must stay VISIBLE.
-3. The R98 dropped FAMILY without a registered slot (`dropped',
+3. The dropped FAMILY without a registered slot (`dropped',
    `canceled', `cancelled', anything the user adds) takes the terminal
    block, 7 upward, in `org-air-project-dropped-states' order: dead sorts
    after broken, and two dead states never tie.
@@ -788,8 +780,8 @@ Ordering among distinct unknown states stays the state-string tiebreak in
      (t (length org-air-project--state-sort-order)))))
 
 (defun org-air-project--state-first-lessp (a b)
-  "Non-nil when doc A precedes B state-first, then by the ACTIVE key (R26-7).
-The R51-2 `org-air-project--state-sort-rank' is PRIMARY (ready →
+  "Non-nil when doc A precedes B state-first, then by the ACTIVE key.
+The `org-air-project--state-sort-rank' is PRIMARY (ready →
 work-in-progress → complete → draft → unknown → dropped LAST); the
 within-state order delegates to `org-air-project--doc-compare-key' — the
 active `o'/`O' sort — instead of the old fixed name tiebreak (which
@@ -802,7 +794,7 @@ name/relpath tiebreak."
       (org-air-project--doc-compare-key a b))))
 
 (defun org-air-project--sort-own-docs (docs)
-  "Return DOCS state-first (R51-2 sort rank), then by the active key (R26-7)."
+  "Return DOCS state-first (by sort rank), then by the active key."
   (sort (copy-sequence docs) #'org-air-project--state-first-lessp))
 
 (defun org-air-project--count-by-state (docs)
@@ -868,7 +860,7 @@ Counts are computed bottom-up: :direct-counts over the dir's OWN docs,
             :total-counts (org-air-project--counts-add direct desc)))))
 
 (defun org-air-project--directory-tree (docs)
-  "Return the ordered list of TOP-dir nodes for DOCS (R20-5).
+  "Return the ordered list of TOP-dir nodes for DOCS.
 Groups DOCS by their first path segment (top dirs, name-sorted); root
 docs with no directory fold into a leading node with an empty :path."
   (let (groups root-docs)
@@ -902,24 +894,24 @@ docs with no directory fold into a leading node with an empty :path."
     ("ready"            . "R")    ; 🎯  airctl Ready
     ("work-in-progress" . "W")    ;      Work-In-Progress (W = Work/WIP)
     ("complete"         . "C")    ; ✅  airctl Complete
-    ("out"              . "O")    ; 📤  R80 Out (O for Out)
-    ("off"              . "F")    ; ⏸  R80 Off (F, NOT O — no O/O collision)
+    ("out"              . "O")    ; 📤  Out (O for Out)
+    ("off"              . "F")    ; ⏸  Off (F, NOT O — no O/O collision)
     ("dropped"          . "X")    ; 🗑️  airctl Dropped (token is already [X])
-    ("canceled"         . "K")    ; R98 dropped family, US spelling
-    ("cancelled"        . "K"))   ; R98 dropped family, UK spelling
-  "Canonical per-state single LETTER (R25-4): airctl-aligned + DISTINCT.
+    ("canceled"         . "K")    ; dropped family, US spelling
+    ("cancelled"        . "K"))   ; dropped family, UK spelling
+  "Canonical per-state single LETTER: airctl-aligned + DISTINCT.
 Draft=D and Dropped=X never collide; `work-in-progress'=W is distinct from
-all.  R80: out=O, off=F (F, NOT O, so out/off never collide in the per-dir
-rollup).  R98 registers the two `cancel' spellings on K — NOT on the bare
-initial, which would have collided with Complete=C in the per-dir rollup
-and made a finished doc and an abandoned one read the same.  They SHARE K
+all.  out=O, off=F (F, NOT O, so out/off never collide in the per-dir
+rollup).  The two `cancel' spellings sit on K — NOT on the bare initial,
+which would collide with Complete=C in the per-dir rollup and make a
+finished doc and an abandoned one read the same.  They SHARE K
 deliberately: `canceled' and `cancelled' are one state spelled two ways,
 so one letter is the honest answer.  The single source for BOTH the
 per-doc badge glyph and the per-dir rollup letter, so the two can never
 drift.")
 
 (defun org-air-project--state-letter (state)
-  "Return STATE's DISTINCT single-letter badge glyph (R25-4).
+  "Return STATE's DISTINCT single-letter badge glyph.
 From `org-air-project--state-letters' for a canonical state; else the
 upcased first char of the name — never derived in a way that collides
 Draft/Dropped on `D' (the canonical map pins D=draft, X=dropped).  Drives
@@ -929,14 +921,14 @@ BOTH the per-doc badge label and the per-dir count summary."
       "?"))
 
 (defun org-air-project--dir-count-summary (direct desc)
-  "Return the calm `R4(+1) C14(+14) ...' count summary for a dir header (R22-6).
+  "Return the calm `R4(+1) C14(+14) ...' count summary for a dir header.
 DIRECT is the dir's OWN per-state counts, DESC its descendants' rollup.
 State as a quiet faded LETTER (not the coloured badge), own count, faded
 `(+M)' nested rollup; states absent from BOTH are omitted; display order =
 `org-air-project--state-display-order'.  Numerically identical to the old
 `--count-badges' / `airctl status -Da' (own N + nested +M).
 
-R98: any DROPPED-FAMILY state that the airctl letter order does not know
+Any DROPPED-FAMILY state that the airctl letter order does not know
 \(`canceled', `cancelled', a state the user added to
 `org-air-project-dropped-states') is appended AFTER that order rather
 than omitted — a FOLDED doc must still be COUNTED where its siblings are,
@@ -944,12 +936,11 @@ or the fold would make work disappear from the only per-directory number
 the view prints.  The pinned airctl letter contract for the states airctl
 does know is byte-unchanged: appended cells can only follow it.
 
-An UNRECOGNISED state is deliberately still omitted here, exactly as
-before R98.  That is the pre-R98 R22-6 rollup contract (goldens pin it),
-and the honesty requirement it might seem to breach is met elsewhere and
-more visibly: an unknown state gets its OWN section, its own upcased
-token and an undimmed, unfolded row.  It is never hidden — only its
-letter is absent from the directory annotation."
+An UNRECOGNISED state is deliberately omitted here — that is the pinned
+rollup contract, and the honesty requirement it might seem to breach is
+met elsewhere and more visibly: an unknown state gets its OWN section,
+its own upcased token and an undimmed, unfolded row.  It is never hidden
+— only its letter is absent from the directory annotation."
   (let (cells)
     (dolist (state (append org-air-project--state-display-order
                            (seq-remove
@@ -970,12 +961,12 @@ letter is absent from the directory annotation."
     (mapconcat #'identity (nreverse cells) " ")))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Dropped-doc fold (R48) — grey + collapse per group
+;;;; Dropped-doc fold — grey + collapse per group
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-project--doc-row-face (state)
-  "Return the row face for a doc in STATE (R48-2, R98 family).
-`org-air-face-project-dropped' (dim; R51-1 de-striked) for any
+  "Return the row face for a doc in STATE.
+`org-air-face-project-dropped' (dim, never struck through) for any
 dropped-like state (`org-air-project--dropped-state-p'), else the plain
 `org-air-face-title' — the one selector `--insert-doc-row' passes as the
 row's `font-lock-face', so a terminal-negative row's title band visibly
@@ -987,7 +978,7 @@ a receded row: the family dims the TITLE BAND, never the badge."
     'org-air-face-title))
 
 (defun org-air-project--dropped-expanded-p (key)
-  "Non-nil when dropped docs RENDER inline for group KEY (R48-3).
+  "Non-nil when dropped docs RENDER inline for group KEY.
 Equivalently, the fold is ACTIVE for KEY iff this returns nil:
   knob `org-air-project-collapse-dropped' nil  -> expanded (never fold);
   a LIVE filter (`org-air-view--tag-filter')   -> expanded (the filter
@@ -1002,7 +993,7 @@ Equivalently, the fold is ACTIVE for KEY iff this returns nil:
   "Return (VISIBLE . HIDDEN) splitting DOCS on the dropped fold for KEY.
 When the fold is active for KEY (`org-air-project--dropped-expanded-p'
 nil), VISIBLE is DOCS minus the dropped-LIKE docs and HIDDEN those docs
-in their given (already-sorted) order; otherwise (DOCS . nil).  R98: the
+in their given (already-sorted) order; otherwise (DOCS . nil).  The
 split is the whole `org-air-project-dropped-states' family through the
 one `org-air-project--dropped-state-p' test, so a group holding an `out'
 and a `dropped' doc folds ONCE and counts BOTH.  Callers pass
@@ -1019,15 +1010,15 @@ ALREADY-sorted lists so revealed rows keep their exact current positions."
                       docs))))
 
 (defun org-air-project--tree-gutter (depth rails lastp)
-  "Return the painted tree GUTTER for a dir-tree row at DEPTH (R24-2/R26-1).
+  "Return the painted tree GUTTER for a dir-tree row at DEPTH.
 RAILS is the faded ancestor rail string, LASTP the corner selector.
 The faded ancestor rails + this row's `box-tee-left'/`box-bottom-left'
 connector + the `box-horizontal' arm (stopping ONE column short so a
 single breathing-room SPACE joins arm to what follows), sized to EXACTLY
 the width the old plain indent produced (truncate/pad clamp) so nothing
-to the right of the gutter moves (V6 pixel-lock).  Degenerate clamp:
+to the right of the gutter moves (the pixel-lock).  Degenerate clamp:
 rails so deep that no column remains after the corner get no arm AND no
-space.  Factored out of `--insert-doc-row' (R48-3) so the dropped fold
+space.  Factored out of `--insert-doc-row' so the dropped fold
 row paints the SAME gutter a doc row at its position would."
   (let* ((margin-w  (string-width (org-air-view--item-margin)))
          (old-indent (* 2 (1+ depth)))
@@ -1049,7 +1040,7 @@ row paints the SAME gutter a doc row at its position would."
 
 (defun org-air-project--insert-dropped-fold-row
     (n key width &optional depth rails lastp)
-  "Insert the one-line `… N dropped — TAB to show' fold affordance (R48-3).
+  "Insert the one-line `… N dropped — TAB to show' fold affordance.
 N is the hidden dropped count for group KEY, WIDTH the content width.
 In the directory tree DEPTH/RAILS/LASTP paint the same gutter a doc row
 at this position would (`org-air-project--tree-gutter'); with DEPTH nil
@@ -1079,17 +1070,18 @@ n/p doc motion and the inspector skip it by construction."
 
 (defun org-air-project--insert-dir-node (node width &optional rails lastp)
   "Insert NODE (a dir tree node) and its subtree into the buffer at WIDTH.
-ONE header per directory (R22-6) with classic TREE CONNECTORS (R23-3): a
+ONE header per directory with classic TREE CONNECTORS: a
 top dir (depth 0) keeps the accent `org-air-project--marker' (the quiet
 section bullet, blank-line separated, never railed); a child dir is led by
 a faded `org-air-face-air-tree' guide — the accumulated ancestor RAILS
 string followed by a `box-tee-left'/`box-bottom-left' + `box-horizontal'
 connector (LASTP picks the corner).  Then the `dir/' name followed — a
 two-space gap — by its quiet letter-count summary (`R4(+1) C14(+14) ...'),
-left-anchored so the rollup reads as the name's own annotation (R52-1;
-clamped to WIDTH with the `more' ellipsis), the dir's OWN docs (state-first, indented one level DEEPER than the
-header — unchanged), then recursion into the name-sorted children, each
-extending RAILS by a `box-vertical' cell when THIS node has a following
+left-anchored so the rollup reads as the name's own annotation (clamped
+to WIDTH with the `more' ellipsis), the dir's OWN docs (state-first,
+indented one level DEEPER than the header), then recursion into the
+name-sorted children, each extending RAILS by a `box-vertical' cell
+when THIS node has a following
 sibling.  Glyphs route through `org-air-layout-glyph' so a TTY/batch frame
 gets the ascii `|  ' / `+- ' fallback."
   (let* ((depth (plist-get node :depth))
@@ -1111,8 +1103,7 @@ gets the ascii `|  ' / `+- ' fallback."
                            'face 'org-air-face-air-tree))))
          (start (point))
          (left (concat guide (propertize name 'face 'org-air-face-section)))
-         ;; Quiet count summary, LEFT-anchored just after the name (R52-1;
-         ;; was right-justified R22-6).
+         ;; Quiet count summary, LEFT-anchored just after the name.
          (summary (org-air-project--dir-count-summary
                    (plist-get node :direct-counts)
                    (plist-get node :desc-counts)))
@@ -1134,12 +1125,12 @@ gets the ascii `|  ' / `+- ' fallback."
                                           "  "))))))
     (insert header "\n")
     (add-text-properties start (point) (list 'org-air-section path))
-    ;; R24-2: thread the rail DOWN to the OWN docs so each doc visibly hangs
+    ;; Thread the rail DOWN to the OWN docs so each doc visibly hangs
     ;; under its directory (matching airctl status -Da).  Own docs are emitted
     ;; BEFORE the child dirs, so the `last child overall' corner (└─) lands
     ;; on the FINAL own-doc ONLY when this dir has no child dirs; otherwise
     ;; the own docs are tees (├─) and the corner goes to the last child dir.
-    ;; R48-3: partition the own docs on the dropped fold.  When HIDDEN is
+    ;; Partition the own docs on the dropped fold.  When HIDDEN is
     ;; non-empty the fold row renders as the LAST own-doc slot (after the
     ;; visible own docs, before child dirs), participating in the lastp
     ;; corner math as one extra trailing element (the └─ corner lands on
@@ -1166,7 +1157,7 @@ gets the ascii `|  ' / `+- ' fallback."
           (org-air-project--insert-dir-node child width child-rails (= j nkids)))))))
 
 (defun org-air-project--insert-directory-tree (nodes width)
-  "Insert the nested directory TREE (NODES) at content WIDTH (R20-5/R23-3).
+  "Insert the nested directory TREE (NODES) at content WIDTH.
 Top-level nodes start with empty ancestor rails; LASTP per node tells the
 connector logic whether it is the final sibling."
   (let ((n (length nodes)) (i 0))
@@ -1182,7 +1173,7 @@ connector logic whether it is the final sibling."
      (lambda (tag)
        (list :icon nil
              :icon-face nil
-             ;; R69-5: prefix-deduped chip label (a literal `#nix' tag
+             ;; Prefix-deduped chip label (a literal `#nix' tag
              ;; titles its section `#nix', never `##nix').
              :title (org-air-view--tag-chip-label tag)
              :title-face (org-air-faces-tag-face tag)
@@ -1192,10 +1183,9 @@ connector logic whether it is the final sibling."
      (sort tags #'string-lessp))))
 
 (defun org-air-project--insert-section-heading (section)
-  "Insert SECTION's heading (R14 D-P1.A): ▌ marker + icon + title + count.
-Adopts the round-11 prefix-svg `▌' header marker for parity with the rail
-headers; the marker carries the GUI svg accent bar via
-`org-air-layout-marker-image'."
+  "Insert SECTION's heading: ▌ marker + icon + title + count.
+The prefix-svg `▌' header marker matches the rail headers; it carries
+the GUI svg accent bar via `org-air-layout-marker-image'."
   (let* ((start (point))
          (icon (plist-get section :icon))
          (count (length (plist-get section :docs)))
@@ -1220,7 +1210,7 @@ headers; the marker carries the GUI svg accent bar via
                                'org-air-count-badge count))))
 
 (defun org-air-project--deslug-relpath (relpath)
-  "Return RELPATH with its Denote LEAF de-slugged (R17 D-P2).
+  "Return RELPATH with its Denote LEAF de-slugged.
 Keeps the directory prefix and replaces only the leaf with its de-slugged
 Denote title (`org-air-view--denote-title'), falling back to the raw leaf
 for a non-Denote name.  So a long Denote filename reads as its title --
@@ -1232,7 +1222,7 @@ identifier--slug__tags.org; `org-air-view--pad-to' still bounds line 2."
     (concat (or dir "") title)))
 
 (defun org-air-project--insert-doc-row (doc _width &optional depth rails lastp)
-  "Insert DOC as ONE board-style row via the shared primitive (R21-5/R24-2).
+  "Insert DOC as ONE board-style row via the shared primitive.
 Maps DOC onto `org-air-view--insert-row' exactly as the board maps a task
 \(invariant #4: parameterise the shared primitive, do not fork): the doc
 STATE is the row PREFIX as a fixed-width cell, the updated stamp the DATE
@@ -1241,12 +1231,12 @@ right-justified ORIGIN cell.  The whole row carries `org-air-doc' +
 `org-air-marker' so point on ANY cell identifies the doc (RET/visit still
 resolve).
 
-R24-2: in the DIRECTORY tree DEPTH is the dir's depth, RAILS the faded
+In the DIRECTORY tree DEPTH is the dir's depth, RAILS the faded
 ancestor rail string and LASTP the corner selector — the leading gutter is
 PAINTED with the `org-air-face-air-tree' ancestor rails + this doc's own
 `box-tee-left'/`box-bottom-left' connector, sized to EXACTLY the width the
 old plain indent produced so the state cell / title / right cluster stay
-V6-locked (the rail glyphs live purely in the left gutter; glyphs route
+column-locked (the rail glyphs live purely in the left gutter; glyphs route
 through `org-air-layout-glyph' for the TTY/batch `|`/`+-' fallback).  With
 DEPTH nil (state-/tag-grouping, no dir tree) the prefix is the old plain
 margin + state cell, byte-identical to today."
@@ -1259,25 +1249,25 @@ margin + state cell, byte-identical to today."
             ;; Directory tree: paint the faded ancestor rails + connector
             ;; into the gutter, to the SAME width the old plain indent
             ;; produced (so nothing to the right of the gutter moves).
-            ;; R25-1 arm / R26-1 breathing space / V6 clamp commentary
-            ;; lives in the factored `org-air-project--tree-gutter'
-            ;; (R48-3: shared with the dropped fold row).
+            ;; The arm, breathing space and clamp rules live in the
+            ;; factored `org-air-project--tree-gutter', shared with the
+            ;; dropped fold row.
             (concat (org-air-project--tree-gutter depth rails lastp)
                     (org-air-project--state-cell state))))
          (date   (org-air-project--doc-date-text doc))
          (tags   (org-air-project--doc-tagstr doc)))
     (org-air-view--insert-row
      :prefix prefix
-     ;; R26-4: the `(' flip — ONE rule in ONE place: doc rows show the
+     ;; The `(' flip — ONE rule in ONE place: doc rows show the
      ;; RAW file name while the per-buffer flag is on (the point is the
-     ;; real file name; the R24 deslug affordance stays title-mode-only),
-     ;; the doc title otherwise.  R28-5: the rule is context-aware via the
+     ;; real file name; the deslug affordance stays title-mode-only),
+     ;; the doc title otherwise.  The rule is context-aware via the
      ;; argument it already receives — DEPTH is non-nil exactly when the
-     ;; row renders inside the DIRECTORY tree (R24-2), where every path
+     ;; row renders inside the DIRECTORY tree, where every path
      ;; segment is already on screen as an ancestor node, so the flip
      ;; shows the BASENAME there (information-preserving at any depth);
      ;; the flat state/tag groupings keep the FULL relpath (the path IS
-     ;; the information — no tree conveys it).  The R24-6 filter key
+     ;; the information — no tree conveys it).  The filter key
      ;; stays the full relpath in every grouping (display-independent).
      :title (if org-air-project--show-filenames
                 (if depth
@@ -1286,7 +1276,7 @@ margin + state cell, byte-identical to today."
               (org-air-doc-name doc))
      :date-text date
      :tags tags
-     ;; R25-5: no `:origin-text' / `:origin-face' — the project view drops the
+     ;; No `:origin-text' / `:origin-face' — the project view drops the
      ;; path cell (redundant with the dir tree + title); `--insert-row' omits
      ;; the 0-width origin cell.  The relpath stays in the FILTER search key
      ;; (`--render' uses `org-air-doc-relpath' directly), so path tokens still
@@ -1294,7 +1284,7 @@ margin + state cell, byte-identical to today."
      :widths (list org-air-project--meta-date-w
                    org-air-project--meta-tags-w
                    0)
-     ;; R40-2: the project view composes its OWN cluster field from its own
+     ;; The project view composes its OWN cluster field from its own
      ;; `org-air-project--meta-*' globals (distinct from the board's
      ;; `org-air-view--meta-*'), so it anchors to THIS row's cluster width
      ;; (OWN-FENCE t) — the shared no-arg board fence column would read the
@@ -1303,8 +1293,8 @@ margin + state cell, byte-identical to today."
      :props (list 'org-air-doc doc
                   'org-air-marker (org-air-doc-file doc)
                   'mouse-face 'org-air-face-cursor)
-     ;; R48-2: one selector, one seam — a dropped row's `font-lock-face'
-     ;; dims the title band (R51-1: grey only, no strike); every other
+     ;; One selector, one seam — a dropped row's `font-lock-face'
+     ;; dims the title band (grey only, no strike); every other
      ;; state keeps the plain title face (byte-invisible; pre-faced cells
      ;; outrank it).
      :face (org-air-project--doc-row-face state))))
@@ -1317,52 +1307,52 @@ margin + state cell, byte-identical to today."
   "Air root rendered in this project-view buffer.")
 
 (defvar-local org-air-project--bookmark-locator nil
-  "Armed point locator of an in-flight bookmark restore, or nil (R58).
+  "Armed point locator of an in-flight bookmark restore, or nil.
 The project twin of `org-air-view--bookmark-locator': a plist
 \(:item (FILE . POS) :title TITLE) consumed — one-shot — at the tail of
 the next `org-air-project--render'.")
 
 (defvar-local org-air-project--doc-count nil
-  "Cached doc count for the calm status mode-line (R20-2); set per render.")
+  "Cached doc count for the calm status mode-line; set per render.")
 
 (defvar-local org-air-project--rendered-width nil
-  "Width of the most recent project-view render (R14 D-P1.B resize guard).")
+  "Width of the most recent project-view render — the resize guard.")
 
 (defvar-local org-air-project--sort-key nil
-  "Active per-buffer sort key (R16 D-P4); seeded from `org-air-project-sort-key'.")
+  "Active per-buffer sort key; seeded from `org-air-project-sort-key'.")
 (defvar-local org-air-project--sort-direction nil
-  "Active per-buffer sort direction (R16 D-P4); seeded from the defcustom.")
+  "Active per-buffer sort direction; seeded from the defcustom.")
 
 (defvar-local org-air-project--show-filenames nil
   "Non-nil: doc rows render the project-relative FILE NAME, not the title.
-Per-buffer (the Dired `(' convention, R26-4); read by the render pass, so
+Per-buffer (the Dired `(' convention); read by the render pass, so
 it survives `g' refresh, grouping changes and board<->project hops.")
 
 (defvar-local org-air-project--session nil
-  "TREE-side doc-session stash: (:point P :window W) (R26-5).
+  "TREE-side doc-session stash: (:point P :window W).
 Set by `org-air-project-open' so `org-air-project-back' restores the SAME
 window and lands point back on the originating doc row.")
 
 (defvar-local org-air-project--session-tree nil
-  "DOC-side back-pointer to the project tree buffer (R26-5).
+  "DOC-side back-pointer to the project tree buffer.
 Non-nil only in a doc FILE buffer opened by `org-air-project-open'; it
-makes the doc buffer count as a rail HOST for the R25-6 sweep
+makes the doc buffer count as a rail HOST for the sweep
 \(`org-air-rail--host-buffer-p') and is the `back' target.")
 
 (defun org-air-project--sort-key-active ()
-  "Return the active sort key (R22-3: the SHARED sort state wins).
-The project now drives `o'/`O' through `org-air-view--sort-key' (the shared
-core); the project-local var remains a fallback (let-bindable in tests),
-then the defcustom."
+  "Return the active sort key — the SHARED sort state wins.
+The project drives `o'/`O' through `org-air-view--sort-key' (the shared
+core); the project-local var is a fallback (let-bindable in tests), then
+the defcustom."
   (or org-air-view--sort-key org-air-project--sort-key org-air-project-sort-key))
 
 (defun org-air-project--sort-direction-active ()
-  "Return the active sort direction (R22-3: the SHARED sort state wins)."
+  "Return the active sort direction — the SHARED sort state wins."
   (or org-air-view--sort-direction org-air-project--sort-direction
       org-air-project-sort-direction))
 
 (defun org-air-project--doc-key-value (doc key)
-  "Return DOC's value for sort KEY (`name'/`created'/`updated') (R16 D-P4)."
+  "Return DOC's value for sort KEY (`name'/`created'/`updated')."
   (pcase key
     ('created (org-air-doc-created doc))
     ('updated (org-air-doc-updated doc))
@@ -1379,9 +1369,9 @@ Name ascending, then relpath ascending."
                     (or (org-air-doc-relpath b) "")))))
 
 (defun org-air-project--doc-compare (a b)
-  "Strict total order over docs A and B (R16 D-P4/D-P5).
-1. `org-air-project--state-sort-rank' ascending (R51-2 — within-group
-   state primary, DROPPED last; constant within a state group so the key
+  "Strict total order over docs A and B.
+1. `org-air-project--state-sort-rank' ascending (within-group state
+   primary, DROPPED last; constant within a state group so the key
    drives order there);
 2. the active sort key in the active direction (a nil date sorts LAST in
    BOTH directions — the partition rule);
@@ -1401,8 +1391,8 @@ Name ascending, then relpath ascending."
      (t (org-air-project--doc-compare-key a b)))))
 
 (defun org-air-project--doc-compare-key (a b)
-  "Strict order over docs A and B by the active sort key only (R16 D-P4).
-The D-P5 state-rank primary is applied by `org-air-project--doc-compare'."
+  "Strict order over docs A and B by the active sort key only.
+The state-rank primary is applied by `org-air-project--doc-compare'."
   (let* ((key (org-air-project--sort-key-active))
          (desc (eq (org-air-project--sort-direction-active) 'descending))
          (va (org-air-project--doc-key-value a key))
@@ -1429,20 +1419,19 @@ The D-P5 state-rank primary is applied by `org-air-project--doc-compare'."
          (t lt)))))))
 
 (defun org-air-project--sort-section-docs (docs)
-  "Return DOCS ordered by the single comparator (R16 D-P4/D-P5).
+  "Return DOCS ordered by the single comparator.
 Every group mode funnels its members through here so the comparator is
 the single source of truth for display order."
   (sort (copy-sequence docs) #'org-air-project--doc-compare))
 
 (defun org-air-project--sort-indicator ()
-  "Return the active-sort badge text `↕ <key> <dir>' (R16 D-P4).
-R22-3: delegates to the shared `org-air-view--sort-indicator-text' builder
-so the board and the project show one indicator; byte-identical to the old
-local builder (same glyphs + faces).  R27-3: when the key OR direction
-differs from the defcustom seeds (`org-air-project-sort-key' /
+  "Return the active-sort badge text `↕ <key> <dir>'.
+Delegates to the shared `org-air-view--sort-indicator-text' builder
+so the board and the project show one indicator.  When the key OR
+direction differs from the defcustom seeds (`org-air-project-sort-key' /
 `org-air-project-sort-direction' — the same seeds the mode body uses) the
 badge takes the bold `org-air-face-sort-active'; at the default it keeps
-today's quiet faces, so the default goldens are byte- and face-identical."
+the quiet faces."
   (let ((key (org-air-project--sort-key-active))
         (dir (org-air-project--sort-direction-active)))
     (org-air-view--sort-indicator-text
@@ -1452,7 +1441,7 @@ today's quiet faces, so the default goldens are byte- and face-identical."
 
 (defun org-air-project--filter-segment ()
   "Return the active filter + combinator as a header segment, or empty string.
-R18 D-P3: mirrors the board banner (`#a AND #b' / `#a OR #b', single tag
+Mirrors the board banner (`#a AND #b' / `#a OR #b', single tag
 shows no combinator) so the two views read identically.  Empty when no
 filter is active, keeping the existing project goldens byte-identical."
   (let* ((filters (org-air-view--filter-tags))
@@ -1461,7 +1450,7 @@ filter is active, keeping the existing project goldens byte-identical."
                 " ")))
     (if filters
         (propertize (concat (org-air-view--sep)
-                            ;; R69-5: route through the R24-6 token primitive
+                            ;; Route through the token primitive
                             ;; (verbatim `#…', quoted bare) instead of
                             ;; hand-prepending `#'.
                             (mapconcat #'org-air-view--filter-token-label filters sep)
@@ -1470,7 +1459,7 @@ filter is active, keeping the existing project goldens byte-identical."
       "")))
 
 (defun org-air-project--files-chip ()
-  "Return the quiet `⇄ files' header chip while the R26-4 flip is on.
+  "Return the quiet `⇄ files' header chip while the flip is on.
 Empty at the default (titles), so every golden is byte-identical; while
 flipped it sits beside the sort indicator (same faded idiom) so a flipped
 buffer is never mistaken for odd titles."
@@ -1481,9 +1470,8 @@ buffer is never mistaken for odd titles."
 
 (defun org-air-project--header-line (width)
   "Return the project header line for WIDTH: title left, sort badge right.
-The badge order is part of the byte contract (R16 D-P4).  R18 D-P3: an
-active tag filter + combinator is surfaced beside the title (empty when
-none, so the no-filter goldens are byte-identical).  R26-4: a flipped
+The badge order is part of the byte contract.  An active tag filter and
+combinator are surfaced beside the title (empty when none); a flipped
 buffer gains the `⇄ files' chip next to the sort indicator."
   (let* ((title (concat (propertize (concat "  org-air" (org-air-view--sep) "project")
                                     'face 'org-air-face-title)
@@ -1500,11 +1488,11 @@ buffer gains the `⇄ files' chip next to the sort indicator."
   "Insert all SECTIONS (headings + two-line doc blocks) at content WIDTH."
   (dolist (section sections)
     (org-air-project--insert-section-heading section)
-    ;; R21-5: one board-style row per doc.  The row ALWAYS carries the
+    ;; One board-style row per doc.  The row ALWAYS carries the
     ;; state cell now, so the per-section SHOW-STATE conditional is gone
     ;; (a doc under a state section reads identically to one under a dir).
-    ;; R48-3: partition on the dropped fold — state grouping keys EACH
-    ;; terminal-negative section on its OWN state (R98: the family spans
+    ;; Partition on the dropped fold — state grouping keys EACH
+    ;; terminal-negative section on its OWN state (the family spans
     ;; Out / Off / Dropped / …, and each folds independently; its heading +
     ;; COUNT stay for discoverability, the body collapses to the fold row
     ;; alone), tag sections key on their `#tag' title; the fold row appends
@@ -1528,14 +1516,14 @@ buffer gains the `⇄ files' chip next to the sort indicator."
            (lambda (state)
              (let ((n (seq-count (lambda (d) (equal (org-air-doc-state d) state))
                                  docs)))
-               ;; R21.1: shared svg badge (no GUI emoji); `[R]' token on TTY.
+               ;; Shared svg badge (no GUI emoji); `[R]' token on TTY.
                (concat (org-air-project--state-badge-cell state)
                        " " (number-to-string n))))
            org-air-project-states "   ")
           "\n\n"))
 
 (defun org-air-project--insert-summary (docs width)
-  "Insert the project rail Summary block for DOCS at rail WIDTH (R14 D-P1.B).
+  "Insert the project rail Summary block for DOCS at rail WIDTH.
 A `▌ Summary' header + a per-state count row (the board's top-line state
 summary moved into the rail)."
   (org-air-view--rail-header "Summary" width)
@@ -1552,7 +1540,7 @@ summary moved into the rail)."
                 "\n")))))
 
 (defun org-air-project--calendar-marks (docs)
-  "Return a date-key -> `created mark table over DOCS' updated stamps (R20-5).
+  "Return a date-key -> `created mark table over DOCS' updated stamps.
 The shared rail's Calendar marks each doc on the day it was last updated
 with a quiet `created'-style dot, so the project Calendar reads like the
 board's without needing Org deadline/scheduled timestamps."
@@ -1569,18 +1557,18 @@ board's without needing Org deadline/scheduled timestamps."
   '((("RET" . "open")   ("(" . "flip")      ("/" . "filter"))
     (("o" . "sort")     ("s/d/t" . "group") ("|" . "rail"))
     (("g" . "refresh")  ("?" . "help")      ("q" . "quit")))
-  "Project rail Actions legend: three rows of three (KEY . VERB) cells (R26-3).
+  "Project rail Actions legend: three rows of three (KEY . VERB) cells.
 Every KEY here must resolve to a real command in `org-air-project-mode-map'
-— the round-26 legend-truth ERT derives its assertions from THIS table, so
-the legend text can never drift from the keymap again.  `s/d/t' names the
+— the legend-truth ERT derives its assertions from THIS table, so the
+legend text can never drift from the keymap.  `s/d/t' names the
 three grouping keys; `S-RET visit' and `\\ clear' surface in `?' help.")
 
 (defun org-air-project--insert-actions (width)
-  "Insert the project rail Actions block fitted to rail content WIDTH (R26-3).
+  "Insert the project rail Actions block fitted to rail content WIDTH.
 Same SHAPE + keycap idiom as the board's Actions: three column-aligned verb
 rows built from `org-air-project--actions-table' — the REAL project keys:
 open / flip / filter, sort / group / rail, refresh / help / quit.
-R69-4: emits through the shared fit-driven `org-air-view--insert-verb-rows'
+Emits through the shared fit-driven `org-air-view--insert-verb-rows'
 \(3→2→1 columns; byte-identical where 3 columns fit, reflow — never a
 truncated verb — where they do not)."
   (org-air-view--rail-header "Actions" width)
@@ -1590,9 +1578,9 @@ truncated verb — where they do not)."
 (defun org-air-project--two-pane-body (docs left-fn width)
   "Return (BODY-LINES . FILL-ROW) composing the LEFT pane | project-rail.
 LEFT-FN is a one-arg closure that inserts the left pane content at a given
-width (state/tag sections OR the R20-5 directory tree); the RIGHT rail is
-the project rail (Summary + Inspector) for DOCS.  R49-4: the rail is
-sized to ONE windowful (the board rail's rule) so the Actions legend
+width (state/tag sections OR the directory tree); the RIGHT rail is
+the project rail (Summary + Inspector) for DOCS.  The rail is sized to
+ONE windowful (the board rail's rule) so the Actions legend
 lands on the first windowful; `--compose-columns' pads the shorter rail
 pane so the divider still runs the full doc-pane height and the layout
 stays deterministic."
@@ -1602,15 +1590,14 @@ stays deterministic."
          (doc-lines (org-air-view--render-lines
                      item-width
                      (lambda () (funcall left-fn item-width))))
-         ;; R20-5(b): render the SHARED board rail, sized (via the
-         ;; descriptor's :rail-target-height) to the WINDOW body — R49-4:
-         ;; ONE windowful, exactly the board rail's rule (`--insert-rail-1'
-         ;; targets render-height), instead of the old MAX(doc pane,
-         ;; window).  With a long doc list the Actions legend now lands
-         ;; inside the FIRST windowful (visible on open, no scrolling)
-         ;; instead of being pinned to the doc-h foot; the divider still
-         ;; spans the full doc-pane height because `--compose-columns' pads
-         ;; the shorter rail pane with blank rail-width cells.
+         ;; Render the SHARED board rail, sized (via the descriptor's
+         ;; :rail-target-height) to the WINDOW body: ONE windowful,
+         ;; exactly the board rail's rule, NOT max(doc pane, window).
+         ;; With a long doc list that keeps the Actions legend inside
+         ;; the FIRST windowful instead of pinning it to the doc-pane
+         ;; foot; the divider still spans the full doc-pane height
+         ;; because `--compose-columns' pads the shorter rail pane with
+         ;; blank rail-width cells.
          ;; `org-air-show-inspector' follows the project's own toggle.
          (target-h (max 1 (- (org-air-view--render-height) 3)))
          (rail-lines
@@ -1633,8 +1620,8 @@ stays deterministic."
                   (make-string rail-width ?\s)))))
 
 (defun org-air-project--inspector-doc-fields (doc inset content-w now)
-  "Return the project DOC's inspector body lines (forward order) (R14 D-P1.B).
-R30-1 identity block: Title / State / tags atop (the doc's identity),
+  "Return the project DOC's inspector body lines (forward order).
+Identity block: Title / State / tags atop (the doc's identity),
 then the breathing blank, then the metadata KV rows Path / Group /
 Created / Updated — the same shared layout as the board.  INSET is the
 spine prefix, CONTENT-W the wrap width, NOW the render clock."
@@ -1646,23 +1633,23 @@ spine prefix, CONTENT-W the wrap width, NOW the render clock."
       (push (concat inset (propertize tl 'face 'org-air-face-title)) lines))
     (push (org-air-view--inspector-kv
            "State"
-           ;; R21.1: shared svg badge (no GUI emoji); `[R]' token on TTY.
+           ;; Shared svg badge (no GUI emoji); `[R]' token on TTY.
            (concat (org-air-project--state-badge-cell state)
                    " "
                    (propertize (org-air-project--state-title state)
                                'face (org-air-project--state-face state)))
            inset)
           lines)
-    ;; R30-1: tags move UP to sit under State — the identity block.
+    ;; Tags move UP to sit under State — the identity block.
     (let ((tagstr (mapconcat
-                   ;; R69-5: prefix-deduped chip label (shared primitive).
+                   ;; Prefix-deduped chip label (shared primitive).
                    (lambda (tg) (propertize (org-air-view--tag-chip-label tg)
                                             'face (org-air-faces-tag-face tg)))
                    (org-air-doc-tags doc) " ")))
       (unless (string-empty-p tagstr)
         (dolist (tl (org-air-view--word-wrap tagstr content-w))
           (push (concat inset tl) lines))))
-    ;; R30-1 breathing: identity block above, metadata KV rows below.
+    ;; Breathing space: identity block above, metadata KV rows below.
     (push "" lines)
     (push (org-air-view--inspector-kv
            "Path"
@@ -1697,27 +1684,27 @@ spine prefix, CONTENT-W the wrap width, NOW the render clock."
     (nreverse lines)))
 
 (defun org-air-project--render (root)
-  "Render the Air project view for ROOT into the current buffer (R14 D-P1).
+  "Render the Air project view for ROOT into the current buffer.
 Two-line doc blocks in state-bucket sections; two-pane (docs + a Summary/
 Inspector rail) above `org-air-rail-min-width', board-only below it.
-R91/R92: every project repaint runs inside the shared scroll seam, so the
-row the user is standing on is redrawn on the SAME screen line in every
-window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
-`/' filter and the debounced resize repaint all inherit it from here."
+Every project repaint runs inside the shared scroll seam, so the row the
+user is standing on is redrawn on the SAME screen line in every window
+showing the view — `g', `s' sort, the group-by keys, `(' filenames, `/'
+filter and the debounced resize repaint all inherit that from here."
   (org-air-view--with-scroll-stable
     (org-air-project--render-body root)))
 
 (defun org-air-project--render-body (root)
   "Render the project view for ROOT (the seam-free body of `--render')."
-  ;; R26-5: seed the per-buffer rail placement ONCE (the `unset' sentinel)
-  ;; — R49-2: through the ONE shared resolver `org-air-rail--placement'
-  ;; (per-view override `org-air-project-rail-placement', else the shared
-  ;; `org-air-rail-placement'; R49-3 default: the popped side-window rail,
-  ;; no `|' required).  Interactive only: batch never touches the sentinel
+  ;; Seed the per-buffer rail placement ONCE (the `unset' sentinel)
+  ;; through the ONE shared resolver `org-air-rail--placement' (per-view
+  ;; override `org-air-project-rail-placement', else the shared
+  ;; `org-air-rail-placement'; the default is the popped side-window
+  ;; rail, no `|' required).  Interactive only: batch never touches the sentinel
   ;; (the `unset'-is-not-popped normalisation lives in
   ;; `org-air-rail--popped-p'), so byte goldens and legacy sentinel
   ;; assertions are untouched.  Thereafter the toggle + reconciler own the
-  ;; flag.  R27-2: seeded BEFORE the width resolution below, so the FIRST
+  ;; flag.  Seeded BEFORE the width resolution below, so the FIRST
   ;; render already ensures the rail and composes at the real (shrunk)
   ;; host width instead of the pre-pop width.
   (when (and (not noninteractive)
@@ -1725,17 +1712,17 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
     (setq-local org-air-view--rail-popped-out
                 (eq (org-air-rail--placement 'project) 'side-window)))
   (let* ((inhibit-read-only t)
-         ;; R92: the row the user is on, named by IDENTITY (the doc's file,
+         ;; The row the user is on, named by IDENTITY (the doc's file,
          ;; the dropped-group fold key, the section) and taken BEFORE the
          ;; erase.  nil on an ENTRY render, on the first paint, and when
          ;; point is not on a row — those land on the first doc as before.
          (landing (unless org-air-view--landing-entry
                     (org-air-view--landing-save)))
-         ;; R27-1 S3: latch the reconciler for the FULL render extent (the
-         ;; board binds the same latch) so a nested reconcile timer can
+         ;; Latch the reconciler for the FULL render extent (the board
+         ;; binds the same latch) so a nested reconcile timer can
          ;; never mutate rail state mid-render.
          (org-air-rail--reconciling t)
-         ;; R27-2: compose at the REAL window body width after the rail
+         ;; Compose at the REAL window body width after the rail
          ;; geometry settles (the helper is a no-op for inline/batch).
          (width (org-air-project--host-width))
          (org-air-project--width width)
@@ -1744,7 +1731,7 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
          (dims (org-air-view--char-dimensions))
          (org-air-view--pill-char-w (car dims))
          (org-air-view--pill-char-h (cdr dims))
-         ;; R18 D-P3 / R24-6: the shared filter core thins the docs exactly
+         ;; The shared filter core thins the docs exactly
          ;; as it thins board items, now via `--tokens-pass-filter-p' so a
          ;; bare token substring-matches the doc name + relpath (and tag
          ;; names) while a `#tag' token still tag-matches.
@@ -1754,29 +1741,29 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
                                      (org-air-doc-relpath d))
                              (org-air-doc-tags d)))
                 (org-air-project--collect-docs root)))
-         ;; R20-5: `directory' renders the NESTED tree (matching airctl
+         ;; `directory' renders the NESTED tree (matching airctl
          ;; -Da); state/tag stay the flat state-bucket / tag sections.
          (directoryp (eq org-air-project-group 'directory))
          (tree (when directoryp (org-air-project--directory-tree docs)))
          (sections (unless directoryp (org-air-project--sections docs)))
-         ;; R28-5: carry the buffer-local `(' flip across the R26-7 pane
+         ;; Carry the buffer-local `(' flip across the pane
          ;; seam — the inline two-pane body composes in a TEMP buffer
          ;; (`org-air-view--render-lines') where the flag falls back to
          ;; its global default, so a flipped inline render silently showed
          ;; titles again (the side-window/board-only paths run left-fn in
          ;; the real buffer and never hit this).
          (flip org-air-project--show-filenames)
-         ;; R48-3: carry the buffer-local dropped-fold expansion state and
+         ;; Carry the buffer-local dropped-fold expansion state and
          ;; the live filter across the SAME temp-buffer seam — the fold
          ;; predicate reads both (`--dropped-expanded-p'), and the inline
          ;; two-pane body composes in a temp buffer where the locals fall
-         ;; back to their global defaults (the R28-5 flip precedent).
+         ;; back to their global defaults (the flip precedent).
          (expanded org-air-project--expanded-dropped)
          (filter org-air-view--tag-filter)
-         ;; R21-5: compute the fixed metadata column widths over the
+         ;; Compute the fixed metadata column widths over the
          ;; DISPLAYED docs at the ACTUAL render width W (board parity:
          ;; cap + title-protecting fit), and bind them for the row pass so
-         ;; the one-line rows line up exactly like the board's V6 table.
+         ;; the one-line rows line up exactly like the board's fixed-column table.
          (left-fn
           (lambda (w)
             (let* ((org-air-project--show-filenames flip)
@@ -1789,20 +1776,20 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
               (if directoryp
                   (org-air-project--insert-directory-tree tree w)
                 (org-air-project--insert-doc-sections sections w))))))
-    ;; R20-2: cache the doc count for the status mode-line :eval.
+    ;; Cache the doc count for the status mode-line :eval.
     (setq-local org-air-project--doc-count (length docs))
-    ;; R22-5: expose the docs as the shared `org-air-view--items' so a
+    ;; Expose the docs as the shared `org-air-view--items' so a
     ;; POPPED-OUT project rail (the shared `org-air-rail--render', which
     ;; reads this back-pointer) renders the project's docs in the side
     ;; window — the same primitive the board uses.
     (setq-local org-air-view--items docs)
-    ;; R14 D-P1.B: this buffer hosts the SHARED mid-rail inspector with the
+    ;; This buffer hosts the SHARED mid-rail inspector with the
     ;; project's property + fields function.
     (setq-local org-air-view--inspector-active (and org-air-project-show-inspector t)
                 org-air-view--inspector-property 'org-air-doc
                 org-air-view--inspector-fields-function
                 #'org-air-project--inspector-doc-fields)
-    ;; R20-5(b): drive the SHARED board rail (Calendar/Filter/Scope/Summary/
+    ;; Drive the SHARED board rail (Calendar/Filter/Scope/Summary/
     ;; Inspector/Actions) via a view descriptor, so the project rail is the
     ;; board rail — no bespoke parallel rail.
     (setq-local org-air-view--rail-descriptor
@@ -1817,16 +1804,16 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
                       ;; seed it on nothing, exactly as the old project rail.
                       :first-thing-fn (lambda (_ds) nil)
                       :actions-fn #'org-air-project--insert-actions))
-    ;; R16 D-P4: seed the per-buffer sort state from the defcustoms once.
+    ;; Seed the per-buffer sort state from the defcustoms once.
     (unless org-air-project--sort-key
       (setq-local org-air-project--sort-key org-air-project-sort-key))
     (unless org-air-project--sort-direction
       (setq-local org-air-project--sort-direction org-air-project-sort-direction))
     (erase-buffer)
-    ;; R22-5: when the rail is POPPED OUT, render the doc pane LEFT-ONLY and
+    ;; When the rail is POPPED OUT, render the doc pane LEFT-ONLY and
     ;; push the project rail into the shared `*org-air-rail*' side window
     ;; (reusing the board's side-window primitives).  `unset' (the initial
-    ;; sentinel) is NOT popped out (`org-air-rail--popped-p', R26-5).
+    ;; sentinel) is NOT popped out (`org-air-rail--popped-p').
     (setq org-air-view--orientation
           (cond
            ((org-air-rail--popped-p) 'side-window)
@@ -1844,7 +1831,7 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
       (let ((body (car (org-air-project--two-pane-body docs left-fn width))))
         (org-air-view--insert-lines body)))
      ((eq org-air-view--orientation 'side-window)
-      ;; R22-5: the rail lives in the side window now — doc pane only.
+      ;; The rail lives in the side window now — doc pane only.
       (setq org-air-view--inspector-region-height nil)
       (funcall left-fn width))
      (t
@@ -1855,7 +1842,7 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
     ;; Drop the trailing newline so the buffer is exactly its line count.
     (goto-char (point-max))
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
-    ;; R92: put the user back on the row they were on — same doc, same
+    ;; Put the user back on the row they were on — same doc, same
     ;; section, same column — and land on the FIRST doc only when that
     ;; identity has genuinely vanished (a filter emptied it, the doc was
     ;; deleted, or this is an entry/first paint).
@@ -1863,14 +1850,14 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
      landing (lambda ()
                (goto-char (point-min))
                (org-air-project--next-doc)))
-    ;; R58: an armed bookmark locator owns the landing (one text-property
+    ;; An armed bookmark locator owns the landing (one text-property
     ;; scan; one-shot — the project render is synchronous, so it never
     ;; stays armed past this paint).
     (org-air-project--bookmark-consume)
     (setq org-air-project--rendered-width width)
     ;; Locate + fill the inspector region (real buffer; buffer-locals set).
     (org-air-view--setup-inspector)
-    ;; R22-5: side-window rail lifecycle, mirroring the board: show/refresh
+    ;; Side-window rail lifecycle, mirroring the board: show/refresh
     ;; the popped-out rail; a responsive narrow teardown hides it.  Two-pane
     ;; (inline rail) leaves any rail buffer untouched — the pop-IN path in
     ;; `org-air-rail-toggle' hides the side window before re-rendering.
@@ -1878,30 +1865,30 @@ window showing the view — `g', `s' sort, the group-by keys, `(' filenames,
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      ;; R63-1a: the responsive teardown is an OWNER privilege — a
+      ;; The responsive teardown is an OWNER privilege — a
       ;; narrow NON-owner (or suspended) render must never delete
       ;; another view's live rail (the fourth gated tail).
-      ;; R58: an undisplayed (bookmark-restored) project must not delete
+      ;; An undisplayed (bookmark-restored) project must not delete
       ;; the displayed layout's windows.
       (when (and (org-air-rail--tail-owner-p (current-buffer))
                  (not (org-air-rail--undisplayed-host-p (current-buffer))))
         (org-air-rail--hide (current-buffer)))))
-    ;; R25-6: an INLINE (two-pane) self-render must also evict a stale side
+    ;; An INLINE (two-pane) self-render must also evict a stale side
     ;; rail owned by ANOTHER view (the cross-view sweep); when SELF is
     ;; popped `--show' already re-owned the window so this no-ops.
     (org-air-rail--evict-foreign-rail (current-buffer))))
 
 (defun org-air-project--resize-refresh ()
-  "Re-render the project view when the displaying window changed (R14 D-P1.B).
-Rides the round-9 C1 resize path so widening/narrowing the window flips
-between two-pane and board-only."
+  "Re-render the project view when the displaying window changed.
+Rides the resize path so widening or narrowing the window flips between
+two-pane and board-only."
   (let ((width (org-air-project--host-width)))
     (unless (eql width org-air-project--rendered-width)
       (when org-air-project--root
         (org-air-project--render org-air-project--root)))))
 
 (defun org-air-project--next-doc ()
-  "Move point to the next doc row, if any (landing on its title; R21-2)."
+  "Move point to the next doc row, if any (landing on its title)."
   (let ((pos (next-single-property-change (point) 'org-air-doc)))
     (when pos
       (goto-char pos)
@@ -1920,7 +1907,7 @@ between two-pane and board-only."
     (org-air-project--render org-air-project--root)))
 
 (defun org-air-project--render-current ()
-  "Re-render the current project view (R22-5: the rail-toggle dispatch target).
+  "Re-render the current project view — the rail-toggle dispatch target.
 Non-interactive sibling of `org-air-project-refresh' used by the shared
 `org-air-view--refresh-current' so the rail toggle never forks."
   (when org-air-project--root
@@ -1948,7 +1935,7 @@ Non-interactive sibling of `org-air-project-refresh' used by the shared
   (org-air-project-refresh))
 
 (defun org-air-project-sort-cycle ()
-  "Cycle the project sort key and refresh (R22-3: shared sort core).
+  "Cycle the project sort key and refresh (the shared sort core).
 Thin alias of `org-air-view-sort-cycle' (the inherited `o'); the project
 mode seeds the shared spec (name/created/updated + refresh)."
   (interactive nil org-air-project-mode)
@@ -1956,15 +1943,15 @@ mode seeds the shared spec (name/created/updated + refresh)."
   (org-air-view-sort-cycle))
 
 (defun org-air-project-sort-reverse ()
-  "Toggle the project sort direction and refresh (R22-3: shared sort core).
+  "Toggle the project sort direction and refresh (the shared sort core).
 Thin alias of `org-air-view-sort-reverse' (the inherited `O')."
   (interactive nil org-air-project-mode)
   (org-air-project--require-view)
   (org-air-view-sort-reverse))
 
 (defun org-air-project-sort-set (key)
-  "Set the sort KEY directly (name/created/updated) and refresh (R16 D-P4).
-R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
+  "Set the sort KEY directly (name/created/updated) and refresh.
+Writes the SHARED `org-air-view--sort-key' the comparator reads."
   (interactive
    (progn
      (org-air-project--require-view)
@@ -1976,7 +1963,7 @@ R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
   (message "org-air project: sort by %s" key))
 
 (defun org-air-project-next ()
-  "Move point to the next doc row, landing on its title (R21-2)."
+  "Move point to the next doc row, landing on its title."
   (interactive nil org-air-project-mode)
   (org-air-project--require-view)
   (let ((pos (next-single-property-change
@@ -1986,7 +1973,7 @@ R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
       (org-air-view--goto-row-title))))
 
 (defun org-air-project-prev ()
-  "Move point to the previous doc row, landing on its title (R21-2)."
+  "Move point to the previous doc row, landing on its title."
   (interactive nil org-air-project-mode)
   (org-air-project--require-view)
   (let ((pos (previous-single-property-change
@@ -2007,16 +1994,16 @@ R22-3: writes the SHARED `org-air-view--sort-key' the comparator reads."
       (user-error "No Air document on this line"))))
 
 (defun org-air-project-open ()
-  "Open the Air doc at point in the SAME window (R26-3 / R26-5 session).
+  "Open the Air doc at point in the SAME window, as a doc session.
 TREE -> DOC: RET replaces the project tree with the doc's file buffer in
 the window the tree occupies — no `display-buffer' to fight, nothing to
-swallow (the R26-3b root cause).  The session is stashed (window + point)
+swallow (the root cause).  The session is stashed (window + point)
 so the back verbs restore the tree exactly; a popped side rail flips to
 the DOC context (outline + meta + legend).  `v' keeps the bottom peek
 pane; S-RET visits in the other window."
   (interactive nil org-air-project-mode)
   (org-air-project--require-view)
-  ;; R48-3: the fold-row branch BEFORE the doc check — RET (and <mouse-1>
+  ;; The fold-row branch BEFORE the doc check — RET (and <mouse-1>
   ;; via this same command) on the `… N dropped' row dispatches to the
   ;; toggle instead of erroring "No Air document on this line" — and does
   ;; ONLY that (the toggle re-lands point; nothing opens).
@@ -2025,7 +2012,7 @@ pane; S-RET visits in the other window."
     (org-air-project--open-doc)))
 
 (defun org-air-project--open-doc ()
-  "Open the Air doc at point in the SAME window (the RET body; R26-3/R26-5)."
+  "Open the Air doc at point in the SAME window (the RET body)."
   (let ((doc (get-text-property (point) 'org-air-doc)))
     (unless doc
       (user-error "No Air document on this line"))
@@ -2038,7 +2025,7 @@ pane; S-RET visits in the other window."
       (pop-to-buffer-same-window buf)
       (with-current-buffer buf
         (setq-local org-air-project--session-tree tree)
-        ;; The DOC half carries the session's rail state so the R25-6
+        ;; The DOC half carries the session's rail state so the
         ;; reconciler keeps (or re-pops) the side window for the session.
         (setq-local org-air-view--rail-popped-out (and popped t))
         (setq-local org-air-view--rail-descriptor
@@ -2049,7 +2036,7 @@ pane; S-RET visits in the other window."
         (org-air-project--doc-rail-show buf)))))
 
 (defun org-air-project-back ()
-  "DOC -> TREE: restore the project tree into the SAME window (R26-5).
+  "DOC -> TREE: restore the project tree into the SAME window.
 Point lands back on the originating doc row; the side window shows the
 project rail again.  The doc FILE buffer survives (unsaved edits are never
 thrown away) — only the windows swap.  Bound in the doc buffer via
@@ -2070,7 +2057,7 @@ DOC-context side rail."
                       (and (window-live-p w) w))
                     (selected-window)))
            ;; The session's CURRENT rail state: a user close during the
-           ;; DOC state falls back inline (R25-6 user-close rule).
+           ;; DOC state falls back inline (the user-close rule).
            (popped (org-air-rail--popped-p docbuf)))
       ;; Leave the session; the doc buffer survives for the next RET.
       (org-air-doc-session-mode -1)
@@ -2082,7 +2069,7 @@ DOC-context side rail."
       (select-window win)
       (with-current-buffer tree
         (setq-local org-air-view--rail-popped-out (and popped t))
-        ;; R63-1: the doc's `org-air-rail--show' suspended the tree when
+        ;; The doc's `org-air-rail--show' suspended the tree when
         ;; it took the rail (belt 1, ownership-transfer suspension); the
         ;; back command is the SAME explicit user-driven transfer in
         ;; reverse, so it clears the flag before its re-own — exactly the
@@ -2098,14 +2085,14 @@ DOC-context side rail."
         (when-let* ((pt (plist-get session :point)))
           (let ((pt (min pt (point-max))))
             (goto-char pt)
-            ;; R29-2: the doc-session return tail normalizes explicitly —
+            ;; The doc-session return tail normalizes explicitly —
             ;; a restored dead column (before the doc title) is corrected
             ;; immediately, not on the next keystroke.
             (org-air-view--normalize-point-now)
             (set-window-point win (point))))))))
 
 (defun org-air-project--doc-session-cleanup ()
-  "Kill-buffer guard: a killed session DOC hands the window back (R26-5).
+  "Kill-buffer guard: a killed session DOC hands the window back.
 The dead owner's window shows the tree again and the side rail re-owns to
 the tree buffer (TREE state), so killing the doc mid-session never strands
 the session."
@@ -2114,14 +2101,14 @@ the session."
           (win (get-buffer-window (current-buffer)))
           (popped (org-air-rail--popped-p)))
       (setq-local org-air-project--session-tree nil)
-      ;; R28-4: a killed session doc must not leave a pending highlight
+      ;; A killed session doc must not leave a pending highlight
       ;; tick or a stale overlay behind.
       (org-air-rail--outline-highlight-teardown)
       (when (window-live-p win)
         (set-window-buffer win tree))
       (with-current-buffer tree
         (setq-local org-air-view--rail-popped-out (and popped t))
-        ;; R63-1: clear the belt-1 suspension before the re-own (the
+        ;; Clear the belt-1 suspension before the re-own (the
         ;; killed doc's rail claim dies with it — same discipline as
         ;; `org-air-project-back').
         (setq-local org-air-view--rail-suspended nil)
@@ -2129,13 +2116,13 @@ the session."
           (org-air-rail--show tree (org-air-project--render-width)))))))
 
 (defun org-air-project--doc-outline (docbuf)
-  "Return DOCBUF's Org outline as a list of (LEVEL TITLE POS) (R26-5).
-R30-4: a thin alias over the extracted generic primitive
+  "Return DOCBUF's Org outline as a list of (LEVEL TITLE POS).
+A thin alias over the extracted generic primitive
 `org-air-outline--headings' (byte-identical output; call site unchanged)."
   (org-air-outline--headings docbuf))
 
 (defun org-air-project--insert-doc-context (docbuf doc width)
-  "Insert the DOC-context rail body for DOC shown in DOCBUF (R26-5).
+  "Insert the DOC-context rail body for DOC shown in DOCBUF.
 A meta block (state badge + title + tags), then the Outline: one row per
 heading, indented by level, each carrying `org-air-doc-heading-pos' so RET
 in the rail jumps the main window to that heading."
@@ -2151,7 +2138,7 @@ in the rail jumps the main window to that heading."
              width)
             "\n")
     (let ((tagstr (mapconcat
-                   ;; R69-5: prefix-deduped chip label (shared primitive).
+                   ;; Prefix-deduped chip label (shared primitive).
                    (lambda (tg) (propertize (org-air-view--tag-chip-label tg)
                                             'face (org-air-faces-tag-face tg)))
                    (org-air-doc-tags doc) " ")))
@@ -2175,19 +2162,19 @@ in the rail jumps the main window to that heading."
                   "\n"))))))
 
 (defun org-air-project--doc-back-key (docbuf)
-  "Return the key text for the session back verb LIVE in DOCBUF (R28-3).
-R30-2: a thin wrapper over the generalised `org-air-view--legend-key' —
+  "Return the key text for the session back verb LIVE in DOCBUF.
+A thin wrapper over the generalised `org-air-view--legend-key' —
 the same `where-is' derivation with the session map's own back binding as
 the defensive fallback — so the legend can never regress to the
 self-inserting `q'."
   (org-air-view--legend-key #'org-air-project-back docbuf "C-c C-q"))
 
 (defvar org-air-rail--outline-timer nil
-  "Single debounce slot for the R28-4 rail-outline highlight tick.
-Rescheduled (never stacked) on every doc-session command — the R27-1 S3
+  "Single debounce slot for the rail-outline highlight tick.
+Rescheduled (never stacked) on every doc-session command — the single-timer
 timer discipline.")
 
-;; R30-4: the overlay var + `-highlight-clear' + the generic scan/move
+;; The overlay var + `-highlight-clear' + the generic scan/move
 ;; core moved to org-air-view.el (`org-air-rail--outline-overlay',
 ;; `org-air-rail--outline-highlight-clear', `org-air-outline--highlight-
 ;; update') so the opt-in `org-air-outline-mode' can reuse them with NO
@@ -2195,11 +2182,11 @@ timer discipline.")
 ;; wrapper below (byte-identical highlight behaviour; call sites unchanged).
 
 (defun org-air-rail--outline-highlight-update (docbuf)
-  "Re-place the doc-session rail-outline highlight for DOCBUF (R28-4/R30-4).
+  "Re-place the doc-session rail-outline highlight for DOCBUF.
 A GUARDED wrapper over the extracted generic core
 `org-air-outline--highlight-update': fires only for a LIVE doc-session
-tree buffer (the R28-4 guards), else clears.  Clears the doc-session
-timer slot first (the R27-1 S3 discipline)."
+tree buffer (the guards), else clears.  Clears the doc-session
+timer slot first."
   (setq org-air-rail--outline-timer nil)
   (if (and (buffer-live-p docbuf)
            (buffer-local-value 'org-air-doc-session-mode docbuf)
@@ -2209,10 +2196,10 @@ timer slot first (the R27-1 S3 discipline)."
     (org-air-rail--outline-highlight-clear)))
 
 (defun org-air-project--outline-post-command ()
-  "Doc-session hook: schedule the DEBOUNCED outline highlight (R28-4).
+  "Doc-session hook: schedule the DEBOUNCED outline highlight.
 Buffer-local `post-command-hook' in the session DOC buffer only;
 interactive-only (never installed under `noninteractive').  ONE idle
-timer slot, rescheduled — never stacked (R27-1 S3)."
+timer slot, rescheduled — never stacked."
   (when (and (not noninteractive) org-air-doc-session-mode)
     (when (timerp org-air-rail--outline-timer)
       (cancel-timer org-air-rail--outline-timer))
@@ -2222,31 +2209,30 @@ timer slot, rescheduled — never stacked (R27-1 S3)."
                                (current-buffer)))))
 
 (defun org-air-rail--outline-highlight-teardown ()
-  "Cancel the R28-4 timer slot + delete the overlay (session end)."
+  "Cancel the timer slot + delete the overlay (session end)."
   (when (timerp org-air-rail--outline-timer)
     (cancel-timer org-air-rail--outline-timer))
   (setq org-air-rail--outline-timer nil)
   (org-air-rail--outline-highlight-clear))
 
 (defun org-air-project--insert-doc-actions (width &optional docbuf)
-  "Insert the DOC-context rail Actions legend at WIDTH (R26-5/R28-3).
-R28-3: the back cell's key text is DERIVED from the LIVE binding of
+  "Insert the DOC-context rail Actions legend at WIDTH.
+The back cell's key text is DERIVED from the LIVE binding of
 `org-air-project-back' in DOCBUF (the session buffer) — never the
 hardcoded `q back' lie (`q' SELF-INSERTS in the editable doc file
-buffer; the real verb is the mode map's back binding).  R39-3: the `jump'
-cell is gone (the doc leader `o' was dropped — RET is the sole open verb),
-so the doc Actions legend is just `back' + `rail'.  Cells are sized from
-their CONTENT and laid out
+buffer; the real verb is the mode map's back binding).  RET is the sole
+open verb, so the doc Actions legend is just `back' + `rail'.  Cells are
+sized from their CONTENT and laid out
 greedily left-to-right with the existing gap; a cell that would cross
 WIDTH starts a NEW inset row — wrap, never overflow."
   (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
          (gap (if (>= width 38) "    " " "))
-         ;; R30-2: EVERY cell's key is derived from the LIVE binding in
+         ;; EVERY cell's key is derived from the LIVE binding in
          ;; DOCBUF via `org-air-view--legend-key' — `|' self-inserts in the
          ;; editable doc buffer, so the legend shows the LEADER form
          ;; (C-c C-a |) that is actually reachable there.
-         ;; R39-3: the `jump' (outline-goto-current-heading) cell is DROPPED
+         ;; The `jump' (outline-goto-current-heading) cell is DROPPED
          ;; — the leader `o' that bound it in the doc buffer is gone (RET is
          ;; the sole open verb there), so keeping a cell would lie about a
          ;; dead binding.  No `org-air-view--legend-key' fallback survives to
@@ -2272,10 +2258,10 @@ WIDTH starts a NEW inset row — wrap, never overflow."
       (insert (org-air-view--pad-to line width) "\n"))))
 
 (defun org-air-project--doc-rail-descriptor (docbuf doc)
-  "Return the DOC-context rail descriptor for DOCBUF showing DOC (R26-5).
+  "Return the DOC-context rail descriptor for DOCBUF showing DOC.
 An `:outline-fn' + `:actions-fn' pair on the EXISTING rail descriptor seam
-\(one renderer, parameterised — never forked).  R28-3: the descriptor
-closes over DOCBUF for `:actions-fn' too, so the Actions legend derives
+\(one renderer, parameterised — never forked).  The descriptor closes
+over DOCBUF for `:actions-fn' too, so the Actions legend derives
 its back cell from the LIVE session buffer's bindings."
   (list :outline-fn (lambda (w)
                       (org-air-project--insert-doc-context docbuf doc w))
@@ -2283,8 +2269,8 @@ its back cell from the LIVE session buffer's bindings."
                       (org-air-project--insert-doc-actions w docbuf))))
 
 (defun org-air-project--doc-rail-show (docbuf)
-  "Show/re-render the DOC-context side rail owned by DOCBUF (R26-5).
-R29-1: the host fallback width measures the window's USABLE columns
+  "Show/re-render the DOC-context side rail owned by DOCBUF.
+The host fallback width measures the window's USABLE columns
 \(`org-air-layout--usable-columns', not raw `window-body-width') so a
 fringe-less GUI never composes one column past the displayable area."
   (let ((win (get-buffer-window docbuf)))
@@ -2293,7 +2279,7 @@ fringe-less GUI never composes one column past the displayable area."
                                  80))))
 
 (defun org-air-project--doc-rail-refresh (docbuf)
-  "Refresh DOCBUF's doc-context rail per its popped flag (R26-5).
+  "Refresh DOCBUF's doc-context rail per its popped flag.
 The doc-session leg of `org-air-view--refresh-current' (the `|' toggle)."
   (if (org-air-rail--popped-p docbuf)
       (org-air-project--doc-rail-show docbuf)
@@ -2301,11 +2287,11 @@ The doc-session leg of `org-air-view--refresh-current' (the `|' toggle)."
 
 (defvar org-air-doc-session-mode-map
   (make-sparse-keymap)
-  "Keymap for `org-air-doc-session-mode' (R26-5).
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+  "Keymap for `org-air-doc-session-mode'.
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the doc-session default keys (installer-owned).  R20-3a rule: the
-;; doc FILE buffer is EDITABLE, so plain `q' stays self-insert here; the
+;; The doc-session default keys (installer-owned).  The doc FILE buffer
+;; is EDITABLE, so plain `q' stays self-insert here; the
 ;; back verbs are C-c C-q + the quit-window remap.
 (org-air--register-default-keys 'org-air-doc-session-mode-map
   "C-c C-q" #'org-air-project-back
@@ -2313,39 +2299,39 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 (defvar org-air-doc-leader-map
   (make-sparse-keymap)
-  "Leader prefix map for the doc-session content buffer (R30-2).
+  "Leader prefix map for the doc-session content buffer.
 Installed at `org-air-leader-key' on `org-air-doc-session-mode-map'.  The
-direct back binding still wins `where-is', so the R28-3 back legend is
+direct back binding still wins `where-is', so the back legend is
 unchanged; this leader is purely ADDITIVE.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the doc-session subset of the main-window leader (installer-
+;; The doc-session subset of the main-window leader (installer-
 ;; owned) — rail toggle, outline next/prev, and the session back verb,
 ;; reachable from the EDITABLE doc org buffer where single keys self-insert.
-;; R39-3: the leader `o' (outline-goto-current-heading) is DROPPED here — in
+;; The leader `o' (outline-goto-current-heading) is DROPPED here — in
 ;; the editable doc org buffer it merely duplicates RET, so RET is the sole
 ;; open verb.  The board (`org-air-leader-map') and project
 ;; (`org-air-project-leader-map') leaders keep `o' (rail-return) where it
 ;; does NOT duplicate a bare RET.
 (org-air--register-default-keys 'org-air-doc-leader-map
   "|" #'org-air-rail-toggle
-  ;; R39-4: the leader n/p go through the repeatable wrappers (they call the
+  ;; The leader n/p go through the repeatable wrappers (they call the
   ;; SAME outline motion, then arm the shared p/n transient map so a bare
   ;; n/p repeats until any other key).
   "n" #'org-air--repeat-next
   "p" #'org-air--repeat-prev
   "q" #'org-air-project-back
-  ;; R50-2: help reachable from the EDITABLE doc org buffer as the leader
-  ;; form (`C-c C-a ?') — bare `?' keeps self-inserting there (R20-3a
-  ;; rule).  Installer-owned, so knob-gated like every default key.
+  ;; Help reachable from the EDITABLE doc org buffer as the leader
+  ;; form (`C-c C-a ?') — bare `?' keeps self-inserting there.
+  ;; Installer-owned, so knob-gated like every default key.
   "?" #'org-air-help)
 
-;; R30-2/R35-1: install the leader on the doc-session map (nav/back/rail).
+;; Install the leader on the doc-session map (nav/back/rail).
 (org-air--register-default-leader 'org-air-doc-session-mode-map
                                   'org-air-doc-leader-map)
 
 (define-minor-mode org-air-doc-session-mode
-  "Minor mode in a doc FILE buffer opened from the project tree (R26-5).
+  "Minor mode in a doc FILE buffer opened from the project tree.
 The buffer stays fully editable;
 \\<org-air-doc-session-mode-map>\\[org-air-project-back] (or any
 `quit-window' binding) returns to the tree in the same window.  The header
@@ -2353,7 +2339,7 @@ line names the back verb; a kill mid-session hands the window and side
 rail back to the tree."
   :lighter " ↳air"
   :keymap org-air-doc-session-mode-map
-  ;; R35-1: reconcile the shared maps to `org-air-use-default-keybindings'
+  ;; Reconcile the shared maps to `org-air-use-default-keybindings'
   ;; (honours use-package `:custom' / a runtime `setq' on the next session).
   (org-air--sync-default-keybindings)
   (if org-air-doc-session-mode
@@ -2363,7 +2349,7 @@ rail back to the tree."
                                       'face 'org-air-face-faded)))
         (add-hook 'kill-buffer-hook
                   #'org-air-project--doc-session-cleanup nil t)
-        ;; R28-4: the rail-outline current-heading follow — one
+        ;; The rail-outline current-heading follow — one
         ;; buffer-local hook, debounced through one timer slot,
         ;; interactive-only (batch installs NOTHING).
         (unless noninteractive
@@ -2377,7 +2363,7 @@ rail back to the tree."
     (org-air-rail--outline-highlight-teardown)))
 
 (defun org-air-project--nearest-section-title ()
-  "Return the nearest `org-air-section' value at or above point (R48-3).
+  "Return the nearest `org-air-section' value at or above point.
 The tag grouping's group id for a doc row — its `#tag' section title."
   (save-excursion
     (let ((val (get-text-property (line-beginning-position)
@@ -2389,12 +2375,12 @@ The tag grouping's group id for a doc row — its `#tag' section title."
       val)))
 
 (defun org-air-project--dropped-key-for (doc)
-  "Return DOC's dropped-fold group key under the current grouping (R48-3).
+  "Return DOC's dropped-fold group key under the current grouping.
 Directory: (directory . PATH) from DOC's own dir segments (\"\" for a
-root doc); state: (state . STATE) — R98: DOC's OWN state, because the
-family now spans several sections (Out, Off, Dropped, …) and each holds
-its own fold, so a single hard-coded \"dropped\" key would have made TAB
-on the Out section collapse the Dropped one; tag: (tag . TITLE) from the
+root doc); state: (state . STATE) — DOC's OWN state, because the family
+spans several sections (Out, Off, Dropped, …) and each holds its own
+fold, so a single hard-coded \"dropped\" key would make TAB on the Out
+section collapse the Dropped one; tag: (tag . TITLE) from the
 nearest `org-air-section' above point (the row's `#tag' section)."
   (pcase org-air-project-group
     ('tag (cons 'tag (org-air-project--nearest-section-title)))
@@ -2403,14 +2389,14 @@ nearest `org-air-section' above point (the row's `#tag' section)."
              (string-join (org-air-project--doc-dir-segments doc) "/")))))
 
 (defun org-air-project--goto-fold-row (key)
-  "Move point to the fold row carrying `org-air-dropped-fold' KEY (R48-3)."
+  "Move point to the fold row carrying `org-air-dropped-fold' KEY."
   (when-let* ((pos (org-air-view--find-property 'org-air-dropped-fold key)))
     (goto-char pos)
     (org-air-view--goto-row-title)))
 
 (defun org-air-project--goto-dropped-row (key)
-  "Move point to the first REVEALED dropped-like doc row of group KEY (R48-3).
-R98: any member of `org-air-project-dropped-states', so a group whose
+  "Move point to the first REVEALED dropped-like doc row of group KEY.
+Any member of `org-air-project-dropped-states', so a group whose
 fold hid an `out' doc still lands on it."
   (let ((pos (point-min)) (found nil))
     (while (and (not found) pos (< pos (point-max)))
@@ -2428,7 +2414,7 @@ fold hid an `out' doc still lands on it."
       (org-air-view--goto-row-title))))
 
 (defun org-air-project-toggle-dropped ()
-  "Toggle the per-group dropped-doc fold at point (R48-3).  Key TAB.
+  "Toggle the per-group dropped-doc fold at point.  Key TAB.
 Board TAB-safety parity — never errors, never hangs:
 1. On a `… N dropped' fold row: toggle its group key in
    `org-air-project--expanded-dropped', re-render, and restore point —
@@ -2441,7 +2427,7 @@ Board TAB-safety parity — never errors, never hangs:
 3. Anywhere else: move point to the NEXT fold row; a no-op with a
    message when none exist.
 
-R92: both REPAINTING branches run inside the shared scroll seam, closed
+Both REPAINTING branches run inside the shared scroll seam, closed
 AFTER the branch has placed its own landing, so the fold row holds its
 screen line.  Measured before the fix, 47-line project in a 23-row
 window: `window-start' 3095 -> 1 and the fold row from screen line 4 to
@@ -2490,7 +2476,7 @@ Branch 3 is plain motion and is deliberately NOT wrapped (board parity)."
           (message "org-air project: no dropped folds")))))))
 
 (defun org-air-project-toggle-filenames ()
-  "Flip project doc rows between doc title and relpath (R26-4).  Key `('."
+  "Flip project doc rows between doc title and relpath.  Key `('."
   (interactive nil org-air-project-mode)
   (org-air-project--require-view)
   (setq-local org-air-project--show-filenames
@@ -2500,12 +2486,12 @@ Branch 3 is plain motion and is deliberately NOT wrapped (board parity)."
            (if org-air-project--show-filenames "file names" "titles")))
 
 (defun org-air-project-filter (tags)
-  "Filter the project doc tree to TAGS (R18 D-P3, shares the board core).
+  "Filter the project doc tree to TAGS (shares the board filter core).
 The prompt is PRE-FILLED with the active filter and the chosen terms
 combine with the shared `org-air-filter-match' combinator (AND by default,
 `M-/' toggles) — the same filter core the board uses, applied to
 `org-air-doc-tags'.
-R72: the date/status tokens (`is:overdue', `due:7d', …) are board/review
+The date/status tokens (`is:overdue', `due:7d', …) are board/review
 vocabulary — docs carry no planning slots, so here they are vacuously
 false (loud: `0 of N shown') and the vocabulary is not offered."
   (interactive
@@ -2525,10 +2511,10 @@ false (loud: `0 of N shown') and the vocabulary is not offered."
   (org-air-project-refresh))
 
 (defun org-air-project-quit ()
-  "Quit the project view progressively — ONE surface per press (R28-2).
+  "Quit the project view progressively — ONE surface per press.
 A live bottom pane closes FIRST (tree alive, point untouched); the next
 press tears down a popped-out rail side window (the buffer-local popped
-flag survives, so a re-entry re-pops per R26-5) and quits the tree — a
+flag survives, so a re-entry re-pops) and quits the tree — a
 single press can no longer bury the tree while ORPHANING the pane and
 the rail on screen."
   (interactive nil org-air-project-mode)
@@ -2540,23 +2526,23 @@ the rail on screen."
 
 (defvar org-air-project-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; R20-5(b): a THIN child of the shared view-core map.  Every shared
+    ;; A THIN child of the shared view-core map.  Every shared
     ;; board key keeps the board's meaning by INHERITANCE (RET pane,
     ;; mouse-1, v/V pane open/close, \ filter-clear, M-/ AND/OR toggle).
-    ;; PARENT stays at defvar time — always, even with the knob nil (R35-1).
+    ;; PARENT stays at defvar time — always, even with the knob nil.
     (set-keymap-parent map org-air-view-core-map)
     map)
   "Keymap for `org-air-project-mode'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the PROJECT default keys (installer-owned).  R26-3: RET is the
-;; SAME-WINDOW doc open; S-RET is the other-window visit; s/d/t group by
+;; The PROJECT default keys (installer-owned).  RET is the SAME-WINDOW
+;; doc open; S-RET is the other-window visit; s/d/t group by
 ;; state/dir/tag (airctl -a/-Da/-Ta parity on keys); `(' flips rows; `/'
 ;; the per-mode doc-tag filter; `g' refresh; `q' quit.
 (org-air--register-default-keys 'org-air-project-mode-map
   ;; Bare n/p in the read-only project buffer are already repeatable
-  ;; (special-mode single keys); R39-4's transient-map wrappers are only for
-  ;; the doc-session LEADER n/p (where a bare key self-inserts).
+  ;; (special-mode single keys); the transient-map wrappers are only for
+  ;; the doc-session LEADER n/p, where a bare key self-inserts.
   "n" #'org-air-project-next
   "p" #'org-air-project-prev
   "RET" #'org-air-project-open
@@ -2567,28 +2553,28 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "d" #'org-air-project-group-by-directory
   "t" #'org-air-project-group-by-tag
   "(" #'org-air-project-toggle-filenames
-  ;; R48-3: TAB toggles the per-group dropped fold (TAB is free here —
+  ;; TAB toggles the per-group dropped fold (TAB is free here —
   ;; the board's TAB/`org-air-toggle-section' is `org-air-view-mode-map'-
   ;; only, and this map inherits `special-mode-map' where TAB is unbound).
   "TAB" #'org-air-project-toggle-dropped
   "?" #'org-air-help
   "/" #'org-air-project-filter
   "g" #'org-air-project-refresh
-  ;; R54-3: the symmetric view-switch pair — `N' opens the Revisit view
+  ;; The symmetric view-switch pair — `N' opens the Revisit view
   ;; (board `P' -> project, board/project `N' -> revisit).
   "N" #'org-air-revisit
-  ;; R61-4: `W' opens the Review (week/period) surface.  No clash with
+  ;; `W' opens the Review (week/period) surface.  No clash with
   ;; the state-jump `W' — that one lives inside its own prefix map.
   "W" #'org-air-review
   "q" #'org-air-project-quit)
 
 (defvar org-air-project-leader-map
   (make-sparse-keymap)
-  "Leader prefix map for the project content buffer (R30-2).
+  "Leader prefix map for the project content buffer.
 Installed at `org-air-leader-key' on `org-air-project-mode-map'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the project's main-window leader subset (installer-owned) — rail
+;; The project's main-window leader subset (installer-owned) — rail
 ;; toggle, outline jump, the shared sort, and the PROJECT doc-tag filter
 ;; (`/' here is `org-air-project-filter', not the board's `org-air-filter').
 (org-air--register-default-keys 'org-air-project-leader-map
@@ -2597,29 +2583,28 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "s" #'org-air-view-sort-cycle
   "/" #'org-air-project-filter)
 
-;; R30-2/R35-1: install the leader on the project map (filter/sort/rail).
+;; Install the leader on the project map (filter/sort/rail).
 (org-air--register-default-leader 'org-air-project-mode-map
                                   'org-air-project-leader-map)
 
 (define-derived-mode org-air-project-mode special-mode "Org-Air-Project"
-  "Major mode for the Air-docs project tree view (F5)."
-  ;; R35-1: reconcile the shared maps to `org-air-use-default-keybindings'
+  "Major mode for the Air-docs project tree view."
+  ;; Reconcile the shared maps to `org-air-use-default-keybindings'
   ;; on the first project buffer (honours use-package `:custom' / `setq').
   (org-air--sync-default-keybindings)
   (setq-local truncate-lines t)
   (setq-local cursor-type 'box)
   (setq-local line-spacing org-air-line-spacing)
-  ;; R58: the project tree is bookmarkable — a FULL record: root, sort,
+  ;; The project tree is bookmarkable — a FULL record: root, sort,
   ;; filename flip, expanded dropped folds, plus the doc-at-point locator.
   ;; Restored by `org-air-project-bookmark-jump'.
   (setq-local bookmark-make-record-function
               #'org-air-project--bookmark-make-record)
-  ;; R18 D-P5.1: the calm nano-style mode-line (status lives in the header).
+  ;; The calm nano-style mode-line (status lives in the header).
   (org-air-view--install-modeline)
-  ;; R14 D-P1.B: responsive re-render (two-pane <-> board-only) on resize,
-  ;; riding the round-9 C1 window-size path.
+  ;; Responsive re-render (two-pane <-> board-only) on resize.
   (setq-local org-air-layout-refresh-function #'org-air-project--resize-refresh)
-  ;; R22-3: seed the SHARED sort spec so the inherited o/O cycle/reverse
+  ;; Seed the SHARED sort spec so the inherited o/O cycle/reverse
   ;; drive the project's name/created/updated sort (one core, no fork).
   (setq-local org-air-view--sort-keys '(name created updated))
   (setq-local org-air-view--sort-refresh #'org-air-project-refresh)
@@ -2627,37 +2612,37 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
     (setq-local org-air-view--sort-key org-air-project-sort-key))
   (unless org-air-view--sort-direction
     (setq-local org-air-view--sort-direction org-air-project-sort-direction))
-  ;; R14 D-P1.B: the project view hosts the shared mid-rail inspector; the
-  ;; debounced point-tracking hook is INERT under batch (P0 contract).
+  ;; The project view hosts the shared mid-rail inspector; the debounced
+  ;; point-tracking hook is INERT under batch.
   (unless noninteractive
     (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t)
-    ;; R18 D-P3/D-P4: the bottom view pane auto-follows here too (same hook
+    ;; The bottom view pane auto-follows here too (same hook
     ;; as the board; guarded on a live pane window, inert under batch).
     (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t)
-    ;; R22-2b/R29-2: snap point off the dead gutter/margin/rail/pad columns
+    ;; Snap point off the dead gutter/margin/rail/pad columns
     ;; onto the doc row title (project rows carry `org-air-doc' via the
     ;; shared `--insert-row') after any LINE-crossing command — the
     ;; pre-command line snapshot gates the snap so in-row horizontal motion
     ;; is never hijacked; inert in batch.
     (add-hook 'pre-command-hook #'org-air-view--pre-command-snapshot nil t)
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
-  ;; R22-5: tear down a popped-out rail side window + buffer when the
+  ;; Tear down a popped-out rail side window + buffer when the
   ;; project buffer is killed (it must not outlive its host), mirroring the
   ;; board's kill-buffer-hook.
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
-  ;; R24-5: install the SAME cooperative reconciler the board has, so a
+  ;; Install the SAME cooperative reconciler the board has, so a
   ;; natively-closed popped-out PROJECT rail falls back to the inline rail
   ;; (the reconcile guard + popin dispatch are now mode-generic).  Reactive
   ;; only; inert under batch (the window-config hook never fires there).
   (unless noninteractive
     (add-hook 'window-configuration-change-hook #'org-air-rail--reconcile nil t))
-  ;; R27-4: the board's evil integration, applied to the project (trunk:
+  ;; The board's evil integration, applied to the project (trunk:
   ;; NONE — under evil's normal state every single project key resolved to
   ;; an evil command: `(' -> evil-backward-sentence-begin, `o' ->
   ;; evil-open-below, RET -> evil-ret…  "ALL the key bindings are weird").
   ;; Motion state + overriding map, exactly the board's proven U2 contract;
   ;; fboundp-gated soft dep — non-evil users untouched.
-  ;; R35-1: gated on the knob (skipped with the defaults off).
+  ;; Gated on the knob (skipped with the defaults off).
   (when org-air-use-default-keybindings
     (org-air-view--setup-evil 'org-air-project-mode org-air-project-mode-map))
   (org-air-layout-install-window-size-hook)
@@ -2678,15 +2663,16 @@ With several configured projects, prompt for one (`org-air-projects' /
                     (t (completing-read "Air project: " roots nil t)))))
          (buffer (get-buffer-create "*org-air-project*")))
     (with-current-buffer buffer
-      ;; R26-5: IDEMPOTENT entry — re-running the mode on the live buffer
+      ;; IDEMPOTENT entry — re-running the mode on the live buffer
       ;; runs `kill-all-local-variables' and wipes the whole session (rail
-      ;; placement, sort, filter, R26-4 flip, expanded sections), which is
-      ;; how the re-entry DOUBLE RAIL was born.  Initialise the mode only
-      ;; once; a re-entry (or a different root) just re-renders in place.
+      ;; placement, sort, filter, the file-name flip, expanded sections)
+      ;; — that is how a re-entry grows a DOUBLE RAIL.  Initialise the
+      ;; mode only once; a re-entry (or a different root) re-renders in
+      ;; place.
       (unless (derived-mode-p 'org-air-project-mode)
         (org-air-project-mode))
       (setq org-air-project--root (expand-file-name root)))
-    ;; R27-2: display the buffer BEFORE the first render, so the width
+    ;; Display the buffer BEFORE the first render, so the width
     ;; resolution (`org-air-project--host-width') can ensure the rail side
     ;; window and measure the REAL project window body width — the first
     ;; popped render composes at the width it will actually display at
@@ -2695,27 +2681,26 @@ With several configured projects, prompt for one (`org-air-projects' /
     (org-air-project--open-core buffer t)))
 
 (defun org-air-project--open-core (buffer _display)
-  "Run the project entry's render body in BUFFER (R58 entry-core factoring).
-The command is prep + `pop-to-buffer' + this core (byte-identical
-behaviour); the bookmark handler calls it with DISPLAY nil — undisplayed,
-the restorer owns the windows (the render itself is display-agnostic, so
-the flag only documents the caller).  Ensures the mode idempotently
-\(R26-5); never displays BUFFER."
+  "Run the project entry's render body in BUFFER.
+The command is prep + `pop-to-buffer' + this core; the bookmark handler
+calls it with DISPLAY nil — undisplayed, the restorer owns the windows
+\(the render itself is display-agnostic, so the flag only documents the
+caller).  Ensures the mode idempotently; never displays BUFFER."
   (with-current-buffer buffer
     (unless (derived-mode-p 'org-air-project-mode)
       (org-air-project-mode))
-    ;; R92: an ENTRY is an explicit jump — it owns its landing (the first
+    ;; An ENTRY is an explicit jump — it owns its landing (the first
     ;; doc), exactly as board OPEN does.  Only the entry; a later `g' or
     ;; fold preserves the user's row.
     (let ((org-air-view--landing-entry t))
       (org-air-project--render org-air-project--root))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R58 — Emacs bookmark support (see org-air-view.el's shared core).
+;;;; Emacs bookmark support (see org-air-view.el's shared core).
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-project--bookmark-name ()
-  "Return the project record's `defaults' candidates (R58).
+  "Return the project record's `defaults' candidates.
 Most specific first: \"org-air: project <root basename>\", then the
 generic \"org-air: project\"."
   (delete-dups
@@ -2727,13 +2712,13 @@ generic \"org-air: project\"."
                "org-air: project"))))
 
 (defun org-air-project--bookmark-make-record ()
-  "Return the Emacs bookmark record for the project tree buffer (R58).
+  "Return the Emacs bookmark record for the project tree buffer.
 A FULL record: root + session-shaping state (sort, filename flip,
 expanded dropped folds) plus the doc-at-point (FILE . POS) locator.
 Pure buffer-local reads; never signals — a failure degrades to the bare
 header record.  The doc-SESSION half is deliberately NOT a project
 record: a doc buffer visits a real file, so its default bookmark record
-is already correct (see the R58 design ruling)."
+is already correct (see the design ruling)."
   (condition-case nil
       (append
        (org-air-view--bookmark-header 'project
@@ -2765,7 +2750,7 @@ is already correct (see the R58 design ruling)."
                                           (list "org-air: project")))))
 
 (defun org-air-project--bookmark-apply (record)
-  "Apply RECORD's org-air fields to the current project buffer (R58).
+  "Apply RECORD's org-air fields to the current project buffer.
 The project twin of `org-air-view--bookmark-apply': every field
 optional, unknown fields ignored, malformed values dropped."
   (let ((root (cdr (assq 'org-air-root record)))
@@ -2785,7 +2770,7 @@ optional, unknown fields ignored, malformed values dropped."
                 (and (listp expanded) expanded))))
 
 (defun org-air-project--bookmark-consume ()
-  "Land point on the bookmarked doc row; one-shot, never signals (R58).
+  "Land point on the bookmarked doc row; one-shot, never signals.
 Matches on the doc FILE (the shared `org-air-marker' property carries it
 on project rows), then on the doc name (the file moved); no match leaves
 the render's first-doc landing.  The project render is synchronous, so
@@ -2810,7 +2795,7 @@ the slot always clears here."
 
 ;;;###autoload
 (defun org-air-project-bookmark-jump (record)
-  "Handler for org-air project bookmarks (R58).
+  "Handler for org-air project bookmarks.
 Rebuilds `*org-air-project*' from RECORD without displaying it (the
 bookmark caller owns display) via the existing render core.  Never
 signals: a malformed RECORD degrades to a plain project open over the
@@ -2819,7 +2804,7 @@ first configured root."
   (let ((buffer (get-buffer-create "*org-air-project*")))
     (condition-case err
         (with-current-buffer buffer
-          ;; R26-5 idempotent entry guard — identical to the command's.
+          ;; Idempotent entry guard — identical to the command's.
           (unless (derived-mode-p 'org-air-project-mode)
             (org-air-project-mode))
           (org-air-project--bookmark-apply record)
@@ -2844,7 +2829,7 @@ first configured root."
 ;;;###autoload
 (put 'org-air-project-bookmark-jump 'bookmark-handler-type "org-air")
 
-;; R35-1: LOAD-time seed — this is the last org-air source loaded, so every
+;; LOAD-time seed — this is the last org-air source loaded, so every
 ;; keymap `defvar' and every `org-air--register-default-*' from both files
 ;; has run.  A single sync now populates (default t) or leaves bare (a
 ;; `setq'-before-`require' to nil) the shared maps, so anything that reads a

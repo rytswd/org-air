@@ -186,8 +186,7 @@ Use scarcely (overdue items, errors)."
   '((t :inherit org-air-face-faded))
   "Quiet faded section count (the N in \"Inbox  N\").
 A plain faded number — no chip, no inverse-video, no height shrink
-(nano-agenda style).  The illegible inverse-video chip was replaced
-after the GUI screenshot (S3); the rendered text is unchanged."
+\(nano-agenda style).  An inverse-video chip is illegible here."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-count-attention
@@ -199,22 +198,21 @@ A bold popout number that pulls the eye without a chip — mirrors
 
 (custom-declare-face 'org-air-face-header-date
   '((t :inherit org-air-face-salient))
-  "Face for the DATE token in the top-right status band (D-P3).
+  "Face for the DATE token in the top-right status band.
 The date reads as the band's quiet accent (salient); the count and the
-filter/scope tokens stay faded.  The assembled header string width is
-unchanged — only the per-segment face differs, so fixtures hold."
+filter/scope tokens stay faded."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-progress
   '((t :inherit org-air-face-salient :weight bold))
-  "Face for the live scan-progress banner segment (R56 P3a).
+  "Face for the live scan-progress banner segment.
 The `⟳ scanning N/M…' count-slot segment shown while the refresh machine
 fills the board — a BOLD accent in the header hierarchy (sibling of
-`org-air-face-header-date'), NOT the faded chrome face: the user's ask
-was visibility, and the old faded `stale · refreshing…' read as nothing
-happening while a multi-second paced scan was in fact converging.  Also
-carries the `refresh failed (g r retries)' notice so a terminal failure
-is at least as salient as the progress it replaces."
+`org-air-face-header-date'), deliberately NOT the faded chrome face: a
+faded progress notice reads as nothing happening while a multi-second
+paced scan is in fact converging.  Also carries the `refresh failed (g r
+retries)' notice so a terminal failure is at least as salient as the
+progress it replaces."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-modeline
@@ -223,17 +221,15 @@ is at least as salient as the progress it replaces."
     (((class color) (min-colors 256) (background dark))
      (:inherit org-air-face-inspector-label :background "#353B47" :overline "#4C566A"))
     (t (:inherit org-air-face-inspector-label)))
-  "Face for the calm nano-style org-air STATUS mode-line (R18 D-P5.1 / R20-2).
-A quiet status row (counts · filter · scope).  R20-2 #2: it gains a faint
-background distinct from the buffer plus a 1px `:overline' in the divider
-hue so the row reads as a horizontal RULE — the board→pane seam becomes
-obvious without any extra chrome.  R21-6: the foreground is the mid-tier
-readable `org-air-face-inspector-label' tier (#455A64 light / #D8DEE9
-dark) instead of `org-air-face-faded' — the faded fg measured 2.15:1 light
-/ 2.45:1 dark (fails WCAG AA, the too-dim-to-read report); the mid-tier
-is 6.02:1 / 8.32:1 (passes AA) while staying calm.  The mono/TTY tier
-keeps only the readable foreground (the bg/overline do not paint), and the
-mode-line is not buffer text, so this is byte-invisible."
+  "Face for the calm nano-style org-air STATUS mode-line.
+A quiet status row (counts · filter · scope) with a faint background
+distinct from the buffer plus a 1px `:overline' in the divider hue, so
+the row reads as a horizontal RULE and the board→pane seam is obvious
+without extra chrome.  The foreground is the mid-tier readable
+`org-air-face-inspector-label' (#455A64 light / #D8DEE9 dark) and NOT
+`org-air-face-faded': faded measures 2.15:1 light / 2.45:1 dark and
+fails WCAG AA here, while the mid-tier is 6.02:1 / 8.32:1 and still
+reads calm.  The mono/TTY tier keeps only the foreground."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-pane-header
@@ -242,27 +238,25 @@ mode-line is not buffer text, so this is byte-invisible."
     (((class color) (min-colors 256) (background dark))
      (:inherit org-air-face-inspector-label :background "#353B47" :overline "#4C566A"))
     (t (:inherit org-air-face-inspector-label)))
-  "Face for the bottom view-pane HEADER-LINE rule (R20-2 #2 / R20-3c).
-A quiet 1px `:overline' in the divider hue + a hair of background, remapped
-onto the pane's `header-line' so the pane's TOP edge is unmistakable.
-R21-6: it now carries an explicit mid-tier readable BASE foreground
-\(`org-air-face-inspector-label', 6.02:1 light / 8.32:1 dark) so the `▤'
-icon, the `·' separators and any unstyled glyph are legible on the header
-bg (they were dim faded before); the salient title segment
-\(`org-air-face-pane-title') still overrides it, so the header TEXT
-contract is unchanged.  The mono/TTY tier keeps only the readable
-foreground."
+  "Face for the bottom view-pane HEADER-LINE rule.
+A quiet 1px `:overline' in the divider hue plus a hair of background,
+remapped onto the pane's `header-line' so the pane's TOP edge is
+unmistakable.  The BASE foreground is explicitly the mid-tier readable
+`org-air-face-inspector-label' (6.02:1 light / 8.32:1 dark) so the `▤'
+icon, the `·' separators and any unstyled glyph stay legible on the
+header background; the salient title segment
+\(`org-air-face-pane-title') overrides it.  The mono/TTY tier keeps only
+the foreground."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-pane-title
   '((t :inherit org-air-face-strong))
-  "Face for the strong title segment of the bottom view-pane header (D-P5.2).
-mu4e-style chrome: the title is the one salient token.  R21-6: it is the
+  "Face for the strong title segment of the bottom view-pane header.
+mu4e-style chrome: the title is the one salient token.  It uses the
 high-contrast `org-air-face-strong' foreground (#263238 light / white
-dark, ~11:1 on the header bg) — a strong, legible title, NOT a salient
-blue that would collide with the blue-slate header bg (blue-on-blue).  The
-file/state segments + the `·' separators ride the faded face around it.
-The header TEXT is unchanged (faces only), so the pane byte golden holds."
+dark, ~11:1 on the header bg) rather than a salient blue, which would
+collide with the blue-slate header background.  The file/state segments
+and the `·' separators ride the faded face around it."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-rail-card-header
@@ -271,7 +265,7 @@ The header TEXT is unchanged (faces only), so the pane byte golden holds."
     (((class color) (min-colors 256) (background dark))
      (:background "#3B4252" :overline "#4C566A" :weight normal))
     (t nil))
-  "Face for an hl-block-style rail section card header (D-P2.A).
+  "Face for an hl-block-style rail section card header.
 A very subtle rail tint background with an `:overline' hairline closing
 the card above its label; the label foreground keeps its section colour.
 In a non-graphical / mono frame the background and overline simply do not
@@ -285,7 +279,7 @@ a hairline rule — the card is a visual enrichment, never a replacement."
     (((class color) (min-colors 256) (background dark))
      (:background "#3B4252" :underline "#4C566A"))
     (t nil))
-  "Face for the foot spacer closing an hl-block rail card (D-P2.A).
+  "Face for the foot spacer closing an hl-block rail card.
 An `:underline' hairline on a 1-col-tall spacer beneath the card's last
 body line.  TTY paints nothing (mandatory fallback)."
   :group 'org-air-faces)
@@ -296,10 +290,10 @@ body line.  TTY paints nothing (mandatory fallback)."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#ECEFF4" :weight normal))
     (t (:inherit default :weight bold)))
-  "Face for a rail/calendar section header LABEL (D-P6).
-Legible — NOT faded: a near-default foreground with a touch of weight, so
-`Summary' / `Filters' / `Actions' / the month header read clearly (this
-replaces the low-contrast round-10 hl-block card label, P4)."
+  "Face for a rail/calendar section header LABEL.
+Legible — deliberately NOT faded: a near-default foreground with a touch
+of weight, so `Summary' / `Filters' / `Actions' and the month header all
+read clearly."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-rail-marker
@@ -308,7 +302,7 @@ replaces the low-contrast round-10 hl-block card label, P4)."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#6E8AA8"))
     (t (:inherit org-air-face-salient)))
-  "Face for the rail header prefix marker (D-P6).
+  "Face for the rail header prefix marker.
 A muted salient accent: the GUI draws a slim rounded vertical bar over the
 reserved marker column in this colour; the TTY shows the `rail-marker'
 glyph (left-half-block, ascii `|') in this face."
@@ -320,33 +314,32 @@ glyph (left-half-block, ascii `|') in this face."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#D8DEE9" :weight semibold))
     (t (:inherit default :weight bold)))
-  "Face for the inspector's fixed key column (D-P7 / R13 D-P4).
+  "Face for the inspector's fixed key column.
 The inspector field labels (`Sched', `Deadln', `Created', `Bucket',
-`Closed').  R13 D-P4 brightens this from `org-air-face-faded' (too dark to
-read) to a mid-tier readable foreground at a slight weight (parity with
-`org-air-face-rail-header'), passing WCAG AA on the rail background.  The
-VALUES (filename, dates, bucket) keep their own semantic faces."
+`Closed').  A mid-tier readable foreground at a slight weight (parity
+with `org-air-face-rail-header') that passes WCAG AA on the rail
+background; `org-air-face-faded' is too dark to read here.  The VALUES
+\(filename, dates, bucket) keep their own semantic faces."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-separator
   '((t :inherit org-air-face-faded :weight normal))
   "Face for thin horizontal rules.
 Foreground hairline only — no background fill and no height shrink, so a
-row of `─' reads as one faint connected line rather than a solid bar
-(fixed after the GUI screenshot, S2)."
+row of `─' reads as one faint connected line rather than a solid bar."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-cursor
   '((t :inherit org-air-face-subtle))
   "Face for the per-row hover (`mouse-face') highlight.
-R33-2: a PURE background highlight — it inherits `org-air-face-subtle'
-(a subtle :background) and carries NO metric-changing attribute (no
-:box / :weight / :height / :underline) AND no :extend, so a hover
-crossing re-blits only the row's own text span, never re-laying-out its
-glyphs, never re-rasterising the cached svg tag-pills, and never
-repainting the edge-extended blank of the image-bearing :extend rows.
-That keeps the R32 per-row hover instant and Lisp-free (the hover hot
-path runs ZERO org-air Lisp; the highlight is pure redisplay)."
+A PURE background highlight: it inherits `org-air-face-subtle' (a subtle
+:background) and carries NO metric-changing attribute (no :box /
+:weight / :height / :underline) AND no :extend, so a hover crossing
+re-blits only the row's own text span — never re-laying-out its glyphs,
+never re-rasterising the cached svg tag-pills, never repainting the
+edge-extended blank of the image-bearing :extend rows.  That keeps the
+per-row hover instant and Lisp-free: the hover hot path runs ZERO
+org-air Lisp and the highlight is pure redisplay."
   :group 'org-air-faces)
 
 ;;;; ---------------------------------------------------------------------
@@ -369,7 +362,7 @@ path runs ZERO org-air Lisp; the highlight is pure redisplay)."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#A3BE8C"))
     (t (:inherit success)))
-  "Face for a DONE keyword and completed items \N{EM DASH} a calm green (R81).
+  "Face for a DONE keyword and completed items \N{EM DASH} a calm green.
 Matches `org-air-face-air-state-complete' so a completed keyword badge
 (COMP/DONE) reads green like the Complete Air state, distinct from a
 DROPPED terracotta and a faded draft.  The exact hex is GUI-confirm-only;
@@ -378,12 +371,11 @@ the TTY tier inherits `success'."
 
 (custom-declare-face 'org-air-face-dropped
   '((t :inherit org-air-face-air-state-out))
-  "Face for a cancelled/abandoned keyword (DROPPED/CANCELLED/KILL) (R79/R87).
-Shares the OUT ``retired'' red (`org-air-face-air-state-out') per the
-user's request \N{EM DASH} DROPPED, OUT and OFF all read in one red, distinct
-from the green DONE completion.  A distinct face symbol (recustomisable)
-that defaults to OUT's colour.  Exact hex GUI-confirm-only; the TTY tier
-follows OUT."
+  "Face for a cancelled/abandoned keyword (DROPPED/CANCELLED/KILL).
+Shares the OUT ``retired'' red (`org-air-face-air-state-out') \N{EM DASH}
+DROPPED, OUT and OFF all read in one red, distinct from the green DONE
+completion.  A distinct face symbol (recustomisable) that defaults to
+OUT's colour; the TTY tier follows OUT."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-todo-next
@@ -411,7 +403,7 @@ follows OUT."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#BF616A" :weight bold))
     (t (:inherit org-air-face-critical :weight bold)))
-  "[#A] cookie: red bold TEXT (D-P4).
+  "[#A] cookie: red bold TEXT.
 Reconciled with `org-air-priority-colors' so the svg badge and the text
 fallback agree on the A hue."
   :group 'org-air-faces)
@@ -422,7 +414,7 @@ fallback agree on the A hue."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#D08770" :weight bold))
     (t (:inherit org-air-face-popout :weight bold)))
-  "[#B] cookie: orange bold text (D-P4).
+  "[#B] cookie: orange bold text.
 Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
@@ -432,7 +424,7 @@ Reconciled with `org-air-priority-colors'."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#A3BE8C"))
     (t (:inherit org-air-face-faded)))
-  "[#C] cookie: yellow-green text (D-P4).
+  "[#C] cookie: yellow-green text.
 Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
@@ -442,7 +434,7 @@ Reconciled with `org-air-priority-colors'."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#88C0D0"))
     (t (:inherit org-air-face-faded)))
-  "[#D] cookie: teal/cyan text, the calm cool tier (R22-1).
+  "[#D] cookie: teal/cyan text, the calm cool tier.
 Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
@@ -452,7 +444,7 @@ Reconciled with `org-air-priority-colors'."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#7E8CC0"))
     (t (:inherit org-air-face-faded)))
-  "[#E] cookie: indigo text, the coolest tier (R22-1).
+  "[#E] cookie: indigo text, the coolest tier.
 Reconciled with `org-air-priority-colors'."
   :group 'org-air-faces)
 
@@ -473,17 +465,17 @@ Reconciled with `org-air-priority-colors'."
 
 (custom-declare-face 'org-air-face-overdue
   '((((class color) (min-colors 256) (background light))
-     (:foreground "#C62828" :weight bold))          ; Red800 — unchanged from critical-light
+     (:foreground "#C62828" :weight bold))          ; Red800
     (((class color) (min-colors 256) (background dark))
-     (:foreground "#BF616A" :weight bold))          ; Nord11 aurora RED — ALIGNED (was Nord13 yellow)
+     (:foreground "#BF616A" :weight bold))          ; Nord11 aurora RED
     (t (:inherit error :weight bold)))
-  "Face for an overdue date (past deadline / missed schedule) — the RED,
-hottest end of the R88 proximity heat-ramp.  Explicit R79 spec: RED in
-BOTH tiers (Red800 light / Nord11 aurora-red dark) so OVERDUE always reads
-hotter than a THIS-WEEK amber; the dark tier was Nord13 (a pale aurora
-YELLOW) while it inherited `org-air-face-critical', which inverted the
-ramp in dark mode.  No longer inherits `critical' (the shared error face is
-untouched).  Exact hex GUI-confirm-only; TTY degrades to bold `error'."
+  "Face for an overdue date (past deadline / missed schedule).
+The RED, hottest end of the date proximity heat-ramp: red in BOTH tiers
+\(Red800 light / Nord11 aurora-red dark) so OVERDUE always reads hotter
+than a THIS-WEEK amber.  Deliberately does NOT inherit
+`org-air-face-critical': that face's dark tier is a pale aurora YELLOW,
+which inverts the ramp in dark mode, and it is shared with unrelated
+error text.  TTY degrades to bold `error'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-day-today
@@ -492,13 +484,13 @@ untouched).  Exact hex GUI-confirm-only; TTY degrades to bold `error'."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#DD7E52" :weight bold))          ; warm orange (hotter than Nord12 deadline)
     (t (:inherit org-air-face-popout :weight bold)))
-  "Face for a TODAY date on the R88 proximity heat-ramp (supersedes R85's
-teal).  A bold ORANGE — one step cooler than OVERDUE red, hotter than
-TOMORROW's blend and THIS-WEEK's amber — painted by `org-air-view--date-
-label' on ANY date slot (deadline / scheduled / neutral, R87 rule A) when
-the date is today.  A red-leaning orange, kept distinct from the deadline
-slot's own popout-orange and from the READY badge's `#EBA05A'.  Exact hex
-GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
+  "Face for a TODAY date on the date proximity heat-ramp.
+A bold ORANGE — one step cooler than OVERDUE red, hotter than TOMORROW's
+blend and THIS-WEEK's amber — painted by `org-air-view--date-label' on
+ANY date slot (deadline / scheduled / neutral) when the date is today.  A
+red-leaning orange, kept distinct from the deadline slot's own
+popout-orange and from the READY badge's `#EBA05A'.  TTY degrades to bold
+`org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-day-tomorrow
@@ -507,13 +499,12 @@ GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#E4A46E" :weight bold))          ; blend(today,week)
     (t (:inherit org-air-face-popout :weight bold)))
-  "Face for a TOMORROW date on the R88 proximity heat-ramp (supersedes
-R85's rose).  A BLEND sitting BETWEEN `org-air-face-day-today's orange and
+  "Face for a TOMORROW date on the date proximity heat-ramp.
+A BLEND sitting BETWEEN `org-air-face-day-today's orange and
 `org-air-face-day-week's amber — the per-channel midpoint in each tier —
 so tomorrow reads one notch cooler than today and one notch hotter than
-this-week.  Painted on any date slot (R87 rule A) when the date is
-tomorrow.  The RED it used to carry (Nord11) is now OVERDUE's.  Exact hex
-GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
+this-week.  Painted on any date slot when the date is tomorrow.  TTY
+degrades to bold `org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-day-week
@@ -522,12 +513,12 @@ GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#EBCB8B" :weight bold))          ; Nord13 aurora yellow
     (t (:inherit org-air-face-popout :weight bold)))
-  "Face for a THIS-WEEK date (2 <= delta <= 6) on the R88 proximity
-heat-ramp (NEW).  The CALMEST warm — an AMBER/gold one step cooler than
-TOMORROW's blend — so a date a few days out reads warm-but-not-urgent; the
-coolest lit bucket before BEYOND (>=7 days) returns to the slot's default
-face.  Painted on any date slot (R87 rule A) for a date 2..6 days out.
-Exact hex GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
+  "Face for a THIS-WEEK date (2 <= delta <= 6) on the proximity heat-ramp.
+The CALMEST warm — an AMBER/gold one step cooler than TOMORROW's blend —
+so a date a few days out reads warm-but-not-urgent; the coolest lit
+bucket before BEYOND (>=7 days) returns to the slot's default face.
+Painted on any date slot for a date 2..6 days out.  TTY degrades to bold
+`org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-group
@@ -541,13 +532,12 @@ Exact hex GUI-confirm-only; TTY degrades to bold `org-air-face-popout'."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#D8DEE9"))
     (t (:inherit org-air-face-faded)))
-  "Face for the row's right-edge ORIGIN cell (board + project) (R22-7).
-A dedicated mid-tier readable tone (#455A64 light / #D8DEE9 dark) bumped
-off `org-air-face-group'/`-faded' (which measured 2.48:1 light / 2.72:1
-dark, sub-AA) to AA (6.02:1 / ~7-8:1) while staying clearly QUIETER than
-the row title — the origin is the calm right-edge metadata, no longer
-near-invisible.  Dedicated (not a retint of `org-air-face-group') so the
-generic group label is untouched."
+  "Face for the row's right-edge ORIGIN cell (board and project).
+A mid-tier readable tone (#455A64 light / #D8DEE9 dark) at WCAG AA
+\(6.02:1 / ~7-8:1) that stays clearly QUIETER than the row title.  It is
+a face of its own rather than a retint of `org-air-face-group' /
+`org-air-face-faded' — those measure 2.48:1 light / 2.72:1 dark (sub-AA)
+and are shared with the generic group label."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-empty
@@ -571,9 +561,8 @@ generic group label is untouched."
 (custom-declare-face 'org-air-face-tag
   '((t :inherit org-air-face-faded))
   "Base face for a tag (used when no accent hue is assigned).
-Round-6 restraint: quiet faded TEXT — no box, no background fill, no
-height shrink.  Hue (not a rectangle) carries the tag; the accent faces
-add the colour."
+Quiet faded TEXT — no box, no background fill, no height shrink.  Hue
+\(not a rectangle) carries the tag; the accent faces add the colour."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-tag-active
@@ -583,25 +572,24 @@ add the colour."
   :group 'org-air-faces)
 
 (defcustom org-air-tag-color nil
-  "When non-nil, tag chips carry their per-tag accent HUE (R18 D-P5.3).
+  "When non-nil, tag chips carry their per-tag accent HUE.
 The default nil applies the calm nano-style colour discipline: tag chips
 ride the single faded `org-air-face-tag' tint so each row keeps ONE
-salient signal (the date / priority cue) instead of a rainbow of tag hues.
-Set it non-nil to restore the deterministic 6-hue per-tag palette.
+salient signal (the date or priority cue) instead of a rainbow of tag
+hues.  Set it non-nil for the deterministic 6-hue per-tag palette.
 
 Faces are display-only — the byte/TTY fixtures assert the tag TEXT — so
-this never moves a golden.  REVIEW: the calm default (nil) is proposed per
-the round-18 D-P5.3 spec; flip to t if the per-tag hues should stay on."
+this never moves a golden."
   :type 'boolean
   :group 'org-air-faces)
 
 (defconst org-air-tag-accent-palette
-  ;; (LIGHT-FG LIGHT-BG DARK-FG DARK-BG).  Round-6 restraint uses only the
-  ;; FOREGROUNDS — tags are quiet coloured text, no boxes or background
-  ;; fills (the *-BG columns are retained for reference / future opt-in
-  ;; tinting but are no longer applied).  The foregrounds are WCAG-legible
-  ;; on their dashboard background and never collide with the popout/
-  ;; critical hues used for TODO state and overdue dates.
+  ;; (LIGHT-FG LIGHT-BG DARK-FG DARK-BG).  Only the FOREGROUNDS are
+  ;; applied — tags are quiet coloured text, no boxes or background
+  ;; fills; the *-BG columns are kept for a future opt-in tinting.  The
+  ;; foregrounds are WCAG-legible on their dashboard background and
+  ;; never collide with the popout/critical hues used for TODO state
+  ;; and overdue dates.
   '(("#1565C0" "#E3F2FD" "#88C0D0" "#2E3440")   ; 1 blue
     ("#2E7D32" "#E8F5E9" "#A3BE8C" "#2E3440")   ; 2 green
     ("#6A1B9A" "#F3E5F5" "#B48EAD" "#2E3440")   ; 3 purple
@@ -620,8 +608,8 @@ mode for light/dark parity.")
       (setq n (1+ n))
       (cl-destructuring-bind (lfg _lbg dfg _dbg) spec
         (custom-declare-face (intern (format "org-air-face-tag-accent-%d" n))
-          ;; Round-6 restraint: quiet coloured TEXT only — the accent hue
-          ;; as a foreground, no box / no background / no height shrink.
+          ;; Quiet coloured TEXT only — the accent hue as a foreground,
+          ;; no box, no background, no height shrink.
           `((((class color) (min-colors 256) (background light))
              (:foreground ,lfg))
             (((class color) (min-colors 256) (background dark))
@@ -634,8 +622,8 @@ mode for light/dark parity.")
 
 (defun org-air-faces-tag-face (tag)
   "Return the face symbol for TAG (a string).
-R18 D-P5.3: with `org-air-tag-color' nil (the calm default) every tag uses
-the single faded `org-air-face-tag'; non-nil returns a deterministic
+With `org-air-tag-color' nil (the calm default) every tag uses the
+single faded `org-air-face-tag'; non-nil returns a deterministic
 per-tag accent hue so the same TAG always maps to the same colour, stable
 across renders and sessions."
   (if (not org-air-tag-color)
@@ -680,10 +668,10 @@ across renders and sessions."
     (((class color) (min-colors 256) (background dark))
      (:background "#D08770" :foreground "#2E3440" :weight bold))
     (t (:inverse-video t :weight bold)))
-  "Today's calendar cell (R7): a filled background highlight, not a glyph.
+  "Today's calendar cell: a filled background highlight, not a glyph.
 So obvious the legend needs no \"today\" entry.  The day number sits on a
 popout-hue fill (white/dark fg for contrast); TTY falls back to
-inverse-video.  Replaces the old underline+marker treatment."
+inverse-video."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-event
@@ -703,8 +691,8 @@ inverse-video.  Replaces the old underline+marker treatment."
      (:foreground "#8891AE"))
     (t (:inherit org-air-face-salient)))
   "Calendar day carrying a scheduled item.
-D4 (round-9): a *muted* hue, no bold — distinguishable from deadline but
-quiet (the saturated salient+bold read as noise on the small marks)."
+A *muted* hue, no bold: distinguishable from deadline but quiet.  A
+saturated salient+bold reads as noise on marks this small."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-deadline
@@ -714,13 +702,13 @@ quiet (the saturated salient+bold read as noise on the small marks)."
      (:foreground "#C49079"))
     (t (:inherit org-air-face-popout)))
   "Calendar day carrying a deadline (the strongest mark).
-D4 (round-9): a *muted* terracotta, no bold — still the warmest of the
-three but quieter than the full popout."
+A *muted* terracotta, no bold: still the warmest of the three but
+quieter than the full popout."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-created
   '((t :inherit org-air-face-faded))
-  "Calendar day carrying only a created/activity stamp (T3b: quiet)."
+  "Calendar day carrying only a created/activity stamp — quiet."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-period
@@ -729,18 +717,17 @@ three but quieter than the full popout."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#88C0D0" :weight bold))
     (t (:inherit org-air-face-salient)))
-  "Calendar day inside the Review period (R61-5).
+  "Calendar day inside the Review period.
 The review rail highlights every day of the shown week/month with this
 face on the day NUMBER (mark kinds `period' / `period-done' in
 `org-air-calendar--mark'); a period day carrying a completion also gets
-the quiet dot glyph.  Today's filled cell still wins (the mark-face cond
-in `org-air-calendar-insert-month' is unchanged)."
+the quiet dot glyph.  Today's filled cell still wins."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-day-header
   '((t :inherit org-air-face-strong))
-  "Face for the single-day focus-view title (R6), e.g. the
-\"Tuesday 17 June 2026\" header of `org-air-view-day'."
+  "Face for the single-day focus-view title.
+For example the \"Tuesday 17 June 2026\" header of `org-air-view-day'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-calendar-legend
@@ -779,14 +766,14 @@ Faint by design — structure should be felt, not shouted."
 
 (custom-declare-face 'org-air-face-frame-border
   '((t :inherit org-air-face-faded))
-  "Face for the buffer-box outer frame (T7): the one-character border
+  "Face for the buffer-box outer frame: the one-character border
 drawn in window chrome (margins / header-line / mode-line / line-prefix
 / wrap-prefix).  A quiet 1px rule, like rougier/buffer-box."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-window-divider
   '((t :inherit org-air-face-pane-border))
-  "Face for the `side-window' rail divider (R15 D-P2).
+  "Face for the `side-window' rail divider.
 When `org-air-rail-style' is `side-window' the divider between the board
 and the rail is a real window border.  This face maps onto the standard
 `window-divider' face (a calm `org-air-face-pane-border' hue) so the
@@ -827,27 +814,26 @@ the eye to work that is waiting."
      (:foreground "#F5F7FA" :weight bold))
     (t (:inherit bold)))
   "Face for the header sort indicator when a NON-default sort is active.
-R27-3: an active sort must be clearly stated at the header level — the
-quiet `org-air-face-faded' idiom (documented above as failing WCAG AA)
-made the state technically present but practically invisible.  Follows
-the calendar-legend two-background precedent: bold with a near-white
-foreground on dark canvases (\"white bold\" as the user sees it) and a
-near-black on light — theme-respecting, never hardcoded white-on-light;
-plain bold on low-colour terminals.  Only applied when the sort differs
-from the view's default (the default keeps today's quiet faces, so every
-golden is byte- and face-identical)."
+An active sort must be clearly stated at the header level, so this is
+deliberately not the quiet `org-air-face-faded' idiom, which fails WCAG
+AA here and makes the state technically present but practically
+invisible.  Follows the calendar-legend two-background precedent: bold
+with a near-white foreground on dark canvases and a near-black on light
+— theme-respecting, never hardcoded white-on-light; plain bold on
+low-colour terminals.  Applied only when the sort differs from the
+view's default."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-rail-key
   '((t :inherit org-air-face-salient))
-  "Face for the leading key token in a rail Actions verb (D5).
+  "Face for the leading key token in a rail Actions verb.
 The key (e.g. \"c\", \"/\", \"s\", \"g\", \"TAB\", \"?\") reads as a key; the
 verb description beside it stays faded.  Quiet salient — no box, no
 bold; just enough presence to separate keys from prose."
   :group 'org-air-faces)
 
 ;;;; ---------------------------------------------------------------------
-;;;; Air-docs project view (F5) — state badges + tree
+;;;; Air-docs project view — state badges + tree
 ;;;;
 ;;;; org-air can render an Air-managed doc tree (like `airctl status'),
 ;;;; grouped by state / directory / tag.  Docs carry a state
@@ -866,10 +852,9 @@ bold; just enough presence to separate keys from prose."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#EBA05A" :weight bold))
     (t (:inherit org-air-face-popout :weight bold)))
-  "Air doc state badge: Ready (🎯) \N{EM DASH} a bright orange, actionable (R81).
-Pushed toward a brighter orange so READY reads clearly distinct from the
-OUT state's darker red.  The exact hex is GUI-confirm-only; the TTY tier
-inherits `org-air-face-popout'."
+  "Air doc state badge: Ready (🎯) \N{EM DASH} a bright orange, actionable.
+Bright enough that READY reads clearly distinct from the OUT state's
+darker red.  The TTY tier inherits `org-air-face-popout'."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-wip
@@ -889,12 +874,12 @@ The 5th Air state (between Ready and Complete)."
 
 (custom-declare-face 'org-air-face-air-state-dropped
   '((t :inherit org-air-face-faded))
-  "Air doc state badge: Dropped (🗑) — faded (R51-1).
+  "Air doc state badge: Dropped (🗑) — faded.
 The PROJECT-view DROP state chip stays dim grey: dropped docs RECEDE
-(the row also dims via `org-air-face-project-dropped').  This is a
-separate surface from the day/board DROPPED *keyword* badge
-\(`org-air-face-dropped'), which shares the OUT red (R87).  R51-1 removed
-the `:strike-through'; grey is the SOLE dropped affordance here."
+\(the row also dims via `org-air-face-project-dropped').  Grey is the
+SOLE dropped affordance here — no `:strike-through'.  This is a separate
+surface from the day/board DROPPED *keyword* badge
+\(`org-air-face-dropped'), which shares the OUT red."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-out
@@ -903,22 +888,22 @@ the `:strike-through'; grey is the SOLE dropped affordance here."
     (((class color) (min-colors 256) (background dark))
      (:foreground "#C0505A" :weight bold))
     (t (:inherit error :weight bold)))
-  "Air doc state badge / keyword: Out (\N{OUTBOX TRAY}) \N{EM DASH} the canonical retired red (R81/R87).
+  "Air doc state badge / keyword: Out (\N{OUTBOX TRAY}) \N{EM DASH} the canonical retired red.
 The SINGLE ``retired/removed'' red: OUT, DROPPED and OFF all read in this
 same colour \N{EM DASH} `org-air-face-dropped', `org-air-face-air-state-off' and
 `org-air-face-air-state-dropped' all inherit it \N{EM DASH} parked/inactive/
 abandoned states as one family, distinct from READY's brighter orange and
 the green DONE.  Shared by the project STATE chip
 \(`org-air-project--state-face') and the heading KEYWORD badge (the OUT
-entry of `org-air-todo-keyword-faces').  The exact hex is GUI-confirm-only;
-the TTY tier is a standalone `error' red (NO inherit of
-`org-air-face-dropped' \N{EM DASH} that would be circular now dropped follows OUT)."
+entry of `org-air-todo-keyword-faces').  The TTY tier is a standalone
+`error' red and must NOT inherit `org-air-face-dropped': dropped follows
+OUT, so that would be circular."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-state-off
   '((t :inherit org-air-face-air-state-out))
-  "Air doc state badge: Off (\N{DOUBLE VERTICAL BAR}) \N{EM DASH} shares the OUT retired red (R80/R87).
-Per the user's request OFF reads in the SAME red as OUT and DROPPED
+  "Air doc state badge: Off (\N{DOUBLE VERTICAL BAR}) \N{EM DASH} shares the OUT retired red.
+OFF reads in the SAME red as OUT and DROPPED
 \(`org-air-face-air-state-out') \N{EM DASH} parked/inactive states as one family.
 A distinct face symbol (recustomisable) that defaults to OUT's colour.
 Shared by the project STATE chip and the OFF keyword badge."
@@ -926,16 +911,16 @@ Shared by the project STATE chip and the OFF keyword badge."
 
 (custom-declare-face 'org-air-face-project-dropped
   '((t :inherit org-air-face-faded))
-  "Face for a DROPPED doc's row in the Air project view (R48-2).
+  "Face for a DROPPED doc's row in the Air project view.
 Applied as the row `font-lock-face' by `org-air-project--doc-row-face'
 wherever a dropped row is visible (expanded fold, the
 `org-air-project-collapse-dropped' nil inline mode, filter-revealed
-rows), so the title + flex pad visibly RECEDE — dim (R51-1 removed the
-`:strike-through': applied over the full row extent it drew a rule
-clear across the inter-column fill; grey is the sole affordance).  A
-DISTINCT face from the badge-only `org-air-face-air-state-dropped'
-\(even though the default spec matches): customise THIS face to change
-the row treatment without touching the DROP chip."
+rows), so the title and flex pad visibly RECEDE.  Dim only — NOT
+`:strike-through', which over the full row extent draws a rule clear
+across the inter-column fill.  A DISTINCT face from the badge-only
+`org-air-face-air-state-dropped' (even though the default spec matches):
+customise THIS face to change the row treatment without touching the
+DROP chip."
   :group 'org-air-faces)
 
 (custom-declare-face 'org-air-face-air-tree
@@ -950,12 +935,12 @@ Faint, like the dashboard pane border."
     (((class color) (min-colors 256) (background dark))
      (:background "#3B4252"))
     (t (:inherit highlight)))
-  "Face for the CURRENT heading row in the doc-session rail outline (R28-4).
+  "Face for the CURRENT heading row in the doc-session rail outline.
 A quiet current-row treatment on the two-background precedent: a subtle
 background per light/dark class and NO foreground change, so it never
-fights the row's own faces (NOT the `org-air-face-faded' failure mode).
-Terminal/mono fallback inherits `highlight'.  Applied via ONE overlay
-\(never buffer text), so every rail byte golden is untouched."
+fights the row's own faces.  Terminal/mono fallback inherits `highlight'.
+Applied via ONE overlay, never buffer text, so the rail bytes are
+unchanged."
   :group 'org-air-faces)
 
 ;;;; ---------------------------------------------------------------------

@@ -10,12 +10,12 @@
 
 ;;; Commentary:
 
-;; INSTRUMENT R99 -- the fourth blind spot, closed.
+;; WHY THIS FILE REFUSES TO RUN IN BATCH.
 ;;
-;; The report was "toggling a 191-item section takes about a second".
-;; Every benchmark this project had ever run said the same operation took
-;; 0.054 s, and two consecutive rounds measured as IDENTICAL.  Both were
-;; true.  They were measuring different machines.
+;; A user reported "toggling a 191-item section takes about a second".
+;; Every batch benchmark this project had said the same operation took
+;; 0.054 s.  Both numbers were true: they were measuring different
+;; machines.
 ;;
 ;;   Emacs in batch mode        gc-cons-percentage = 1.0
 ;;   a real interactive frame  gc-cons-percentage = 0.1
@@ -81,9 +81,9 @@ that used to take about a second to open."
 Measured end to end: `org-air-toggle-section' plus a forced `redisplay',
 on `org-air-bench-items' rows with the SHIPPED default styles.
 
-Why this number.  The reported defect measured 1.000 s.  After R99 the
-same expand measures 0.07-0.11 s depending on the rail orientation, of
-which ~55 ms is ONE garbage collection whose cost is a property of the
+Why this number.  The reported defect measured 1.000 s; the same expand
+now measures 0.07-0.11 s depending on the rail orientation, of which
+~55 ms is ONE garbage collection whose cost is a property of the
 session's live heap rather than of org-air.  A ceiling of 0.250 s is far
 enough above the measurement not to flap on a loaded CI box, and far
 enough below the defect to catch any regression worth the name: it fails
@@ -322,10 +322,10 @@ the ceiling."))))
 (defun org-air-bench-batch-fence ()
   "Arm the `make check-gui' performance fence and return.
 Deliberately does NOT measure at load time.  A frame created by Emacs
-with -Q and -l FILE is not yet mapped and no timer has fired while FILE is still
-loading, so anything measured there measures the wrong machine (the same
-trap R97 documented for `make check-gui').  This arms a one-shot timer and
-returns, so `-l' finishes, Emacs reaches its command loop with a real
+with -Q and -l FILE is not yet mapped, and no timer fires while FILE is
+still loading, so anything measured there measures the wrong machine
+\(the same trap `make check-gui' documents).  This arms a one-shot timer
+and returns, so `-l' finishes, Emacs reaches its command loop with a real
 frame, and only then does the fence run.  A second timer is a hard
 watchdog so the target can never hang a job."
   (run-with-timer 2 nil #'org-air-bench--run-and-exit)

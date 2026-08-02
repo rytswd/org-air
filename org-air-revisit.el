@@ -10,29 +10,29 @@
 
 ;;; Commentary:
 
-;; R54-3: ONE view surfacing KNOWLEDGE notes (the R54-2 note-type model)
-;; by attention-age, dustiest first — the resurfacing surface the GTD
-;; board deliberately is not.  Everything renders from the scan's
-;; per-file fact table (`org-air-query--file-meta') — the DATA-PURE
-;; render law: zero per-row file opens, ever; RET on a row is the single
-;; user-initiated open.
+;; ONE view surfacing KNOWLEDGE notes by attention-age, dustiest first —
+;; the resurfacing surface the GTD board deliberately is not.  Everything
+;; renders from the scan's per-file fact table
+;; (`org-air-query--file-meta') under the DATA-PURE render law: zero
+;; per-row file opens, ever; RET on a row is the single user-initiated
+;; open.
 ;;
-;; Three surfacing modes inside the one view, cycled on `m' (USER-RULED
-;; D2): ALL (every revisit-scope note, oldest last-modified on top),
-;; ORPHANS (the link-graph subset nothing links to / that links nowhere)
-;; and SPACED (a small deterministic daily handful — notes-garden
-;; grazing).  Bounded and paged at 5000+ per the R53 never-hang laws:
-;; exactly min(total, `org-air-revisit-page-limit') rows plus the
-;; standard fold row; TAB/RET on the fold extends by ONE page.
+;; Three surfacing modes inside the one view, cycled on `m': ALL (every
+;; revisit-scope note, oldest last-modified on top), ORPHANS (the
+;; link-graph subset nothing links to / that links nowhere) and SPACED (a
+;; small deterministic daily handful — notes-garden grazing).  Bounded
+;; and paged so a 5000-note corpus cannot hang the frame: exactly
+;; min(total, `org-air-revisit-page-limit') rows plus the standard fold
+;; row; TAB/RET on the fold extends by ONE page.
 ;;
-;; Attention-age is pure file mtime by default (the D2 ruling); the
-;; OPT-IN `org-air-revisit-visit-ledger' folds org-air-recorded opens
-;; into the age (the ledger lives in org-air-query.el and is written
-;; only from org-air's own open paths — never a global find-file hook).
+;; Attention-age is pure file mtime by default; the OPT-IN
+;; `org-air-revisit-visit-ledger' folds org-air-recorded opens into the
+;; age.  The ledger lives in org-air-query.el and is written only from
+;; org-air's own open paths — never from a global `find-file' hook,
+;; because org-air does not instrument buffers it does not own.
 ;;
-;; Kept out of the 8.7k-line view file per the module split convention;
-;; the view/render machinery (shared row primitive, rail, sort core,
-;; filter core) is REUSED, never forked.
+;; The view/render machinery (shared row primitive, rail, sort core,
+;; filter core) is REUSED from org-air-view.el, never forked.
 
 ;;; Code:
 
@@ -41,16 +41,17 @@
 (require 'org-air-query)
 (require 'org-air-view)
 
-;; R97 D1 — surface precondition for this module's commands.
+;; Surface precondition for this module's commands.
 
 (defun org-air-revisit--require-view ()
-  "Refuse unless the current buffer is the org-air revisit view (R97 D1)."
+  "Refuse unless the current buffer is the org-air revisit view."
   (org-air-require-surface "an org-air revisit view" "org-air-revisit"
                           'org-air-revisit-mode))
 
 (defvar org-air-inbox-file)
-;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
-;; the mode sets it buffer-locally without requiring bookmark at load.
+;; `bookmark-make-record-function' is bookmark.el's and bookmark.el is
+;; not preloaded; the mode sets it buffer-locally without requiring
+;; bookmark at load time.
 (defvar bookmark-make-record-function)
 
 ;;;; ---------------------------------------------------------------------
@@ -58,14 +59,14 @@
 ;;;; ---------------------------------------------------------------------
 
 (defcustom org-air-revisit-types '(knowledge)
-  "Note types the Revisit view surfaces (R54-3, fork F3).
+  "Note types the Revisit view surfaces.
 The default keeps journals OUT (timestamped logs are not evergreens);
 add `journal' to graze them too."
   :type '(repeat (choice (const knowledge) (const journal)))
   :group 'org-air)
 
 (defcustom org-air-revisit-rail-placement nil
-  "REVISIT override for `org-air-rail-placement' (R62-1d).
+  "REVISIT override for `org-air-rail-placement'.
 nil (the default) inherits the shared `org-air-rail-placement'; `inline'
 or `side-window' pins the revisit view regardless of the shared default.
 Resolved through `org-air-rail--placement'."
@@ -74,7 +75,7 @@ Resolved through `org-air-rail--placement'."
   :group 'org-air)
 
 (defcustom org-air-revisit-page-limit 200
-  "Rows one Revisit page renders before the fold row (R54-3).
+  "Rows one Revisit page renders before the fold row.
 TAB/RET on the `…and N more' fold row extends by ONE more page, so the
 full 5000-note corpus appears only after deliberate repeated asks and
 every render stays O(shown)."
@@ -82,24 +83,24 @@ every render stays O(shown)."
   :group 'org-air)
 
 (defcustom org-air-revisit-visit-ledger nil
-  "When non-nil, fold org-air-recorded visits into the attention-age (R54-3).
-DEFAULT nil (USER-RULED D2: last-modified is the age signal out of the
-box; the ledger is never written).  Non-nil: opens initiated FROM org-air
-views (board S-RET / g RET, the pane RET, revisit RET) are recorded in
-the bounded cache-persisted ledger and age becomes max(mtime, last
-visit); the SPACED mode also gains a visited-today tick.  A global
-`find-file' hook remains rejected — org-air never instruments buffers it
-does not own."
+  "When non-nil, fold org-air-recorded visits into the attention-age.
+The default nil keeps last-modified as the age signal and never writes
+the ledger.  Non-nil: opens initiated FROM org-air views (board S-RET /
+g RET, the pane RET, revisit RET) are recorded in the bounded
+cache-persisted ledger and age becomes max(mtime, last visit); the
+SPACED mode also gains a visited-today tick.  A global `find-file' hook
+is deliberately NOT used — org-air never instruments buffers it does not
+own."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-revisit-daily-count 5
-  "Notes the SPACED mode surfaces per day (R54-3, fork F9)."
+  "Notes the SPACED mode surfaces per day."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-revisit-orphan-rule 'disconnected
-  "Which notes the ORPHANS mode shows (R54-3, fork F8).
+  "Which notes the ORPHANS mode shows.
 `disconnected' (default): no note-links either way — nothing links to it
 AND it links nowhere.  `no-inbound' / `no-outbound' test one direction;
 `either' is the union reading of the ruling's phrasing."
@@ -108,14 +109,14 @@ AND it links nowhere.  `no-inbound' / `no-outbound' test one direction;
   :group 'org-air)
 
 (defconst org-air-revisit-buffer-name "*org-air revisit*"
-  "Name of the Revisit view buffer (R54-3).")
+  "Name of the Revisit view buffer.")
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Buffer state
 ;;;; ---------------------------------------------------------------------
 
 (defvar-local org-air-revisit--surface 'all
-  "Active surfacing mode: `all', `orphans' or `spaced' (R54-3, `m').")
+  "Active surfacing mode: `all', `orphans' or `spaced' (cycled on `m').")
 
 (defvar-local org-air-revisit--pages 1
   "How many `org-air-revisit-page-limit' pages are currently shown.
@@ -132,13 +133,13 @@ Toggled by `z c' (the columns-prefix convention).")
   "Width of the most recent Revisit render (the resize-refresh guard).")
 
 (defvar-local org-air-revisit--fill-token 0
-  "Monotonic token guarding the cold-fill pacer's slices (R54-3).")
+  "Monotonic token guarding the cold-fill pacer's slices.")
 
 (defvar-local org-air-revisit--fill-queue nil
-  "Files the in-flight cold fill has not scanned yet (R54-3).")
+  "Files the in-flight cold fill has not scanned yet.")
 
 (defvar-local org-air-revisit--fill-total 0
-  "Total file count of the in-flight cold fill (R54-3).")
+  "Total file count of the in-flight cold fill.")
 
 (defvar-local org-air-revisit--fill-timer nil
   "The single repeating wall-clock pacer of the cold fill, or nil.")
@@ -147,18 +148,18 @@ Toggled by `z c' (the columns-prefix convention).")
   "Float time of the last progressive cold-fill repaint, or nil.")
 
 (defvar-local org-air-revisit--bookmark-locator nil
-  "Armed point locator of an in-flight bookmark restore, or nil (R58).
+  "Armed point locator of an in-flight bookmark restore, or nil.
 The revisit twin of `org-air-view--bookmark-locator': a plist
 \(:item (FILE . POS) :title TITLE) consumed at the render tail; stays
 armed across the paced cold-fill's progressive paints until the row
 appears or the fill goes idle (one-shot either way).")
 
 (defvar org-air-revisit--meta-date-w 0
-  "Fixed age-chip column width for the current row pass (V6).")
+  "Fixed age-chip column width for the current row pass.")
 (defvar org-air-revisit--meta-tags-w 0
-  "Fixed tag column width for the current row pass (V6).")
+  "Fixed tag column width for the current row pass.")
 (defvar org-air-revisit--meta-origin-w 0
-  "Fixed origin column width for the current row pass (V6).")
+  "Fixed origin column width for the current row pass.")
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Data — every accessor below reads file-meta / ledger slots ONLY
@@ -189,8 +190,8 @@ deterministic base the sorts and the SPACED rotation build on."
     (sort out (lambda (a b) (string-lessp (car a) (car b))))))
 
 (defun org-air-revisit--entry-age-base (entry)
-  "Return ENTRY's attention epoch float (R54-3).
-File mtime (the USER-RULED default signal); with the opt-in ledger on,
+  "Return ENTRY's attention epoch float.
+File mtime by default; with the opt-in ledger on,
 max(mtime, last org-air visit).  A meta with no mtime reads as epoch 0 —
 maximally dusty, never an error."
   (let* ((mtime (or (plist-get (cdr entry) :mtime) 0.0))
@@ -230,7 +231,7 @@ never here."
       (_ (and in out)))))
 
 (defun org-air-revisit--spaced-entries (entries &optional now)
-  "Return the SPACED daily handful of ENTRIES (R54-3, USER-RULED D2).
+  "Return the SPACED daily handful of ENTRIES.
 A DETERMINISTIC rotation with zero state on disk: order the scope by the
 stable file-name key (ENTRIES already are), take the K-wide window
 starting at (mod (* day K) N) where day is `time-to-days' of NOW — the
@@ -252,9 +253,9 @@ every ceil(N/K) days."
             (time-to-days (or now (current-time)))))))
 
 (defun org-air-revisit--sort-entries (entries)
-  "Return ENTRIES ordered by the shared sort key/direction (R22-3 core).
-DEFAULT `age' ascending = oldest attention-age first, dustiest on top
-\(USER-RULED D2); `created' (denote ID / `#+date', nil last) and `title'
+  "Return ENTRIES ordered by the shared sort key/direction.
+DEFAULT `age' ascending = oldest attention-age first, dustiest on top;
+`created' (denote ID / `#+date', nil last) and `title'
 cycle on the inherited `o'; `O' reverses.  Every key is a precomputed
 float/string in file-meta — milliseconds-class at 10k entries."
   (let* ((key (or org-air-view--sort-key 'age))
@@ -285,7 +286,7 @@ float/string in file-meta — milliseconds-class at 10k entries."
 (defun org-air-revisit--visible-entries (scope)
   "Return SCOPE after the live filter, the surfacing mode and the sort.
 The `/' filter matches title + origin + file leaf + tags through the
-shared `org-air-view--tokens-pass-filter-p' (the R24-6 mini-language);
+shared `org-air-view--tokens-pass-filter-p' filter language;
 the mode is a pure filter/selection; the sort is the shared core."
   (let* ((filtered
           (seq-filter
@@ -322,10 +323,10 @@ the mode is a pure filter/selection; the sort is the shared core."
    (t (format "dusty %dd" days))))
 
 (defun org-air-revisit--date-text (entry now surface show-created)
-  "Return ENTRY's UNFACED date-cell text at NOW (R54-3).
+  "Return ENTRY's UNFACED date-cell text at NOW.
 The age chip; with SHOW-CREATED (`z c') the created date follows; in the
 SPACED SURFACE a note visited today (opt-in ledger) gains the done-tick
-— the rotation keeps its slot (fork F9)."
+— the rotation keeps its slot."
   (concat (org-air-revisit--age-text
            (org-air-revisit--entry-age-days entry now))
           (when show-created
@@ -343,7 +344,7 @@ SPACED SURFACE a note visited today (opt-in ledger) gains the done-tick
       (org-air-view--item-tagstr tags (min org-air-tags-inline-max n) n))))
 
 (defun org-air-revisit--entry-origin-cell (entry)
-  "Return ENTRY's `▤ dir/' origin cell text (the F1 column idiom)."
+  "Return ENTRY's `▤ dir/' origin cell text (the shared origin-column idiom)."
   (let ((text (org-air-revisit--entry-origin entry))
         (budget (max 1 (- org-air-origin-max-width 2))))
     (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
@@ -355,7 +356,7 @@ SPACED SURFACE a note visited today (opt-in ledger) gains the done-tick
 
 (defun org-air-revisit--fit-meta-widths (entries width now surface created)
   "Return fitted (DCOL TCOL OCOL) over the displayed ENTRIES at WIDTH.
-Mirrors the board's title-protected fit (R17): measure the shown rows
+Mirrors the board's title-protected fit: measure the shown rows
 only — O(page) — cap the origin, then shrink origin → tags until the
 flex title keeps `org-air-title-min-width'.  NOW, SURFACE and CREATED
 parameterise the date-cell text exactly as it renders."
@@ -387,7 +388,7 @@ parameterise the date-cell text exactly as it renders."
     (list dw tw ow)))
 
 (defun org-air-revisit--insert-row (entry now surface created)
-  "Insert ENTRY as one calm V6 row via the shared primitive.
+  "Insert ENTRY as one calm row via the shared primitive.
 The whole row carries `org-air-revisit' + `org-air-marker' so point on
 any cell identifies the note; every cell is a file-meta/ledger slot.
 NOW, SURFACE and CREATED parameterise the date cell."
@@ -405,17 +406,17 @@ NOW, SURFACE and CREATED parameterise the date cell."
                  org-air-revisit--meta-origin-w)
    ;; The revisit pane composes its OWN cluster field (own globals), so it
    ;; anchors to this row's cluster width — the documented project-style
-   ;; no-rail-board exception (R40-2).
+   ;; no-rail-board exception.
    :own-fence t
    :props (list 'org-air-revisit entry
                 'org-air-marker (car entry)
                 'mouse-face 'org-air-face-cursor)))
 
 (defun org-air-revisit--insert-rows (entries width pages surface created)
-  "Insert the paged ENTRIES at WIDTH — the bounded left pane (R54-3).
+  "Insert the paged ENTRIES at WIDTH — the bounded left pane.
 Renders exactly min(total, PAGES × `org-air-revisit-page-limit') rows,
-then the standard fold row (`org-air-more-row', the R51-3 actionable
-contract) that TAB/RET extend by ONE page.  SURFACE `spaced' is K rows
+then the standard actionable fold row (`org-air-more-row') that TAB/RET
+extend by ONE page.  SURFACE `spaced' is K rows
 by construction and never folds.  CREATED threads the `z c' column."
   (if (null entries)
       (insert (org-air-view--item-margin)
@@ -469,7 +470,7 @@ by construction and never folds.  CREATED threads the `z c' column."
   "The Summary age bands: (MIN-DAYS-EXCLUSIVE . LABEL), tried in order.")
 
 (defun org-air-revisit--insert-summary (entries width)
-  "Insert the Revisit rail Summary: age-band counts over ENTRIES (R54-3).
+  "Insert the Revisit rail Summary: age-band counts over ENTRIES.
 Bands >1y / >90d / >21d / fresh, fitted to rail content WIDTH in the
 board Summary's row idiom, with the short ledger rule and the total."
   (org-air-view--rail-header "Summary" width)
@@ -514,19 +515,19 @@ board Summary's row idiom, with the short ledger rule and the total."
     (("P" . "project")   ("?" . "help")   ("q" . "quit")))
   "Revisit rail Actions legend: three rows of (KEY . VERB) cells.
 Every KEY must resolve to a real command in `org-air-revisit-mode-map'
-\(the round-26 legend-truth discipline).")
+\(the legend-truth discipline).")
 
 (defun org-air-revisit--insert-actions (width)
   "Insert the Revisit rail Actions block fitted to content WIDTH.
-Same shape/keycap idiom as the board and project Actions blocks.
-R69-4: emits through the shared fit-driven `org-air-view--insert-verb-rows'
-\(3→2→1 columns; byte-identical where 3 columns fit)."
+Same shape and keycap idiom as the board and project Actions blocks;
+emitted through the shared fit-driven
+`org-air-view--insert-verb-rows' (3→2→1 columns)."
   (org-air-view--rail-header "Actions" width)
   (org-air-view--insert-verb-rows
    (apply #'append org-air-revisit--actions-table) width))
 
 (defun org-air-revisit--rail-descriptor ()
-  "Return the Revisit rail descriptor (the R20-5 parameterisation seam)."
+  "Return the Revisit rail descriptor (the rail parameterisation seam)."
   (list :visible-fn #'identity
         :calendar-fn
         (lambda (entries w inset)
@@ -551,7 +552,7 @@ board reads it; else the live window body; else 80."
       80))
 
 (defun org-air-revisit--host-width ()
-  "Return the compose width, rail-geometry aware (the R27-2 discipline)."
+  "Return the compose width, rail-geometry aware."
   (if (and (not noninteractive)
            (not (integerp org-air-view-width))
            (org-air-rail--popped-p)
@@ -561,7 +562,7 @@ board reads it; else the live window body; else 80."
     (org-air-revisit--render-width)))
 
 (defun org-air-revisit--sort-indicator ()
-  "Return the shared `↕ key dir' header badge (R22-3 core)."
+  "Return the shared `↕ key dir' header badge."
   (let ((key (or org-air-view--sort-key 'age))
         (dir (or org-air-view--sort-direction 'ascending)))
     (org-air-view--sort-indicator-text
@@ -582,10 +583,10 @@ board reads it; else the live window body; else 80."
     (concat title (make-string pad ?\s) badge)))
 
 (defun org-air-revisit--two-pane-body (entries left-fn width)
-  "Return the composed rows-pane | rail body lines for ENTRIES (R54-3).
+  "Return the composed rows-pane | rail body lines for ENTRIES.
 LEFT-FN inserts the row pane at the width it is given; the rail (fed
 ENTRIES through the descriptor) is sized to one windowful of the total
-WIDTH (the R49-4 rule), inspector-free."
+WIDTH, inspector-free."
   (let* ((rail-width (org-air-view--rail-width width))
          (divider (org-air-view--divider))
          (item-width (max 20 (- width rail-width (string-width divider))))
@@ -616,14 +617,14 @@ WIDTH (the R49-4 rule), inspector-free."
   (org-air-view--goto-row-title))
 
 (defun org-air-revisit--render ()
-  "Render the Revisit view into the current buffer (R54-3).
+  "Render the Revisit view into the current buffer.
 DATA-PURE: every cell reads file-meta / ledger slots — zero per-row file
 opens; bounded to O(shown) via the page clamp.  Rail placement, popped
 side-window lifecycle and the foreign-rail sweep mirror the project view
 \(one machinery, parameterised).
-R91/R92: every revisit repaint runs inside the shared scroll seam and
-PRESERVES the note the user is on — `g', `m' surface cycle, `z c', the
-filter and the paging all inherit it from here."
+Every revisit repaint runs inside the shared scroll seam and PRESERVES
+the note the user is on — `g', the `m' surface cycle, `z c', the filter
+and the paging all inherit that from here."
   (org-air-view--with-scroll-stable
     (org-air-revisit--render-body)))
 
@@ -634,8 +635,8 @@ filter and the paging all inherit it from here."
     (setq-local org-air-view--rail-popped-out
                 (eq (org-air-rail--placement 'revisit) 'side-window)))
   (let* ((inhibit-read-only t)
-         ;; R92: the note the user is on, named by IDENTITY (the note's
-         ;; file) and taken BEFORE the erase; nil on an entry render, the
+         ;; The note the user is on, named by IDENTITY (the note's file)
+         ;; and taken BEFORE the erase; nil on an entry render, the
          ;; first paint, or a point that is not on a row.
          (landing (unless org-air-view--landing-entry
                     (org-air-view--landing-save)))
@@ -654,8 +655,8 @@ filter and the paging all inherit it from here."
                     (org-air-revisit--insert-rows
                      visible w pages surface created))))
     (setq-local org-air-revisit--count (length visible))
-    ;; The rail back-pointer: a popped-out side rail renders THESE entries
-    ;; through the descriptor (the R22-5 shared primitive).
+    ;; The rail back-pointer: a popped-out side rail renders THESE
+    ;; entries through the descriptor.
     (setq-local org-air-view--items scope)
     (setq-local org-air-view--rail-descriptor
                 (org-air-revisit--rail-descriptor))
@@ -673,25 +674,24 @@ filter and the paging all inherit it from here."
       (funcall left-fn width))
     (goto-char (point-max))
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
-    ;; R92: put the user back on the note they were on; the first row is
-    ;; the fallback ONLY when that note has genuinely vanished (a surface
+    ;; Put the user back on the note they were on; the first row is the
+    ;; fallback ONLY when that note has genuinely vanished (a surface
     ;; cycle dropped it, a filter emptied it, the file is gone).
     (org-air-view--landing-restore
      landing #'org-air-revisit--goto-first-row)
-    ;; R58: an armed bookmark locator owns the landing; it stays armed
-    ;; while the paced cold fill is still running (the row may not be
-    ;; painted yet) and clears on match or fill-idle.
+    ;; An armed bookmark locator owns the landing; it stays armed while
+    ;; the paced cold fill is still running (the row may not be painted
+    ;; yet) and clears on match or fill-idle.
     (org-air-revisit--bookmark-consume)
     (setq org-air-revisit--rendered-width width)
     (cond
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      ;; R63-1a: the responsive teardown is an OWNER privilege — a
-      ;; narrow NON-owner (or suspended) render must never delete
-      ;; another view's live rail (the fourth gated tail).
-      ;; R58: an undisplayed (bookmark-restored) revisit view must not
-      ;; delete the displayed layout's windows.
+      ;; The responsive teardown is an OWNER privilege: a narrow
+      ;; NON-owner (or suspended) render must never delete another
+      ;; view's live rail, and an undisplayed (bookmark-restored)
+      ;; revisit view must not delete the displayed layout's windows.
       (when (and (org-air-rail--tail-owner-p (current-buffer))
                  (not (org-air-rail--undisplayed-host-p (current-buffer))))
         (org-air-rail--hide (current-buffer)))))
@@ -703,13 +703,13 @@ filter and the paging all inherit it from here."
     (org-air-revisit--render)))
 
 (defun org-air-revisit--resize-refresh ()
-  "Re-render when the displaying window's width changed (the C1 path)."
+  "Re-render when the displaying window's width changed."
   (let ((width (org-air-revisit--host-width)))
     (unless (eql width org-air-revisit--rendered-width)
       (org-air-revisit--render-current))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Cold fill — the never-hang data path (R53 laws inherited)
+;;;; Cold fill — the never-hang data path
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-revisit--file-meta-empty-p ()
@@ -723,7 +723,7 @@ filter and the paging all inherit it from here."
   (setq org-air-revisit--fill-timer nil))
 
 (defun org-air-revisit--fill-start ()
-  "Start the paced cold fill of the file-meta table (R54-3).
+  "Start the paced cold fill of the file-meta table.
 NEVER a synchronous scan on the interactive path: the same budgeted
 slices (`org-air-refresh-slice-budget') on the same repeating wall-clock
 pace (`org-air-view--refresh-wallclock-pace') the board's rescue pacer
@@ -748,9 +748,9 @@ ERT/regen), so no timer is ever armed in batch."
                             org-air-revisit--fill-token)))))
 
 (defun org-air-revisit--fill-slice (buffer token)
-  "Drain one budgeted cold-fill slice for BUFFER under TOKEN (R54-3).
+  "Drain one budgeted cold-fill slice for BUFFER under TOKEN.
 Consumes queued files until `org-air-refresh-slice-budget' is exceeded
-\(minimum 1 — the R53 P1c shape); repaints progressively at most once per
+\(minimum 1); repaints progressively at most once per
 `org-air-cold-paint-interval'; a stale TOKEN or dead BUFFER is a silent
 no-op, so a superseded fill can never touch the view."
   (when (buffer-live-p buffer)
@@ -759,7 +759,7 @@ no-op, so a superseded fill can never touch the view."
           nil
         (let ((deadline (+ (float-time) org-air-refresh-slice-budget))
               (first t))
-          ;; Budgeted slice, minimum ONE file per tick (the R53 P1c shape).
+          ;; Budgeted slice, minimum ONE file per tick.
           (while (and org-air-revisit--fill-queue
                       (or first (< (float-time) deadline)))
             (setq first nil)
@@ -785,7 +785,7 @@ no-op, so a superseded fill can never touch the view."
   (org-air-revisit--fill-disarm))
 
 (defun org-air-revisit--ensure-data ()
-  "Make sure file-meta has data, without ever blocking the frame (R54-3).
+  "Make sure file-meta has data, without ever blocking the frame.
 Warm: the table already has entries (a board session scanned, or a prior
 fill) — nothing to do.  Cache: hydrate the persisted `:file-meta' +
 `:visits' (data-pure, no scan).  Cold: pace the fill (interactive) or
@@ -812,7 +812,7 @@ scan synchronously (batch only — deterministic ERT/regen)."
   "RET: open the note at point (same window); extend the fold row.
 The single user-initiated open of the data-pure view — the (FILE . POS 1)
 visit path; records the opt-in visit ledger.  On the `…and N more' fold
-row this extends by ONE page instead (the R51-3 actionable contract)."
+row this extends by ONE page instead."
   (interactive nil org-air-revisit-mode)
   (org-air-revisit--require-view)
   (if (org-air-view--row-property 'org-air-more-row)
@@ -851,7 +851,7 @@ row this extends by ONE page instead (the R51-3 actionable contract)."
     (message "org-air revisit: nothing to expand here")))
 
 (defun org-air-revisit-cycle-surface ()
-  "Cycle the surfacing mode: ALL → ORPHANS → SPACED (R54-3, key `m').
+  "Cycle the surfacing mode: ALL → ORPHANS → SPACED (key `m').
 Each mode is a pure sort/filter over file-meta — same buffer, same
 renderer, same paging (reset to page 1), zero per-row file opens."
   (interactive nil org-air-revisit-mode)
@@ -868,10 +868,10 @@ renderer, same paging (reset to page 1), zero per-row file opens."
 (defun org-air-revisit-filter (tags)
   "Filter the Revisit view to TAGS (the shared filter core, key `/').
 Matches title/tags/origin in memory; resets the paging.
-R72: the date/status tokens (`is:overdue', `due:7d', …) are board/review
-vocabulary — file-meta entries carry no planning slots (knowledge notes
-are dateless BY the R54-2 model), so here they are vacuously false and
-the vocabulary is not offered."
+The date/status tokens (`is:overdue', `due:7d', …) are board and review
+vocabulary: file-meta entries carry no planning slots, because knowledge
+notes are dateless by the note-type model, so here those tokens would be
+vacuously false and are not offered."
   (interactive
    (progn
      (org-air-revisit--require-view)
@@ -941,7 +941,7 @@ batch (deterministic ERT/regen) the scan runs inline."
       (org-air-view--goto-row-title))))
 
 (defun org-air-revisit-quit ()
-  "Quit the Revisit view progressively — one surface per press (R28-2).
+  "Quit the Revisit view progressively — one surface per press.
 A live bottom pane closes first; the next press tears down a popped-out
 rail and quits back to the previous view (the shared quit convention)."
   (interactive nil org-air-revisit-mode)
@@ -979,7 +979,7 @@ rail and quits back to the previous view (the shared quit convention)."
      (org-air-project . "project tree")
      (org-air-revisit-quit . "quit")
      (org-air-help . "this help")))
-  "REVISIT help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).")
+  "REVISIT help groups: (TITLE . ((COMMAND . DESCRIPTION) …)).")
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Keymaps + mode
@@ -988,23 +988,23 @@ rail and quits back to the previous view (the shared quit convention)."
 (defvar org-air-revisit-columns-map
   (make-sparse-keymap)
   "Column-toggle prefix map for the Revisit view (`z c' created).
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
 (org-air--register-default-keys 'org-air-revisit-columns-map
   "c" #'org-air-revisit-toggle-created)
 
 (defvar org-air-revisit-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; A THIN child of the shared view-core map (R18 D-P3): o/O sort, `|'
+    ;; A THIN child of the shared view-core map: o/O sort, `|'
     ;; rail, `\' clear, M-/ combinator, j/k line motion all inherit.
-    ;; PARENT stays at defvar time — always, even with the knob nil (R35-1).
+    ;; PARENT stays at defvar time — always, even with the knob nil.
     (set-keymap-parent map org-air-view-core-map)
     map)
   "Keymap for `org-air-revisit-mode'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the REVISIT default keys (installer-owned).  RET is the
-;; same-window note open (the fold row extends a page instead); S-RET the
+;; The REVISIT default keys (installer-owned).  RET is the same-window
+;; note open (the fold row extends a page instead); S-RET the
 ;; other-window visit; `m' cycles the surfacing mode; `/' the per-mode
 ;; filter; `P' the symmetric view switch to the project tree.
 (org-air--register-default-keys 'org-air-revisit-mode-map
@@ -1019,7 +1019,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "/" #'org-air-revisit-filter
   "g" #'org-air-revisit-refresh
   "P" #'org-air-project
-  ;; R61-4: `W' opens the Review (week/period) surface.
+  ;; `W' opens the Review (week/period) surface.
   "W" #'org-air-review
   "z" '(:prefix . org-air-revisit-columns-map)
   "?" #'org-air-help
@@ -1027,9 +1027,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 (defvar org-air-revisit-leader-map
   (make-sparse-keymap)
-  "Leader prefix map for the Revisit content buffer (R30-2).
+  "Leader prefix map for the Revisit content buffer.
 Installed at `org-air-leader-key' on `org-air-revisit-mode-map'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
 (org-air--register-default-keys 'org-air-revisit-leader-map
   "|" #'org-air-rail-toggle
@@ -1041,22 +1041,22 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
                                   'org-air-revisit-leader-map)
 
 (define-derived-mode org-air-revisit-mode special-mode "Org-Air-Revisit"
-  "Major mode for the Revisit (evergreen notes) view (R54-3)."
-  ;; R35-1: reconcile the shared maps on the first revisit buffer.
+  "Major mode for the Revisit (evergreen notes) view."
+  ;; Reconcile the shared maps on the first revisit buffer.
   (org-air--sync-default-keybindings)
   (setq-local truncate-lines t)
   (setq-local cursor-type 'box)
   (setq-local line-spacing org-air-line-spacing)
   (org-air-view--install-modeline)
-  ;; R58: the Revisit view is bookmarkable — a FULL record: surface, sort,
+  ;; The Revisit view is bookmarkable — a FULL record: surface, sort,
   ;; created column, plus the note-at-point locator (the revisit unit is
   ;; the FILE).  Restored by `org-air-revisit-bookmark-jump'.
   (setq-local bookmark-make-record-function
               #'org-air-revisit--bookmark-make-record)
-  ;; Responsive re-render on resize (the round-9 C1 path).
+  ;; Responsive re-render on resize.
   (setq-local org-air-layout-refresh-function
               #'org-air-revisit--resize-refresh)
-  ;; R22-3: seed the SHARED sort spec so the inherited o/O drive the
+  ;; Seed the SHARED sort spec so the inherited o/O drive the
   ;; age/created/title cycle (default: age ascending = dustiest first).
   (setq-local org-air-view--sort-keys '(age created title))
   (setq-local org-air-view--sort-refresh #'org-air-revisit--render-current)
@@ -1064,19 +1064,19 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
     (setq-local org-air-view--sort-key 'age))
   (unless org-air-view--sort-direction
     (setq-local org-air-view--sort-direction 'ascending))
-  ;; R22-2b/R29-2: point normalization onto row titles; inert in batch.
+  ;; Point normalization onto row titles; inert in batch.
   (unless noninteractive
     (add-hook 'pre-command-hook #'org-air-view--pre-command-snapshot nil t)
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
   ;; A dying revisit buffer takes its pacer AND its popped rail with it.
   (add-hook 'kill-buffer-hook #'org-air-revisit--fill-teardown nil t)
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
-  ;; R24-5: the shared cooperative rail reconciler; inert under batch.
+  ;; The shared cooperative rail reconciler; inert under batch.
   (unless noninteractive
     (add-hook 'window-configuration-change-hook
               #'org-air-rail--reconcile nil t))
-  ;; R27-4: the shared evil integration (motion state + overriding map);
-  ;; fboundp-gated soft dep, skipped with the R35-1 knob off.
+  ;; The shared evil integration (motion state + overriding map);
+  ;; fboundp-gated soft dep, skipped with the keybinding knob off.
   (when org-air-use-default-keybindings
     (org-air-view--setup-evil 'org-air-revisit-mode
                               org-air-revisit-mode-map))
@@ -1085,7 +1085,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 ;;;###autoload
 (defun org-air-revisit ()
-  "Open the Revisit (evergreen notes) view (R54-3).
+  "Open the Revisit (evergreen notes) view.
 Surfaces KNOWLEDGE notes (`org-air-revisit-types') by attention-age,
 dustiest first; `m' cycles ALL → ORPHANS → SPACED.  Reached from the
 board via the Notes count row (RET) or `N', and from the project via
@@ -1093,37 +1093,37 @@ board via the Notes count row (RET) or `N', and from the project via
   (interactive)
   (let ((buffer (get-buffer-create org-air-revisit-buffer-name)))
     (with-current-buffer buffer
-      ;; R26-5 idempotent entry: initialise the mode only once — a
-      ;; re-entry re-renders in place (session state survives).
+      ;; Idempotent entry: initialise the mode only once — a re-entry
+      ;; re-renders in place, so session state survives.
       (unless (derived-mode-p 'org-air-revisit-mode)
         (org-air-revisit-mode)))
     (pop-to-buffer buffer)
     (org-air-revisit--open-core buffer t)))
 
 (defun org-air-revisit--open-core (buffer _display)
-  "Run the Revisit entry's data+render body in BUFFER (R58 factoring).
+  "Run the Revisit entry's data+render body in BUFFER.
 Prep + `org-air-revisit--ensure-data' (never-blocking: warm / cache
 hydrate / paced cold fill) + link-graph ensure + render — exactly the
 command's body; the command is prep + `pop-to-buffer' + this core.  The
 bookmark handler calls it with DISPLAY nil (undisplayed — the restorer
-owns the windows).  Ensures the mode idempotently (R26-5); never
+owns the windows).  Ensures the mode idempotently; never
 displays BUFFER."
   (with-current-buffer buffer
     (unless (derived-mode-p 'org-air-revisit-mode)
       (org-air-revisit-mode))
     (org-air-revisit--ensure-data)
     (org-air-query-link-graph-ensure)
-    ;; R92: an ENTRY is an explicit jump — it owns its landing (the first
+    ;; An ENTRY is an explicit jump — it owns its landing (the first
     ;; note), exactly as board OPEN does.
     (let ((org-air-view--landing-entry t))
       (org-air-revisit--render))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R58 — Emacs bookmark support (see org-air-view.el's shared core).
+;;;; Emacs bookmark support (see org-air-view.el's shared core).
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-revisit--bookmark-name ()
-  "Return the revisit record's `defaults' candidates (R58).
+  "Return the revisit record's `defaults' candidates.
 Surface-qualified first (\"org-air: revisit · orphans\") when off the
 default `all', then the generic \"org-air: revisit\"."
   (delete-dups
@@ -1134,7 +1134,7 @@ default `all', then the generic \"org-air: revisit\"."
                "org-air: revisit"))))
 
 (defun org-air-revisit--bookmark-make-record ()
-  "Return the Emacs bookmark record for the Revisit buffer (R58).
+  "Return the Emacs bookmark record for the Revisit buffer.
 A FULL record: surface + sort + the created-column toggle plus the
 note-at-point locator — (FILE . 1), the revisit unit IS the file.  Pure
 buffer-local reads; never signals (degrades to the bare header record).
@@ -1167,7 +1167,7 @@ corpus is meaningless (restore resets to 1 — the documented ruling)."
                                           (list "org-air: revisit")))))
 
 (defun org-air-revisit--bookmark-apply (record)
-  "Apply RECORD's org-air fields to the current Revisit buffer (R58).
+  "Apply RECORD's org-air fields to the current Revisit buffer.
 The revisit twin of `org-air-view--bookmark-apply': every field
 optional, unknown fields ignored, malformed values dropped.  Always
 resets `org-air-revisit--pages' to 1 (the documented ruling)."
@@ -1186,7 +1186,7 @@ resets `org-air-revisit--pages' to 1 (the documented ruling)."
     (setq-local org-air-revisit--pages 1)))
 
 (defun org-air-revisit--bookmark-consume ()
-  "Land point on the bookmarked note row; never signals (R58).
+  "Land point on the bookmarked note row; never signals.
 Matches on the note FILE (the shared `org-air-marker' property carries
 it on revisit rows), then on the entry title.  With the paced cold fill
 still in flight a miss stays ARMED for the next progressive paint;
@@ -1218,16 +1218,16 @@ otherwise the slot clears and the render's first-row landing stands."
 
 ;;;###autoload
 (defun org-air-revisit-bookmark-jump (record)
-  "Handler for org-air Revisit bookmarks (R58).
+  "Handler for org-air Revisit bookmarks.
 Rebuilds `*org-air revisit*' from RECORD without displaying it (the
 bookmark caller owns display) through the existing never-blocking data
-path (warm / cache hydrate / paced cold fill — the R53/R54 laws).  Never
+path (warm / cache hydrate / paced cold fill).  Never
 signals: a malformed RECORD degrades to a plain Revisit open."
   (require 'org-air)
   (let ((buffer (get-buffer-create org-air-revisit-buffer-name)))
     (condition-case err
         (with-current-buffer buffer
-          ;; R26-5 idempotent entry guard — identical to the command's.
+          ;; Idempotent entry guard — identical to the command's.
           (unless (derived-mode-p 'org-air-revisit-mode)
             (org-air-revisit-mode))
           (org-air-revisit--bookmark-apply record)
@@ -1246,7 +1246,7 @@ signals: a malformed RECORD degrades to a plain Revisit open."
 ;;;###autoload
 (put 'org-air-revisit-bookmark-jump 'bookmark-handler-type "org-air")
 
-;; R35-1: this file loads AFTER the load-time seed at the bottom of
+;; This file loads AFTER the load-time seed at the bottom of
 ;; org-air-project.el, so the revisit key registrations above missed that
 ;; sync.  Re-install once (idempotent) iff the defaults are currently ON,
 ;; so the revisit maps are populated under the default while a knob-off

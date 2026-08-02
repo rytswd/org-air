@@ -55,14 +55,14 @@ track ACE runtime artifacts in this git repo.
     export EVER_DATA_DIR=/home/ryota/Coding/github.com/withre/ace-stack/data
     export GIT_CONFIG_GLOBAL=/dev/null
     cd /home/ryota/Coding/github.com/rytswd/org-air 2>/dev/null || exit 0
-    BASE=qqqzwtol   # round-10 spec-landing tip; bump per round
-    RS="($BASE:: ~ $BASE) & ~empty() & (description(glob:\"R10*\") | description(glob:\"Design round-10*\") | description(glob:\"tests:*\") | description(glob:\"test:*\"))"
+    BASE=<change-id>   # the round's spec-landing tip; bump per round
+    RS="($BASE:: ~ $BASE) & ~empty() & (description(glob:\"R*\") | description(glob:\"Design round-*\") | description(glob:\"tests:*\") | description(glob:\"test:*\"))"
     STATE=/tmp/org-air-ace/monitor-commits.txt
     CUR=$(jj --config signing.behavior=drop log --no-graph -r "$RS" -T 'change_id.short() ++ "|" ++ description.first_line() ++ "\n"' 2>/dev/null)
     PREV=$(cat "$STATE" 2>/dev/null)
     if [ "$CUR" != "$PREV" ]; then
       NEW=$(comm -13 <(printf '%s' "$PREV" | sort) <(printf '%s' "$CUR" | sort))
-      [ -n "$NEW" ] && pi-crosstalk send org-air-orchestrator --from "@ever:org-air3.monitor" "[monitor] new round-10 worker commits:
+      [ -n "$NEW" ] && pi-crosstalk send org-air-orchestrator --from "@ever:org-air3.monitor" "[monitor] new worker commits:
     $NEW"
       printf '%s' "$CUR" > "$STATE"
     fi
@@ -156,6 +156,13 @@ track ACE runtime artifacts in this git repo.
   expected, 0 unexpected". Self-policing known-failures manifest must be
   EMPTY at integration. Tests are byte fixtures (svg is GUI-cosmetic only;
   every svg element needs a TTY/byte fallback).
+- `make check` is BATCH-ONLY and is not a performance verdict: batch keeps
+  `gc-cons-percentage` at 1.0 so the collector never runs, and
+  `string-width` costs nothing there and real allocation on a frame. A
+  render/perf round must additionally be gated on a display with
+  `make check-gui` (the ERTs batch skips) and `make bench-gui` (the expand
+  fence). `bench-gui` exits **2**, not 0, when there is no display — treat
+  that as NOT MEASURED, never as a pass.
 
 - Monitor checks (tick.sh, every 3m): (1) new worker commits, (2) seat
   EXITED, (3) seat STUCK >600s on one tool (hang), (4) seat DEGRADED >280k

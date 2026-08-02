@@ -27,7 +27,7 @@
 (require 'org-air-layout)
 
 ;;;; ---------------------------------------------------------------------
-;;;; R97 D1 — the surface preconditions for the view module's commands.
+;;;; The surface preconditions for the view module's commands.
 ;;;; ---------------------------------------------------------------------
 ;;
 ;; Thin, named wrappers over `org-air-require-surface' so the ~110
@@ -38,17 +38,17 @@
 ;; org-air-project / -review / -revisit.
 
 (defun org-air-view--require-board ()
-  "Refuse unless the current buffer is an org-air board (R97 D1)."
+  "Refuse unless the current buffer is an org-air board."
   (org-air-require-surface "an org-air board" "org-air" 'org-air-view-mode))
 
 (defun org-air-view--require-item-view ()
-  "Refuse unless point is in a view that carries org-air ITEM rows (R97 D1).
+  "Refuse unless point is in a view that carries org-air ITEM rows.
 The board and the review view; the item verbs are shared by both."
   (org-air-require-surface "an org-air board or review view" "org-air"
                           'org-air-view-mode 'org-air-review-mode))
 
 (defun org-air-view--require-view ()
-  "Refuse unless the current buffer is one of the four org-air views (R97 D1).
+  "Refuse unless the current buffer is one of the four org-air views.
 Board, project tree, review, revisit — the surfaces that share the
 filter, sort, pane and motion verbs."
   (org-air-require-surface "an org-air view" "org-air"
@@ -56,7 +56,7 @@ filter, sort, pane and motion verbs."
                           'org-air-review-mode 'org-air-revisit-mode))
 
 (defun org-air-view--require-rail-host ()
-  "Refuse unless the current buffer can host the org-air rail (R97 D1).
+  "Refuse unless the current buffer can host the org-air rail.
 The four views, the rail itself, and a live project doc session."
   (org-air-require-surface "an org-air view" "org-air"
                           'org-air-view-mode 'org-air-project-mode
@@ -64,12 +64,12 @@ The four views, the rail itself, and a live project doc session."
                           'org-air-rail-mode 'org-air-doc-session-mode))
 
 (defun org-air-view--require-rail ()
-  "Refuse unless the current buffer is the org-air rail (R97 D1)."
+  "Refuse unless the current buffer is the org-air rail."
   (org-air-require-surface "the org-air rail" "org-air" 'org-air-rail-mode))
 
 (defun org-air-view--pane-surface-p ()
   "Return non-nil when point is on an org-air pane, or in the view that hosts it.
-The pane quit verb is reachable from THREE places (R20-3a): the
+The pane quit verb is reachable from THREE places: the
 read-only snapshot (`org-air-entry-view-mode'), the EDITABLE indirect
 pane — a live `org-mode' indirect buffer named `*org-air-pane:TITLE*',
 which derives from no org-air mode at all — and the host view that owns
@@ -81,7 +81,7 @@ the pane.  All three are org-air's own surfaces; nothing else is."
         (and name (string-match-p "\\` ?\\*org-air-pane:" name) t))))
 
 (defun org-air-view--require-pane-surface ()
-  "Refuse unless point is on an org-air pane or in its host view (R97 D1)."
+  "Refuse unless point is on an org-air pane or in its host view."
   (unless (org-air-view--pane-surface-p)
     (user-error "Not in an org-air view or entry pane (run `M-x org-air')")))
 
@@ -94,19 +94,19 @@ the pane.  All three are org-air's own surfaces; nothing else is."
 (declare-function svg-polygon "svg")
 (declare-function svg-text "svg")
 (declare-function svg-image "svg")
-;; R73-2: the archive verb's ring-record desc names the archive file.
+;; The archive verb's ring-record desc names the archive file.
 (declare-function org-archive--compute-location "org-archive" (location))
 
 (defvar org-air-files)
 (defvar org-air-inbox-file)
 (defvar org-air-exclude-regexps)
-;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
+;; `bookmark-make-record-function' is bookmark.el's (not preloaded);
 ;; the modes set it buffer-locally without requiring bookmark at load.
 (defvar bookmark-make-record-function)
 (defvar org-air-revisit-buffer-name)
 (defvar org-air-review-buffer-name)
 
-;; R54-3: the Revisit view lives in org-air-revisit.el (module split);
+;; The Revisit view lives in org-air-revisit.el (module split);
 ;; this file only NAMES its entry points (the `N' key, the Notes-heading
 ;; RET doorway, the shared dispatchers), all fboundp-guarded at runtime.
 (declare-function org-air-revisit "org-air-revisit" ())
@@ -128,12 +128,12 @@ the pane.  All three are org-air's own surfaces; nothing else is."
   :group 'org-air)
 
 (defcustom org-air-section-expand-max 200
-  "Most rows ONE TAB reveals when expanding a section (R98).
+  "Most rows ONE TAB reveals when expanding a section.
 
 TAB on a section header used to paint EVERY member of that section.  On a
 real corpus that is thousands of rows built at full fidelity — face runs,
 badges, date labels, origin cells — to fill a window that shows forty of
-them, and the frame is locked for the whole of it (the R98 measurement:
+them, and the frame is locked for the whole of it (the measurement:
 0.84s for a 2103-member section at 3k items, 1.29s in the board-only
 splice).  A bounded reveal makes every TAB cost the same regardless of
 how big the section is.
@@ -145,8 +145,8 @@ row adds another `org-air-section-expand-max' rows (`org-air-view--
 section-reveal'), so nothing is unreachable — it is paged, not hidden,
 and the count never lies.
 
-Nil (or a value <= 0) restores the pre-R98 behaviour: one TAB paints the
-whole section, however long it takes."
+Nil (or a value <= 0) makes one TAB paint the whole section, however
+long that takes."
   :type '(choice (const :tag "Unbounded (paint every row)" nil)
                  (integer :tag "Rows per TAB"))
   :group 'org-air)
@@ -155,19 +155,19 @@ whole section, however long it takes."
   "Single source of truth for the org-air chrome middle-dot separator.
 Used to join header status segments, the rail Source line, the
 Filter/Match/Actions legends, the pane header, the quiet-activity marker
-and the calendar `created' key (R33-1).  The default is `∙' (U+2219
+and the calendar `created' key.  The default is `∙' (U+2219
 BULLET OPERATOR, East-Asian *Neutral* -> painted one column in every
 font), replacing the visually similar `·' (U+00B7 MIDDLE DOT, East-Asian
 *Ambiguous* -> a GUI font may PAINT it two columns while `string-width'
 measures one).  Because `string-width' is identical (both 1), every
-column position and the whole V6/R31 width math are byte-identical in
-COLUMNS; only the glyph byte changes, so a right-filled chrome line can
-no longer be painted past its usable width (Seam B)."
+column position and the whole width model are identical in COLUMNS; only
+the glyph byte changes, so a right-filled chrome line can never be
+painted past its usable width."
   :type 'string
   :group 'org-air)
 
 (defcustom org-air-date-style 'pill
-  "How the item-row date renders (R10).
+  "How the item-row date renders.
 `pill' draws an svg-tag-style rounded pill on a graphical frame when SVG
 is available, degrading to coloured text; `text' is always coloured text.
 The byte gate only ever sees the coloured text (the pill is a GUI display
@@ -181,23 +181,23 @@ property), so fixtures are unaffected by this choice."
   :group 'org-air)
 
 (defcustom org-air-tag-style 'pill
-  "How tags (and the R10/V6 date) render (V3).
+  "How tags (and the item-row date) render.
 `pill' draws a built-in rounded svg pill on a graphical frame when SVG is
-available (D-P1: own the geometry, no `svg-tag-mode'), degrading to the
-quiet coloured text; `text' is always the text.  The pill is sized to the
-underlying text's column width, with the D-P1.PAD reserved pad columns,
-so it never shifts the V6 columns, and the byte gate only ever sees the
-padded text."
+available — org-air owns the geometry and does not use `svg-tag-mode' —
+degrading to the quiet coloured text; `text' is always the text.  The
+pill is sized to the underlying text's column width, including the
+reserved `org-air-pill-pad-cols' padding, so it never shifts the columns
+and the byte gate only ever sees the padded text."
   :type '(choice (const pill) (const text))
   :group 'org-air)
 
 (defcustom org-air-pill-pad-cols 1
-  "Reserved internal padding COLUMNS on each side of a pill label (D-P1.PAD).
+  "Reserved internal padding COLUMNS on each side of a pill label.
 The pill label string carries this many space columns left AND right in
 the TEXT layer (svg-tag-mode's technique): the chip reads `(pad)#inbox(pad)'.
 Because `org-air-view--compute-meta-widths' sizes the metadata columns from
 `string-width', the reserved pad is counted automatically, so the pill box
-spans `reserved-Ncols * char-width' and V6 alignment still holds (geometry
+spans `reserved-Ncols * char-width' and column alignment still holds (geometry
 stays 100% text-layer driven).  The label is drawn centred in the inner
 columns so the pad becomes genuine internal margin and the label never
 reaches the rounded edge.  In TTY (pills off) the pad spaces are harmless
@@ -206,7 +206,7 @@ and keep alignment byte-identical with the pill on."
   :group 'org-air)
 
 (defcustom org-air-pill-font-scale 0.66
-  "Pill label font-size as a fraction of the line height `ch' (D-P1.FIT).
+  "Pill label font-size as a fraction of the line height `ch'.
 The desired label font-size is `(max 7 (round (* ch this)))'.  The label
 is then WIDTH-fitted to the box's inner width so a long label can never
 exceed its drawable area — this is the structural clip fix."
@@ -214,23 +214,22 @@ exceed its drawable area — this is the structural clip fix."
   :group 'org-air)
 
 (defcustom org-air-pill-radius nil
-  "Corner radius in device pixels for the rounded svg pill (D-P1.LOOK).
+  "Corner radius in device pixels for the rounded svg pill.
 When nil the radius is `line-height / 6' (a soft rounded corner, NOT a
 stadium), tracking the current font/text-scale metrics."
   :type '(choice (const :tag "Auto (line-height/6)" nil) number)
   :group 'org-air)
 
 (defcustom org-air-pill-fill-alpha 0.08
-  "Per-chip fill opacity for the rounded svg pill (D-P1.LOOK / R13 D-P1.B).
-Round-13 raises the default 0 → 0.08: a *very* light tint of the label hue
-behind the label, so a capsule reads at a glance without shouting.
-Combined with the 0.85 border this makes the pill unmistakable yet calm.
-Colour lives in the LABEL; the fill is just a faint wash of the same hue."
+  "Per-chip fill opacity for the rounded svg pill.
+A *very* light tint of the label hue behind the label, so a capsule
+reads at a glance without shouting.  Colour lives in the LABEL; the fill
+is just a faint wash of the same hue."
   :type 'number
   :group 'org-air)
 
 (defcustom org-air-pill-border nil
-  "Colour of the single muted pill border (D-P1.LOOK).
+  "Colour of the single muted pill border.
 A colour string, or nil to derive a quiet neutral from the
 `org-air-face-faded' foreground.  The same restrained neutral is used for
 every chip — the per-tag hue lives in the LABEL only, never the border."
@@ -238,18 +237,16 @@ every chip — the per-tag hue lives in the LABEL only, never the border."
   :group 'org-air)
 
 (defcustom org-air-pill-border-opacity 0.7
-  "Stroke opacity for the svg pill border (R13 D-P1.B; R18 D-P5.4 calmer).
-R18 D-P5.4 nudges the default 0.85 → 0.7 for a calmer nano-style hairline,
-paired with the low `org-air-pill-fill-alpha' 0.08: the capsule still
-reads clearly but no longer shouts.  Round-13's 0.85 sat a touch loud;
-round-12's 0.5 was too faint.  Display-only (an svg attribute) — no byte
-change; the round-18 D-P1a image cache invalidates once on the new
-style-sig."
+  "Stroke opacity for the svg pill border.
+0.7 is a calm nano-style hairline paired with the low
+`org-air-pill-fill-alpha' 0.08: the capsule reads clearly without
+shouting.  Display-only (an svg attribute) — no byte change; the image
+cache re-keys on the new style signature."
   :type 'number
   :group 'org-air)
 
 (defcustom org-air-date-pill-align 'center
-  "How the date label sits inside its uniform-width pill capsule (D-P1).
+  "How the date label sits inside its uniform-width pill capsule.
 `center' (default) centres the label in the `meta-date-w' box; `right'
 hugs the label to the right of the box (a right-aligned date column).  The
 underlying TTY/byte text stays left-justified either way."
@@ -257,14 +254,13 @@ underlying TTY/byte text stays left-justified either way."
   :group 'org-air)
 
 (defcustom org-air-line-spacing 0
-  "Buffer-local `line-spacing' for the org-air board (D-P3, default 0).
-Default 0 packs rows tight (the round-8 S8 behaviour) so the `│' divider
-glyph is drawn per cell with NO gap below the row — a continuous,
-portable (TTY + every GUI) vertical rule.  Round-11 set this to 0.15 to
-calm the stacked capsules, but that opens a pixel gap below every row
-that the per-cell divider glyph does not paint into, so the divider read
-as dashed/broken (D-P3 symptom).  The capsule breathing now lives
-INSIDE each pill via `org-air-pill-vinset', so the divider stays solid.
+  "Buffer-local `line-spacing' for the org-air board.
+Default 0 packs rows tight so the `│' divider glyph is drawn per cell
+with NO gap below the row — a continuous, portable (TTY and every GUI)
+vertical rule.  A non-zero value opens a pixel gap below every row that
+the per-cell divider glyph does not paint into, so the divider reads as
+dashed.  The capsule breathing lives INSIDE each pill via
+`org-air-pill-vinset' instead, so the divider stays solid.
 nil leaves `line-spacing' at the frame default; a non-zero value
 re-introduces inter-row spacing (the divider then needs
 `org-air-divider-style' = `svg to stay solid)."
@@ -272,12 +268,12 @@ re-introduces inter-row spacing (the divider then needs
   :group 'org-air)
 
 (defcustom org-air-modeline-style 'default
-  "Mode-line style for the org-air board / project / pane buffers (R23-2).
+  "Mode-line style for the org-air board / project / pane buffers.
 org-air already shows status in the in-buffer banner and keeps the
-header-line nil (S1).  `default' (the default since R23-2) leaves the
-mode-line UNTOUCHED — your own normal Emacs mode-line shows on every
-org-air surface (board / project / rail / pane).  `calm' is the opt-in
-minimal, faded nano-style `mode-line-format' — a quiet counts · filter ·
+header-line nil.  `default' leaves the mode-line UNTOUCHED — your own
+normal Emacs mode-line shows on every org-air surface (board, project,
+rail, pane).  `calm' is the opt-in minimal, faded nano-style
+`mode-line-format' — a quiet counts · filter ·
 source line in `org-air-face-modeline'.  The mode-line is NOT part of the
 buffer-text fixtures, so this is byte-invisible (and either way it is a
 single line, so the body-height derivation is unaffected)."
@@ -286,19 +282,19 @@ single line, so the body-height derivation is unaffected)."
   :group 'org-air)
 
 (defcustom org-air-pill-vinset 1
-  "Vertical inset in device pixels applied INSIDE each svg pill (R13 D-P1.B).
+  "Vertical inset in device pixels applied INSIDE each svg pill.
 Each pill capsule is drawn this many pixels shorter than the full line
 height at top AND bottom (box height = char-px-h - 2*vinset, vertically
-centred), a hair of internal margin.  Round-13 lowers the default 2 → 1:
-the capsule is essentially full height again (round-12's 2px shrank it and
-made it read faint).  The divider is now kept solid by the D-P1.A image
-line-height clamp (`org-air-view--svg-line-image'), NOT by shrinking the
-pill, so the vinset is purely cosmetic margin.  TTY is unaffected."
+centred), a hair of internal margin.  At 1 the capsule is essentially
+full height; larger values shrink it and it starts to read faint.  The
+divider is kept solid by the image line-height clamp
+\(`org-air-view--svg-line-image'), NOT by shrinking the pill, so the
+vinset is purely cosmetic margin.  TTY is unaffected."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-divider-style 'glyph
-  "How the two-pane vertical divider renders (D-P3, secondary opt-in).
+  "How the two-pane vertical divider renders.
 `glyph (default) draws the `│' box-drawing glyph per cell — continuous
 at `org-air-line-spacing' 0, portable to TTY and every GUI, zero-cost.
 `svg draws each divider cell as an svg vertical bar sized to the line
@@ -309,15 +305,15 @@ re-enable inter-row spacing.  The shipped default is `glyph + spacing 0."
   :group 'org-air)
 
 (defvar org-air-view--pill-char-w nil
-  "Device-pixel width of one text column for the current render (C2/C3).
+  "Device-pixel width of one text column for the current render.
 Bound during `org-air-view--render' from the displaying window's actual
 font metrics (text-scale aware) so svg pills are sized to the exact cell.")
 
 (defvar org-air-view--pill-char-h nil
-  "Device-pixel height of one text line for the current render (C2/C3).")
+  "Device-pixel height of one text line for the current render.")
 
 (defvar org-air-view--pill-style-sig nil
-  "Snapshot of the pill-geometry defcustoms for the current render (R18 D-P1a).
+  "Snapshot of the pill-geometry defcustoms for the current render.
 Bound once in `org-air-view--render' alongside the char metrics so every
 pane shares ONE style signature; folded into the svg image cache key so a
 change to any pill-geometry defcustom yields fresh keys (auto-invalidation)
@@ -325,15 +321,15 @@ without advice or an epoch counter.")
 
 (defvar org-air-view--svg-image-cache (make-hash-table :test 'equal :size 512)
   "Global memo of pixel-identical svg overlay images keyed on their inputs.
-\(R18 D-P1a).  Shared across boards/panes (panes render in temp buffers, so
-a buffer-local table would not persist, and the key fully captures the
-environment: text + resolved colours + char-metrics + style signature).")
+Shared across boards and panes: panes render in temp buffers, so a
+buffer-local table would not persist, and the key fully captures the
+environment (text + resolved colours + char metrics + style signature).")
 
 (defun org-air-view--svg-image-cached (key thunk)
   "Return the cached svg image for KEY, else (funcall THUNK) and cache it.
-\(R18 D-P1a).  KEY must capture EVERYTHING that changes the pixels (text /
-resolved colours / char-metrics / style), so a font/theme/width/text-scale
-change re-keys to a fresh image automatically.  A soft cap keeps memory
+KEY must capture EVERYTHING that changes the pixels (text, resolved
+colours, char metrics, style), so a font/theme/width/text-scale change
+re-keys to a fresh image automatically.  A soft cap keeps memory
 bounded under font/theme churn."
   (let ((hit (gethash key org-air-view--svg-image-cache 'miss)))
     (if (eq hit 'miss)
@@ -344,7 +340,7 @@ bounded under font/theme churn."
       hit)))
 
 (defun org-air-view--svg-image-cache-clear (&rest _)
-  "Drop every cached svg overlay image (R18 D-P1a).
+  "Drop every cached svg overlay image.
 Belt-and-braces theme invalidation: although the resolved colour strings
 are already in the cache key, clearing on a theme switch stops the table
 accumulating dead palettes.  Safe to call from `enable-theme-functions'."
@@ -356,7 +352,7 @@ accumulating dead palettes.  Safe to call from `enable-theme-functions'."
   (add-hook 'disable-theme-functions #'org-air-view--svg-image-cache-clear))
 
 (defcustom org-air-date-column 12
-  "Fixed width of the date cell in the item-row metadata table (V6).
+  "Fixed width of the date cell in the item-row metadata table.
 The date is left-justified in this many columns so every row's date
 starts at the same position and the eye can scan the column down the
 list.  Fits the longest tokens (e.g. \"OVERDUE 12d\", \"· 273d quiet\")."
@@ -364,30 +360,30 @@ list.  Fits the longest tokens (e.g. \"OVERDUE 12d\", \"· 273d quiet\")."
   :group 'org-air)
 
 (defvar org-air-view--meta-date-w nil
-  "Computed width of the date column for the current render (V6), or nil.")
+  "Computed width of the date column for the current render, or nil.")
 
 (defvar org-air-view--meta-tags-w nil
-  "Computed width of the tags column for the current render (V6), or nil.")
+  "Computed width of the tags column for the current render, or nil.")
 
 (defvar org-air-view--meta-origin-w nil
-  "Computed width of the origin column for the current render (V6), or nil.")
+  "Computed width of the origin column for the current render, or nil.")
 
 (defvar org-air-view--meta-todo-w nil
   "Computed width of the reserved TODO-keyword cell for the current render.
 The widest TODO keyword over ALL rendered board items (board-wide, so
 every section shares one left edge).  0 when no rendered item carries a
 keyword (no board has keywords -> no wasted column).  Set by
-`org-air-view--compute-meta-widths' (R15 D-P1).")
+`org-air-view--compute-meta-widths'.")
 
 (defvar org-air-view--meta-date-repeat 0
-  "Extra date-column columns reserved for the R14 D-P2 repeat marker.
+  "Extra date-column columns reserved for the repeat marker.
 2 when ANY rendered item carries an Org repeater on its effective date (so
 the marker `␣↻' fits without shoving the tags column on repeating rows),
 else 0.  Set by `org-air-view--compute-meta-widths'.")
 
 (defcustom org-air-show-footer nil
-  "Whether to show the bottom footer key-legend band (R4: default nil).
-The verbs live in the rail hint block now; the footer band is opt-in."
+  "Whether to show the bottom footer key-legend band.
+The verbs live in the rail hint block; the footer band is opt-in."
   :type 'boolean
   :group 'org-air)
 
@@ -397,7 +393,7 @@ The verbs live in the rail hint block now; the footer band is opt-in."
   :group 'org-air)
 
 (defcustom org-air-origin-style 'auto
-  "How the origin column renders a file name (F1).
+  "How the origin column renders a file name.
 `auto' is Denote-aware: a file named like a Denote note
 \(\"YYYYMMDDTHHMMSS--my-title__tag1_tag2.org\") shows the human title
 \(\"my-title\"), stripping the timestamp id, the __tag signature and the
@@ -411,7 +407,7 @@ back to the Denote title, then the leaf name."
   :group 'org-air)
 
 (defcustom org-air-origin-deslugify nil
-  "When non-nil, show a Denote title with spaces instead of hyphens (F1).
+  "When non-nil, show a Denote title with spaces instead of hyphens.
 The default keeps hyphens for a compact origin column."
   :type 'boolean
   :group 'org-air)
@@ -430,7 +426,7 @@ batch-testable dashboard lines against exactly that display width using
   :group 'org-air)
 
 (defcustom org-air-view-height nil
-  "Total body height used for org-air full-height composition (S6).
+  "Total body height used for org-air full-height composition.
 When nil, derive the height from the live window body.  When an integer,
 fill the dashboard to exactly that many lines (the vertical analogue of
 `org-air-view-width', for deterministic batch rendering)."
@@ -441,7 +437,7 @@ fill the dashboard to exactly that many lines (the vertical analogue of
   "Legacy fixed two-pane breakpoint (superseded by the derived rule).
 Kept for back-compatibility/customisation; the live decision is made by
 `org-air-view--two-pane-p', which derives engagement from
-`org-air-item-pane-min' and the active rail tier (D1)."
+`org-air-item-pane-min' and the active rail tier."
   :type 'integer
   :group 'org-air)
 
@@ -449,17 +445,17 @@ Kept for back-compatibility/customisation; the live decision is made by
   "Minimum item-pane content width below which two-pane is not worth it.
 The derived two-pane breakpoint is `org-air-item-pane-min' plus the
 divider plus the narrow rail tier, about 95 columns, so threshold-zone
-windows near 100 columns stay horizontal with the calendar on-screen (D1)."
+windows near 100 columns stay horizontal with the calendar on-screen."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-rail-min-width 90
-  "Minimum displaying-window width that still shows the context rail (R13 D-P3).
+  "Minimum displaying-window width that still shows the context rail.
 Below this width the dashboard renders BOARD-ONLY — no rail, no calendar,
 no inspector — and the item pane uses the FULL window width.  At or above
 it the usual `org-air-view--two-pane-p' decision applies (two-pane vs
 stacked).  Opening a file in a split flips to board-only automatically via
-the round-9 C1 resize re-render, and back when the window is widened."
+the resize re-render, and back when the window is widened."
   :type 'integer
   :group 'org-air)
 
@@ -467,7 +463,7 @@ the round-9 C1 resize re-render, and back when the window is widened."
   "Context rail content width in the threshold zone (95–119 cols).
 The narrow tier still fits the calendar grid, the longest summary row,
 and the \"No filters · all items\" line, while leaving the item pane a
-usable width (D1)."
+usable width."
   :type 'integer
   :group 'org-air)
 
@@ -482,7 +478,7 @@ usable width (D1)."
   :group 'org-air)
 
 (defcustom org-air-rail-content-inset 3
-  "Content-spine indent for the context-rail blocks (D5b).
+  "Content-spine indent for the context-rail blocks.
 Every rail block's CONTENT (calendar grid + legend, summary rows + total,
 filters/scope text, Actions verbs) is inset by this many columns so they
 share one left edge directly under the labelled rules' label text.  The
@@ -493,7 +489,7 @@ so the 20-col calendar grid never overflows."
   :group 'org-air)
 
 (defcustom org-air-rail-anchor-actions nil
-  "When non-nil, pin the rail Actions block to the bottom of the rail (D5f).
+  "When non-nil, pin the rail Actions block to the bottom of the rail.
 The default keeps Actions in normal flow one blank line under Filters; set
 to t for the classic sidebar-footer look, padding blank lines between
 Filters and Actions so the verbs sit at the foot of the fixed-height rail."
@@ -501,7 +497,7 @@ Filters and Actions so the verbs sit at the foot of the fixed-height rail."
   :group 'org-air)
 
 (defcustom org-air-layout-hysteresis 3
-  "Column dead-band around the two-pane breakpoint (D1).
+  "Column dead-band around the two-pane breakpoint.
 Resizing within this many columns of the breakpoint keeps the current
 orientation, so a window dragged across the boundary does not flap
 between stacked and two-pane on every pixel."
@@ -520,7 +516,7 @@ below the threshold."
   :group 'org-air)
 
 (defcustom org-air-rail-style 'inline
-  "INITIAL popout state of the context rail when the board opens (R16 D-P1).
+  "INITIAL popout state of the context rail when the board opens.
 This is no longer a forceful render mode; it only seeds the per-board
 runtime flag `org-air-view--rail-popped-out' on first render.
 With `inline' (the default) the board opens with the inline two-pane rail
@@ -539,7 +535,7 @@ still wins (the window is deleted while narrow)."
   :group 'org-air)
 
 (defcustom org-air-rail-placement 'side-window
-  "The ONE shared default context-rail placement for every view (R49-2/3).
+  "The ONE shared default context-rail placement for every view.
 A symbol: `side-window' (the default) opens each view with its rail
 ALREADY popped out into the dedicated `*org-air-rail*' side window;
 `inline' composes the rail as buffer text beside the content.  Per-view
@@ -550,25 +546,25 @@ overrides win when non-nil: `org-air-board-rail-placement',
 ONE `org-air-rail--placement' resolver.
 Consulted ONCE per buffer: when a view first renders with the popped flag
 still `unset', it seeds t (side-window) or nil (inline).  Thereafter the
-`|' toggle and the R25-6 reconciler own the flag.  `org-air-rail-style'
+`|' toggle and the reconciler own the flag.  `org-air-rail-style'
 set to `side-window' still forces the BOARD entry (back-compat).  Batch
 \(`noninteractive') renders never consult placement — they normalise the
 sentinel to nil exactly as before, keeping every byte golden untouched.
-LEGACY (R26-5): the old per-view alist shape
+LEGACY: the old per-view alist shape
 `\\='((board . inline) (project . side-window))' is still honoured — a
 `consp' value resolves per view via `alist-get', so existing
 `custom-set-variables' (and harness let-binds) keep their exact per-view
 behaviour with zero migration.
 Note on `inline': the inline rail is buffer text composed beside the
 content, so scrolling moves it off-screen with the rows — inherent to
-in-buffer composition (R49-3); `side-window' keeps the calendar and the
+in-buffer composition; `side-window' keeps the calendar and the
 Actions legend always visible."
   :type '(choice (const :tag "Side window (popped out initially)" side-window)
                  (const :tag "Inline (single buffer)" inline))
   :group 'org-air)
 
 (defcustom org-air-board-rail-placement nil
-  "BOARD override for `org-air-rail-placement' (R49-2).
+  "BOARD override for `org-air-rail-placement'.
 nil (the default) inherits the shared `org-air-rail-placement'; `inline'
 or `side-window' pins the board regardless of the shared default."
   :type '(choice (const :tag "Inherit `org-air-rail-placement'" nil)
@@ -580,14 +576,14 @@ or `side-window' pins the board regardless of the shared default."
 (defvar org-air-review-rail-placement)   ; defcustom in org-air-review.el
 
 (defun org-air-rail--placement (view)
-  "Resolve VIEW's initial rail placement (R49-2; R62-1d).
+  "Resolve VIEW's initial rail placement.
 VIEW is `board' / `project' / `outline' / `revisit' / `review'.
 Per-view override first (`org-air-board-rail-placement' /
 `org-air-project-rail-placement' / `org-air-outline-rail-placement' /
 `org-air-revisit-rail-placement' / `org-air-review-rail-placement'),
-else the shared `org-air-rail-placement'.  The R26-5 alist shape of the
+else the shared `org-air-rail-placement'.  The alist shape of the
 shared knob is still honoured (legacy): a `consp' value resolves per view
-via `alist-get'.  Falls back to `side-window' (the R49-3 default) when
+via `alist-get'.  Falls back to `side-window' (the default) when
 nothing names VIEW."
   (or (pcase view
         ('board org-air-board-rail-placement)
@@ -603,7 +599,7 @@ nothing names VIEW."
       'side-window))
 
 (defcustom org-air-divider-pixels 3
-  "Pixel width of the `side-window' rail divider on GUI frames (R15 D-P2).
+  "Pixel width of the `side-window' rail divider on GUI frames.
 Used as `window-divider-default-right-width' (and the right divider width)
 when `org-air-rail-style' is `side-window' on a graphical frame.  Ignored
 for `inline' and on TTY (where the inter-window `vertical-border' is a
@@ -612,7 +608,7 @@ single continuous column by construction)."
   :group 'org-air)
 
 (defcustom org-air-rail-window-width nil
-  "Column width of the `side-window' rail window, or nil to derive it (R15 D-P2).
+  "Column width of the `side-window' rail window, or nil to derive it.
 When nil the rail window width is derived from the existing rail-width tier
 \(`org-air-rail-width-narrow'/`-width'/`-wide', see
 `org-air-view--rail-tier') so the side window matches the inline rail's
@@ -623,7 +619,7 @@ used verbatim as the side window's column width.  Only consulted when
   :group 'org-air)
 
 (defcustom org-air-rail-side 'right
-  "Which side the `side-window' rail occupies (R15 D-P2).
+  "Which side the `side-window' rail occupies.
 The spec targets `right'; `left' is provided for future-proofing.  Only
 consulted when `org-air-rail-style' is `side-window'."
   :type '(choice (const :tag "Right" right) (const :tag "Left" left))
@@ -632,35 +628,32 @@ consulted when `org-air-rail-style' is `side-window'."
 (defcustom org-air-rail-focus-on-popout nil
   "When non-nil, `org-air-rail-toggle' selects the rail side window after popout.
 The default nil keeps point on the board (the \"point lives in the board\"
-invariant); the rail is still `other-window'-reachable for reading (R16
-D-P1)."
+invariant); the rail is still `other-window'-reachable for reading."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-rail-keep-buffer t
-  "When non-nil the `*org-air-rail*' buffer survives a pop-in (R16 D-P1).
+  "When non-nil the `*org-air-rail*' buffer survives a pop-in.
 Keeping the buffer makes a subsequent pop-out cheap; nil kills it on
 pop-in / reconcile."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-origin-min 12
-  "Floor width (columns) the origin cell keeps under the title-min budget (R17).
+  "Floor width (columns) the origin cell keeps under the title-min budget.
 When the width-aware fit pass in `org-air-view--compute-meta-widths'
 shrinks the origin column to fund `org-air-title-min-width', the origin --
 the item's identity / RET target -- never drops below this many columns,
-so it can never vanish entirely.  Round-17 INVERTS the original D2
-priority (which shrank the title before the origin): the title is now the
-protected primary identity, the origin yields first (down to this floor),
-then tags."
+so it can never vanish entirely.  The TITLE is the protected primary
+identity: the origin yields first (down to this floor), then tags."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-origin-max-width 26
-  "Hard cap (display columns) for the origin cell in a board item row (R17).
+  "Hard cap (display columns) for the origin cell in a board item row.
 The cell is the `▤' glyph + its space + the file/title text; a longer
 origin truncates the TEXT with the ellipsis glyph (the glyph cell and its
-box-fit svg overlay are untouched).  This BOUNDS the V6 right cluster so a
+box-fit svg overlay are untouched).  This BOUNDS the right metadata cluster so a
 long Denote slug can never starve the flex title.  Range guidance 24-28;
 26 keeps a real de-slugged Denote title legible while the cluster stays
 bounded at every tier."
@@ -668,7 +661,7 @@ bounded at every tier."
   :group 'org-air)
 
 (defcustom org-air-show-origin nil
-  "When non-nil, show the board FILENAME (origin) column (R30-3).
+  "When non-nil, show the board FILENAME (origin) column.
 Default nil: the filename is noise on the board, so the origin column is
 HIDDEN and reclaims its width for the flex title.  Toggled at runtime by
 `org-air-toggle-origin' (the `z f' display-column key); a display-only
@@ -677,14 +670,14 @@ knob — filter/scope still read the item origin from the struct."
   :group 'org-air)
 
 (defcustom org-air-show-dates t
-  "When non-nil (the default), show the board DATE/SCHEDULE column (R30-3).
+  "When non-nil (the default), show the board DATE/SCHEDULE column.
 Toggled at runtime by `org-air-toggle-dates' (`z d').  Display-only: the
 date sort still orders rows when the column is hidden."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-show-tags t
-  "When non-nil (the default), show the board TAGS column (R30-3).
+  "When non-nil (the default), show the board TAGS column.
 Toggled at runtime by `org-air-toggle-tags' (`z t').  Display-only:
 `org-air-filter' still narrows by a hidden tag column (it reads
 `org-air-item-tags' from the struct, not the rendered cell)."
@@ -695,7 +688,7 @@ Toggled at runtime by `org-air-toggle-tags' (`z t').  Display-only:
   'org-air-title-min-width "org-air 0.5")
 
 (defcustom org-air-title-min-width 24
-  "Guaranteed minimum display width for the flex item title (R17).
+  "Guaranteed minimum display width for the flex item title.
 The origin (then tags) shrink so the title keeps at least this many
 columns before the right cluster yields; only when the line itself is too
 narrow to honour it (e.g. the board-only tier) does the title fall below.
@@ -707,7 +700,7 @@ The title is the row's primary identity, so it wins the budget."
   "Optional `display-buffer' ACTION used to show the org-air dashboard.
 When nil, the dashboard reuses a window or, failing that, takes the full
 frame, so a narrow vertical split never pushes the rail/calendar
-off-screen (D4)."
+off-screen."
   :type '(choice (const :tag "Default (full-width)" nil) sexp)
   :group 'org-air)
 
@@ -727,7 +720,7 @@ off-screen (D4)."
   :group 'org-air)
 
 (defcustom org-air-visit-display 'other-window
-  "How `org-air-visit-item' displays an item's source (T4).
+  "How `org-air-visit-item' displays an item's source.
 Choices (design contract): `other-window' (default — keep the dashboard
 visible alongside), `same' (reuse the dashboard's own window), `side' (a
 reusable side window), `frame' (a new frame).  Whatever the choice, the
@@ -740,15 +733,15 @@ buffer also gets a buffer-local `org-air-return-key'."
 
 (defcustom org-air-return-key "C-c b"
   "Key bound (buffer-locally) in a visited buffer to return to the dashboard.
-Set via `kbd' syntax.  Kept out of the way of normal Org editing (T4)."
+Set via `kbd' syntax.  Kept out of the way of normal Org editing."
   :type 'string
   :group 'org-air)
 
 (defcustom org-air-priority-show '(?A ?B ?C ?D ?E)
   "Priority cookies shown in item rows.
-R22-1: show A..E by default (the user dogfooded `#A'-`#E').  The fixed 2-col
+Show A..E by default (the user dogfooded `#A'-`#E').  The fixed 2-col
 slot still renders two blanks for a row with no shown priority, so titles
-stay V6-aligned."
+stay aligned."
   :type '(repeat character)
   :group 'org-air)
 
@@ -758,9 +751,9 @@ stay V6-aligned."
     (?C . ("#689F38" . "#A3BE8C"))   ; yellow-green
     (?D . ("#0097A7" . "#88C0D0"))   ; teal/cyan  (cool)
     (?E . ("#5C6BC0" . "#7E8CC0")))  ; indigo     (coolest)
-  "Alist mapping a priority CHAR to its (LIGHT . DARK) badge colour (D-P4).
+  "Alist mapping a priority CHAR to its (LIGHT . DARK) badge colour.
 Lower priority is cooler/quieter, a hot->cool ramp: A = red (hot), B =
-orange, C = yellow-green, D = teal/cyan, E = indigo (coolest) (R22-1).
+orange, C = yellow-green, D = teal/cyan, E = indigo (coolest).
 Resolved against the frame background like the accent palette by
 `org-air-view--priority-color'.  Themable; reconciled with
 `org-air-face-priority-a/-b/-c/-d/-e' so the svg badge and the TTY text
@@ -770,11 +763,11 @@ fallback agree."
   :group 'org-air)
 
 (defcustom org-air-priority-style 'square
-  "How the priority cookie renders (R13 D-P2, parallel to `org-air-tag-style').
-`square (the R13 default) draws a tiny solid filled colour square — red A
+  "How the priority cookie renders (parallel to `org-air-tag-style').
+`square (the default) draws a tiny solid filled colour square — red A
 / orange B / cooler C, NO letter, NO outline — in a FIXED 2-column slot on
 EVERY item row (blank slot when the row has no shown priority), so titles
-stay V6-aligned.  `badge keeps the round-12 `[#A]' svg capsule; `text is
+stay column-aligned.  `badge draws an `[#A]' svg capsule; `text is
 always the plain coloured cookie.  The byte gate sees the slot text (`■ '
 for `square, `[#A]' for badge/text); the filled square / capsule is a GUI
 display overlay."
@@ -782,7 +775,7 @@ display overlay."
   :group 'org-air)
 
 (defcustom org-air-sort-key 'date
-  "Default within-bucket sort key for the board (R22-3).
+  "Default within-bucket sort key for the board.
 One of `date' / `priority' / `title' / `recency'.  Seeds the per-buffer
 `org-air-view--sort-key'; `o' cycles it.  The default `date' reproduces the
 historical within-bucket order exactly, so the board byte goldens are
@@ -791,13 +784,13 @@ byte-identical out of the box."
   :group 'org-air)
 
 (defcustom org-air-sort-direction 'ascending
-  "Default within-bucket sort direction for the board (R22-3).
+  "Default within-bucket sort direction for the board.
 Seeds the per-buffer `org-air-view--sort-direction'; `O' toggles it."
   :type '(choice (const ascending) (const descending))
   :group 'org-air)
 
 (defcustom org-air-keyword-style 'badge
-  "How a TODO keyword / Air state renders (R21-4).
+  "How a TODO keyword / Air state renders.
 `badge' overlays the reserved keyword/state cell with a small coloured
 svg chip (GUI); `text' keeps the plain coloured keyword text.  The svg is
 a display overlay over the UNCHANGED cell text, so the byte/TTY layer
@@ -806,7 +799,7 @@ always shows the keyword/token text either way (`NEXT', `[R]')."
   :group 'org-air)
 
 (defcustom org-air-keyword-badge-min-cols 5
-  "Minimum column width of a keyword svg pill (R80).
+  "Minimum column width of a keyword svg pill.
 A short keyword (OUT/OFF, 3 cols) pads its capsule to at least this many
 columns, centring the label, so it renders at the SAME size as a DRAFT
 state chip (`org-air-project--state-cell-w', also 5) instead of a tiny
@@ -837,16 +830,16 @@ only, never a `:height' (svg-never-grows-line)."
     ("CANCELED" . org-air-face-dropped)
     ("KILL" . org-air-face-dropped)
     ("KILLED" . org-air-face-dropped))
-  "Map TODO keyword strings to faces for coloured rendering (T1a).
-R79: the DONE family splits — completions (DONE/COMP/COMPLETED) keep
+  "Map TODO keyword strings to faces for coloured rendering.
+The DONE family splits — completions (DONE/COMP/COMPLETED) keep
 `org-air-face-done' (faded blue) while the cancelled/abandoned set
 \(DROPPED/DROP/CANCELLED/CANCELED/KILL/KILLED) reads `org-air-face-dropped'
 \(muted terracotta), so a completion and an abandonment are distinct.
-R80: OUT/OFF map to the NEW distinct standing-out faces
+OUT/OFF map to the NEW distinct standing-out faces
 \(`org-air-face-air-state-out' / `org-air-face-air-state-off') — the SAME
 faces the project STATE chip uses, so a heading keyword OUT/OFF and a
-`#+state: out'/`off' doc chip wear ONE colour (R80 Decision 3).
-Unknown keywords fall back through the R57 merged scan vocabulary — a
+`#+state: out'/`off' doc chip wear ONE colour.
+Unknown keywords fall back through the merged scan vocabulary — a
 not-done keyword to `org-air-face-todo', a done keyword to
 `org-air-face-done' (or `org-air-face-dropped' when cancelled-named), else
 by the item's DONE flag (see `org-air-view--todo-face')."
@@ -854,10 +847,9 @@ by the item's DONE flag (see `org-air-view--todo-face')."
   :group 'org-air)
 
 (defcustom org-air-keyword-face-source 'own
-  "Where a TODO-keyword badge takes its colour (R79).
-`own' (default): org-air's own `org-air-todo-keyword-faces' plus the R57
-merged scan vocabulary — the calm V6 palette (R57-1), so the board
-goldens stay byte-identical out of the box.
+  "Where a TODO-keyword badge takes its colour.
+`own' (default): org-air's own `org-air-todo-keyword-faces' plus the
+merged scan vocabulary — the calm built-in palette.
 `org': the user's own `org-todo-keyword-faces' (the SAME table Org
 fontifies headings with), falling back to the `own' mapping wherever the
 user names no face.  Flip this one knob to read your exact keyword
@@ -867,7 +859,7 @@ palette on the board and in the day view."
 
 (defcustom org-air-filter-match 'all
   "How multiple tag filters combine: `all' (AND) or `any' (OR).
-R18 D-P2: the default is `all' so adding a second filter term NARROWS,
+The default is `all' so adding a second filter term NARROWS,
 as both tags must match; `M-/' (`org-air-filter-toggle-match') flips it
 to `any', where either tag matches.  The predicate honours both modes."
   :type '(choice (const all) (const any))
@@ -878,39 +870,40 @@ to `any', where either tag matches.  The predicate honours both modes."
 
 (defun org-air-view--cache-key ()
   "Return the ONE coherence key board items and caches are valid under.
-R57-1: the file set + inbox + the MERGED scan vocabulary
+The file set + inbox + the MERGED scan vocabulary
 \(`org-air-query--scan-todo-keywords').  `todo'/`title'/`donep' are
 persisted cache slots parsed UNDER a vocabulary, so a vocabulary change
 \(the user edits their global `org-todo-keywords', or org-air's
 supplement changes) must invalidate items exactly like a file-set
 change — the key IS the detector, both in memory
 \(`org-air-view--items-key') and in the persistent cache's `:key'.
-R59: `org-air-skip-container-headings' joins as the fourth element —
+`org-air-skip-container-headings' joins as the fourth element —
 the classify routing and the day-view skip evaluate the knob LIVE over
-persisted signal slots, but the F7 file-ntype vote is baked into
+persisted signal slots, but the file-ntype vote is baked into
 file-meta `:ntype' at scan time, so a knob flip must take the same
 documented cold re-derive as a vocabulary change.
-R60: `org-air-exclude-regexps' joins as the FIFTH element — the exclude
+`org-air-exclude-regexps' joins as the FIFTH element — the exclude
 set is read at DISCOVERY time, so a flip takes effect through the key
 mismatch's cold re-derive, never by live re-filtering of
 already-scanned items: a cache written under exclude set A never
-hydrates under set B, and a pre-R60 4-element `:key' misses on length
-inequality (no `org-air-view--cache-version' bump — no serialisation
-shape changed).
-R61: `org-air-log-cap' joins as the SIXTH element — the cap shapes the
+hydrates under set B, and a shorter key from an older org-air misses on
+length inequality.
+`org-air-log-cap' joins as the SIXTH element — the cap shapes the
 scanned-and-persisted `clocks'/`logs' slots, so a cap change must
-invalidate exactly like a vocabulary change (the key IS the detector;
-a pre-R61 5-element key also misses, on length).  The review's
+invalidate exactly like a vocabulary change; the key IS the detector.
+The review's
 RENDER-time knobs (period kind/anchor, rollup basis,
 `org-air-review-suspect-clock-hours') are deliberately NOT key
 elements — they fold over cached data and take effect on repaint.
-R77: `org-air-task-requires-todo' joins as the SEVENTH element — the
+`org-air-task-requires-todo' joins as the SEVENTH element — the
 knob shapes scan-time `ntype' and the baked file-meta `:ntype' (the
 task signal narrows to the keyword alone), so a flip must invalidate
 exactly like a vocabulary change: key mismatch ⇒ the documented cold
 re-derive (skeleton + paced rescan), never a half-reclassified board.
-A pre-R77 6-element key misses on length inequality (no
-`org-air-view--cache-version' bump — no serialisation shape changed).
+
+Adding an element does NOT need an `org-air-view--cache-version' bump
+while the serialisation shape is unchanged: a shorter key from an older
+org-air already misses on length inequality.
 Plain printable list data: serialises as-is, compares with `equal'."
   (list org-air-files (org-air-inbox-effective-file)
         (org-air-query--scan-todo-keywords)
@@ -919,7 +912,7 @@ Plain printable list data: serialises as-is, compares with `equal'."
         org-air-log-cap
         org-air-task-requires-todo))
 (defvar-local org-air-view--items-mtimes nil
-  "Alist FILE -> mtime of the last COMPLETED full scan (R42-1).
+  "Alist FILE -> mtime of the last COMPLETED full scan.
 The in-memory baseline `org-air-view--refresh-start' diffs against so a
 refresh reparses only the files that actually changed (or, when nothing
 changed, nothing at all) instead of re-scanning every file.  Set wherever
@@ -928,17 +921,17 @@ sync/cached branches, `org-air-refresh', `org-air-view--refresh-finish')
 and hydrated from the persisted `:mtimes' by `org-air-view--cache-load'.")
 (defvar-local org-air-view--classify-cache nil
   "Per-board memo mapping an `org-air-item' to its cached bucket list.
-An `eq' hash (R18 D-P1c).  Auto-invalidates because a re-query yields new
+An `eq' hash.  Auto-invalidates because a re-query yields new
 item objects; explicitly cleared on day-rollover and refresh.")
 (defvar-local org-air-view--classify-cache-day nil
   "Key the classify cache was built for; a mismatch clears it.
-R72/R83: the list (DAY EFFECTIVE-HORIZON BACKLOG-TAG) — `time-to-days' of
+The list (DAY EFFECTIVE-HORIZON BACKLOG-TAG) — `time-to-days' of
 the render's now, `org-air-view--filter-effective-horizon' and
 `org-air-backlog-tag' — so a day rollover, an active-window horizon
 change OR a mid-session backlog-tag rename all rebuild the memo (a cheap
 slot-fold, never a file re-derive).")
 (defvar org-air-view--render-partition nil
-  "Per-render compute-once memo (ITEMS VISIBLE . TABLE) (R20-6).
+  "Per-render compute-once memo (ITEMS VISIBLE . TABLE).
 VISIBLE is the scope+filter visible subset of ITEMS computed ONCE; TABLE is
 an `eq' hash mapping each classify bucket to its visible members (source
 order).  Bound for the render's dynamic extent in `org-air-view--render'
@@ -952,23 +945,23 @@ passed ITEMS is `eq' to it, so a stray off-render call is always correct.")
 (defvar org-air-view--render-displayed nil
   "Per-render memo (ITEMS . TABLE) of `org-air-view--displayed-items-for-bucket'.
 TABLE is an `eq' hash bucket->the date-sorted, section-capped rows a section
-ACTUALLY renders.  Bound for the render extent (R20-6) so the section pass
+ACTUALLY renders.  Bound for the render extent so the section pass
 and the meta-width pass SHARE one sort+take per bucket instead of each
 paying it; nil outside a render.  CAR is the ITEMS the memo was built for.")
 (defvar-local org-air-view--loading nil
-  "Non-nil during the brief synchronous fast-paint window of a cold load (R20-1).
+  "Non-nil during the brief synchronous fast-paint window of a cold load.
 `org-air-view' sets it around the `redisplay'-then-query body so a stray
 data-dependent command in that window soft-errors via
 `org-air-view--loading-guard'; it is always cleared by the body's
 `unwind-protect', so the board can never wedge in a loading state.
-R26-8: on the interactive COLD (no cache) path it stays set until the
+On the interactive COLD (no cache) path it stays set until the
 chunked refresh's single swap, guarding data-dependent verbs while input
 stays live over the skeleton.")
 
 (defcustom org-air-cache-file
   (expand-file-name "org-air/board-cache.eld"
                     (or (getenv "XDG_CACHE_HOME") "~/.cache"))
-  "Persisted board scan cache; nil disables persistence entirely (R26-8).
+  "Persisted board scan cache; nil disables persistence entirely.
 Written atomically after every completed scan; read on an interactive
 cold start so the last-known board paints instantly (a stale cache shows
 the `stale · refreshing…' header marker while the chunked rescan runs).
@@ -978,8 +971,8 @@ golden are byte-identical to the synchronous path."
   :group 'org-air)
 
 (defcustom org-air-refresh-files-per-slice 3
-  "Files scanned per idle-timer refresh slice (R26-8).
-OBSOLETE (R53 P1c): slices are now TIME-budgeted
+  "Files scanned per idle-timer refresh slice.
+OBSOLETE: slices are now TIME-budgeted
 \(`org-air-refresh-slice-budget') so a slice of cheap warm files consumes
 many files per tick while a pathological file alone caps a slice — a
 fixed file count was either too slow at 5000 files or too janky on slow
@@ -987,32 +980,32 @@ ones.  Kept only so existing configuration does not error; unused."
   :type 'integer
   :group 'org-air)
 (make-obsolete-variable 'org-air-refresh-files-per-slice
-                        'org-air-refresh-slice-budget "0.5 (R53)")
+                        'org-air-refresh-slice-budget "0.5")
 
 (defconst org-air-refresh-slice-budget 0.018
-  "Wall-clock seconds one refresh slice may consume (R53 P1c).
+  "Wall-clock seconds one refresh slice may consume.
 ≈ one frame: the budgeted slice keeps consuming queued files until the
 budget is exceeded (minimum 1 file), so input latency is bounded by one
 slice while a 5000-file cold fill still streams in over ~10s of idle.
 An internal constant, never a defcustom.")
 
 (defcustom org-air-cold-paint-interval 1.0
-  "Seconds between progressive repaints of a still-loading cold board (R53).
+  "Seconds between progressive repaints of a still-loading cold board.
 The cold (no-cache) load paints real rows from the scan accumulator at
 most this often — first rows ≈1s in, streaming to the full board — while
-warm incremental refreshes keep the R26-8 single-swap rule."
+warm incremental refreshes keep the single-swap rule."
   :type 'number
   :group 'org-air)
 
 (defcustom org-air-scan-abort-retries 3
-  "Input-aborts of the SAME file before the scan skips it as `slow' (R53).
+  "Input-aborts of the SAME file before the scan skips it as `slow'.
 A pathological file that keeps getting interrupted by typing is skip-
 logged (see `org-air-scan-report') instead of livelocking the refresh."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-show-notes-section t
-  "When non-nil, show the bounded Notes section for headingless files (R53 P3).
+  "When non-nil, show the bounded Notes section for headingless files.
 Headingless note files (a `#+title' + prose, no `*' headings) surface as
 ONE collapsed count row at the bottom of the board; TAB expands the
 `org-air-notes-preview-limit' most recent.  Nil removes the section from
@@ -1021,7 +1014,7 @@ the board entirely (the notes stay refile targets either way)."
   :group 'org-air)
 
 (defcustom org-air-notes-preview-limit 50
-  "Rows the expanded Notes section shows (R53 P3).
+  "Rows the expanded Notes section shows.
 The most recent notes by scan-time activity; the remainder stays behind
 the standard `…and N more' fold row so the section can never reintroduce
 an unbounded render at 5000 files."
@@ -1030,8 +1023,8 @@ an unbounded render at 5000 files."
 
 (defcustom org-air-show-backlog-section t
   "When non-nil, show the bottom Backlog header/count for deferred items.
-R90 makes the normal section header-only until TAB explicitly expands all
-currently visible backlog rows.  Nil removes both its ordinary section
+The section is header-only until TAB explicitly expands all currently
+visible backlog rows.  Nil removes both its ordinary section
 and ordinary Summary row; an exact `is:backlog' lens overrides that
 opt-out and reveals the rows because it is an explicit request.  Raw
 `#backlog' does not auto-reveal.  Items remain reachable through other
@@ -1040,73 +1033,71 @@ surfaces either way.  A backlog-free board renders byte-identically."
   :group 'org-air)
 
 (defvar-local org-air-view--refresh-token 0
-  "Monotonic refresh token (R26-8).
+  "Monotonic refresh token.
 Every scheduled slice carries the token current at schedule time; a
 callback whose token is stale self-cancels, so `g r' mid-refresh (which
 bumps the token) makes every pending slice a no-op — timers can never
 interleave two refreshes or touch a superseded scan.")
 (defvar-local org-air-view--refresh-state nil
-  "R26-8 refresh machine state: nil (fresh/idle), `refreshing', `failed'.
+  "Refresh machine state: nil (fresh/idle), `refreshing', `failed'.
 Drives the header count-slot marker (`stale · refreshing…' / `stale ·
 refresh failed (g r retries)'); only ever non-nil when the machine is
 driven (interactively, or by an ERT calling the slice runner), so batch
 renders never show it.")
 (defvar-local org-air-view--refresh-queue nil
-  "Files not yet scanned by the in-flight chunked refresh (R26-8).")
+  "Files not yet scanned by the in-flight chunked refresh.")
 (defvar-local org-air-view--refresh-total 0
-  "Total file count of the in-flight chunked refresh (R26-8).")
+  "Total file count of the in-flight chunked refresh.")
 (defvar-local org-air-view--refresh-acc nil
-  "Items accumulated PRIVATELY by the refresh slices (R26-8).
+  "Items accumulated PRIVATELY by the refresh slices.
 The board repaints exactly once, when the whole accumulation swaps in —
 never a partial paint.")
 (defvar-local org-air-view--refresh-mtimes nil
-  "Alist FILE -> mtime captured per file AT SCAN TIME (R26-8/R42-1).
+  "Alist FILE -> mtime captured per file AT SCAN TIME.
 Captured by `org-air-view--refresh-run-slice' as each slice reads its
 files, then consumed by `org-air-view--refresh-finish' to build the new
 mtime baseline from SCAN-TIME data (never a finish-time re-stat, which
-would stamp a fresh mtime over items read from an older revision — the
-B1 coherence hole).")
+would stamp a fresh mtime over items read from an older revision).")
 (defvar-local org-air-view--refresh-last-paint nil
-  "Float time of the last progressive cold repaint, or nil (R53 P1c).
+  "Float time of the last progressive cold repaint, or nil.
 Bounds the cold path's streaming repaints to the effective
-`org-air-view--refresh-paint-interval'.  R56 P1c: nil while a STREAM
-fill has not painted yet, so the first item-bearing slice (the inbox
+`org-air-view--refresh-paint-interval'.  nil while a STREAM fill has not
+painted yet, so the first item-bearing slice (the inbox
 slice, by queue construction) paints IMMEDIATELY — first meaningful
 content well under a second at a 1801-file corpus.")
 (defvar-local org-air-view--refresh-abort-file nil
-  "Cons (FILE . COUNT) tracking input-aborts of the queue head (R53 P1c).
+  "Cons (FILE . COUNT) tracking input-aborts of the queue head.
 After `org-air-scan-abort-retries' aborts of the SAME file it is
 skip-logged `slow' and dropped from the queue — no livelock.")
 (defvar-local org-air-view--refresh-progressive nil
-  "Non-nil while the fill runs in progressive STREAM mode (R56 P1b).
+  "Non-nil while the fill runs in progressive STREAM mode.
 Set by `org-air-view--refresh-start' when the board has NO previous full
 content to show (a true cold open) — never for a painted or cache-seeded
-board, which keeps the R26-8 single-swap rule.  Gates the REPEATED
-progressive paints in `org-air-view--refresh-run-slice': R53 P1c specced
-a throttled stream but implemented the gate on the self-clearing
-`org-air-view--loading' flag, so the first paint destroyed the stream
-\(measured: exactly 1 progressive paint per cold fill, then frozen at
-~1% content until the finish swap).  Also lets
+board, which keeps the single-swap rule.  Gates the REPEATED
+progressive paints in `org-air-view--refresh-run-slice'.  This must NOT
+be gated on the self-clearing `org-air-view--loading' flag: the first
+paint then destroys the stream (measured: exactly 1 progressive paint
+per cold fill, then frozen at ~1% content until the finish swap).  Also lets
 `org-air-view--refresh-stale-item-guard' unblock items whose file was
 ALREADY scanned this refresh (their painted positions are scan-fresh)
 while still-queued files stay guarded.")
 (defvar-local org-air-view--refresh-paint-items 0
-  "Accumulator item count at the last progressive stream paint (R56 P1b).
+  "Accumulator item count at the last progressive stream paint.
 A slice tail of empty/skipped files accumulates nothing new, so the
 stream repaints only when this count has actually grown — no vacuous
 re-renders of an unchanged board.")
 (defvar-local org-air-view--refresh-render-secs nil
-  "Seconds the last progressive stream repaint cost, or nil (R56 P1b).
+  "Seconds the last progressive stream repaint cost, or nil.
 Floors the effective paint cadence at 3x this cost
 \(`org-air-view--refresh-paint-interval') so paint overhead can never
 exceed ~1/3 of the fill even as the accumulated board grows expensive to
-re-render (R53 measured 0.28s at 15.9k items).")
+re-render (measured 0.28s at 15.9k items).")
 (defvar-local org-air-view--refresh-gap nil
-  "The adaptive chain's LAST armed gap in seconds, or nil (R56 P2a).
+  "The adaptive chain's LAST armed gap in seconds, or nil.
 The backoff memory `org-air-view--refresh-next-gap' doubles from while
 input keeps aborting slices; reset by arm/cancel.")
 (defvar-local org-air-view--refresh-scan-started nil
-  "Non-nil while the queue-head file's scan has actually BEGUN (R56 P2c).
+  "Non-nil while the queue-head file's scan has actually BEGUN.
 Raised immediately before the `org-air-query-items-in-files' call,
 cleared on the per-file commit; `org-air-view--refresh-note-abort'
 counts an input-abort against the head ONLY when this is up, so aborts
@@ -1114,38 +1105,38 @@ landing BETWEEN files (key-repeat — measured one innocent file dropped
 `slow' per 0.6s of held-down arrow key) can never skip-drop files whose
 scan never ran.")
 (defvar-local org-air-view--refresh-banner-tick-time nil
-  "Float time of the last in-place banner progress tick, or nil (R56 P3b).
+  "Float time of the last in-place banner progress tick, or nil.
 Bounds `org-air-view--refresh-banner-tick' to one line-1 rewrite per
 `org-air-view--refresh-banner-tick-interval'; nil at refresh start so
 the first tick lands immediately.")
 (defvar-local org-air-view--refresh-timer nil
-  "The adaptive chain's live one-shot wall-clock pacing timer, or nil (R56 P2a).
+  "The adaptive chain's live one-shot wall-clock pacing timer, or nil.
 Exactly one at a time: `org-air-view--refresh-chain-arm' cancels any
 pending one-shot before arming the next, and
 `org-air-view--refresh-disarm' (finish / failure / cancel) is the single
-teardown.  Supersedes R34-3's \"repeating\" idle pacer — a repeating idle
-timer fires ONCE per continuous idle period ((elisp) Idle Timers; R56
-pty-probed 1 fire in 3s of idleness), never \"every 0.05s while idle\".")
+teardown.  Deliberately NOT a repeating IDLE timer: such a timer fires
+ONCE per continuous idle period ((elisp) Idle Timers; pty-probed at 1
+fire in 3s of idleness), never \"every 0.05s while idle\".")
 (defvar-local org-air-view--refresh-watchdog nil
-  "One-shot wall-clock safety timer for the paced refresh, or nil (R42-2).
+  "One-shot wall-clock safety timer for the paced refresh, or nil.
 Armed with the idle pacer; if the machine is STILL `refreshing' under the
 same token when it fires, it drains the remaining queue synchronously and
 finishes, so the idle pacer stranding (Emacs never going idle, or the idle
 clock repeatedly reset) can never leave the state stuck at `refreshing'.")
 (defvar-local org-air-view--deferred-timer nil
-  "One-shot idle timer for the cache-first deferred first paint, or nil (R45-2).
+  "One-shot idle timer for the cache-first deferred first paint, or nil.
 The cache-HIT FRESH branch paints a pill-free skeleton instantly, then
 defers the cached full-board render to this token-guarded one-shot so the
 SVG pill rasterization happens OFF the launch critical path (no 2-10s
 blank-frozen open on a fresh Emacs with a cold image cache).  Never armed
 under `noninteractive' (the byte gate stays synchronous with no timer).")
 (defvar-local org-air-view--cache-stale-files nil
-  "Files whose mtime diverged from the cache snapshot (R26-8).
+  "Files whose mtime diverged from the cache snapshot.
 While REFRESHING, triage verbs on an item from one of these soft-error
 \(\"Still refreshing this file…\"); positions in unchanged files are valid
 by construction (mtime match).")
 (defvar-local org-air-view--bookmark-locator nil
-  "Armed point locator of an in-flight bookmark restore, or nil (R58).
+  "Armed point locator of an in-flight bookmark restore, or nil.
 A plist (:item (FILE . POS) :title TITLE) stashed by
 `org-air-view-bookmark-jump' and consumed at the tail of every
 successful full paint (`org-air-view--bookmark-consume').  One-shot: it
@@ -1153,7 +1144,7 @@ never survives past refresh-idle, so later user renders are untouched.")
 (defvar-local org-air-view--tag-filter nil)
 (defvar-local org-air-view--scope nil)
 (defvar-local org-air-view--rail-descriptor nil
-  "Plist of providers the SHARED rail consults; nil = the board defaults (R20-5).
+  "Plist of providers the SHARED rail consults; nil = the board defaults.
 When a non-board view (the project) renders the rail it sets this so the
 one rail construct serves both views (invariant #4: parameterise, do not
 fork).  All keys are optional; the board path is used for any that are
@@ -1167,20 +1158,20 @@ Keys:
   :rail-target-height N -> the inspector reserved-region target height
     (the project sizes the rail to its doc-pane height, not the window).")
 (defvar-local org-air-view--day nil
-  "When non-nil, an Emacs time focusing the single-day view (R6).")
+  "When non-nil, an Emacs time focusing the single-day view.")
 (defvar-local org-air-view--expanded-sections nil)
 
 (defvar-local org-air-view--section-reveal nil
-  "Alist of (BUCKET . ROWS) reveal budgets for EXPANDED sections (R98).
+  "Alist of (BUCKET . ROWS) reveal budgets for EXPANDED sections.
 An expanded section paints at most ROWS of its members; a bucket with no
 entry uses `org-air-section-expand-max'.  TAB on the `…and N more' fold
 row of an already-expanded section adds another batch here, so the
 section pages open one bounded repaint at a time.  Pure UI state over the
-CACHED items — changing it never re-queries (R53) and never opens a file.
+CACHED items — changing it never re-queries and never opens a file.
 Collapsing a section drops its entry, so re-expanding starts at one
 batch again.")
 
-;; R90: marks are live board-buffer UI state, keyed by exact source
+;; Marks are live board-buffer UI state, keyed by exact source
 ;; identity.  They deliberately do not enter the scan cache or bookmarks.
 (defvar-local org-air-view--marked-keys nil
   "Insertion-ordered exact source keys currently marked in this board.")
@@ -1202,26 +1193,26 @@ the number of marks.")
 (defvar-local org-air-view--marked-generation nil
   "The cached item-list object last reconciled with the marked key set.")
 (defvar-local org-air-view--pending-mutation-landing nil
-  "One-shot R90 local landing plan consumed by the next board render.")
+  "One-shot local landing plan consumed by the next board render.")
 (defvar-local org-air-view--line-width nil)
 (defvar-local org-air-view--rendered-width nil
   "Column width used for the most recent render of this dashboard buffer.")
 (defvar-local org-air-view--rendered-height nil
   "Body height used for the most recent render of this dashboard buffer.")
 (defvar-local org-air-view--body-beg nil
-  "Marker at the first body-band line of the last render (R18 D-P1b).
+  "Marker at the first body-band line of the last render.
 Set by `org-air-view--render'; bounds the in-place section splice so it
 never touches the header.")
 (defvar-local org-air-view--body-end nil
-  "Marker just past the last body-band line of the last render (R18 D-P1b).")
+  "Marker just past the last body-band line of the last render.")
 (defvar-local org-air-view--body-target-floor nil
-  "Minimum body-band row count `=height - header - footer' (R18 D-P1b).
+  "Minimum body-band row count `=height - header - footer'.
 The splice reuses the EXACT body-target formula so the spliced buffer is
 byte-identical to a full render.")
 (defvar-local org-air-view--body-fill-row nil
-  "Fill row used to pad the body band to full height (R18 D-P1b).")
+  "Fill row used to pad the body band to full height.")
 (defvar-local org-air-view--pane-divider-col nil
-  "Display column of the two-pane board/rail divider, or nil (R43-2).
+  "Display column of the two-pane board/rail divider, or nil.
 `org-air-view--render' sets this to the column carrying the
 `org-air-face-pane-border' vrule (`item-width' + the divider's leading
 space) when the orientation is `two-pane', nil otherwise.
@@ -1231,16 +1222,16 @@ normalize/golden shape) instead of having its blank rail tail trimmed —
 which would demote the divider to the row's TERMINAL glyph and break the
 rule into segments on every blank-rail row (board ≫ rail).")
 (defvar-local org-air-view--orientation nil
-  "Last chosen layout orientation, `two-pane' or `stacked' (D1 hysteresis).")
+  "Last chosen layout orientation, `two-pane' or `stacked'.")
 (defvar-local org-air-view--rail-popped-out 'unset
-  "Single source of truth: is the rail a side window right now (R16 D-P1)?
+  "Single source of truth: is the rail a side window right now?
 Nil = inline rail; non-nil = popped out into the `*org-air-rail*' side
 window.  The sentinel `unset' means \"not yet initialised\"; first render
 seeds it from `org-air-rail-style' (`side-window' -> t, else nil).  The
 toggle flips it; the cooperative reconciler clears it when the user closes
 the side window with a native command.")
 (defvar-local org-air-view--rail-suspended nil
-  "Non-nil when this view is popped-out but its side rail is HIDDEN (R25-6).
+  "Non-nil when this view is popped-out but its side rail is HIDDEN.
 Set when another org-air view becomes the active main view and claims (or
 empties) the singleton `*org-air-rail*' side window: this view keeps its
 `org-air-view--rail-popped-out' flag t but its side window is suspended, so
@@ -1249,26 +1240,26 @@ switch\" (re-pop on return) from \"the user natively CLOSED the rail\" (fall
 back inline).  Cleared whenever this view owns the side window or goes
 inline.")
 (defvar org-air-rail--reconciling nil
-  "Re-entrancy latch for `org-air-rail--reconcile' (R16 D-P1).
-R27-1 S3: also bound t for the FULL extent of a board/project render, so
+  "Re-entrancy latch for `org-air-rail--reconcile'.
+Also bound t for the FULL extent of a board/project render, so
 a reconcile timer nesting inside an in-flight render (org-ql yields run
 pending timers) no-ops instead of mutating rail state mid-render.")
 (defvar org-air-rail--reconcile-timer nil
-  "The SINGLE pending deferred-reconcile timer, or nil (R27-1 S3).
+  "The SINGLE pending deferred-reconcile timer, or nil.
 Every `window-configuration-change-hook' fire routes through this one
 slot: a fire while a reconcile is already pending RESCHEDULES it instead
 of stacking one new 0s timer per fire (measured trunk: 5 fires -> 5 live
 timers).  The timer body is the named `org-air-rail--reconcile-run' so
 tests can count pending slots deterministically.")
 (defvar org-air-rail--side-was-live nil
-  "Non-nil when the side rail window was LIVE at the last observation (R27-1).
+  "Non-nil when the side rail window was LIVE at the last observation.
 The reconciler's user-close branch is EDGE-TRIGGERED on an observed
 live->dead transition of this flag: mere absence of the side window with
 the popped flag t (a popout still in flight, mid-render) must never be
 classified as a user close.  Updated by `org-air-rail--show',
 `org-air-rail--hide' and each `org-air-rail--reconcile-frame' run.")
 (defvar-local org-air-rail--last-stamp nil
-  "Input stamp of the last rail content paint (R27-1 S4).
+  "Input stamp of the last rail content paint.
 Local to the `*org-air-rail*' buffer.  When `org-air-rail--show' computes
 an identical stamp the erase+re-insert is skipped (the output would be
 byte-identical); any component change repaints.  See
@@ -1276,7 +1267,7 @@ byte-identical); any component change repaints.  See
 (defvar org-air-view--pane-indented nil
   "Non-nil while rendering the two-pane item pane (indented downstream).
 Lets headings and item rows use a consistent hanging indent regardless
-of whether the wrapping pane margin is added later (D6).")
+of whether the wrapping pane margin is added later.")
 (defvar-local org-air-view--cal-month nil)
 
 (defconst org-air-view-buffer-name "*org-air*")
@@ -1287,29 +1278,29 @@ of whether the wrapping pane margin is added later (D6).")
     (upcoming "Upcoming" org-air-view--empty-upcoming)
     (high-priority "High priority" "No #A items.")
     (attention "Needs attention" "Nothing has gone quiet."))
-  "Section descriptors in display order (R93 order).
+  "Section descriptors in display order.
 Process, then repair, then plan, then choose, then sweep: Inbox (what
 has not been filed), Overdue (what a promise has already slipped past),
 Upcoming (what is coming), High priority (what matters most) and finally
 Needs attention (what has gone quiet past its priority's threshold —
 `org-air-attention-days').
 
-R93 retired the `stale' section: its \"dated but quiet\" rule is exactly
-what the aging Needs-attention rule now does for EVERY item, dated or
-not, so keeping both would have shown the same fact twice.  Overdue was
-split OUT of Needs attention for the same reason in reverse: a missed
-date and a quiet item are different problems and want different rows.")
+There is deliberately no `stale' section: its \"dated but quiet\" rule is
+exactly what the aging Needs-attention rule does for EVERY item, dated
+or not, so both would show the same fact twice.  Overdue is split OUT of
+Needs attention for the mirror-image reason: a missed date and a quiet
+item are different problems and want different rows.")
 
 (defconst org-air-view--untracked-descriptor
   '(untracked "Untracked" "Nothing untracked.")
-  "The conditional Untracked section descriptor (R94).
+  "The conditional Untracked section descriptor.
 Rendered ONLY when some visible item classifies into the `untracked'
 bucket — no plan and no recorded history
 \(`org-air-classify--untracked-p') — so a board whose headings all carry
-a date or a stamp renders exactly the R93 five sections, byte for byte.
+a date or a stamp renders exactly the five sections, byte for byte.
 
 It sits LAST of the task sections, directly under Needs attention, and
-the order continues the sentence the R93 table reads as: process
+the order continues the sentence the table reads as: process
 \(Inbox), repair (Overdue), plan (Upcoming), choose (High priority),
 sweep (Needs attention) — and then, quietly, \"and here is the work I
 cannot rank at all\".  Its `◌' icon comes from `org-air-glyphs' and its
@@ -1318,14 +1309,14 @@ statement about org-air's knowledge, not an accusation about the user's.")
 
 (defconst org-air-view--notes-descriptor
   '(notes "Notes" "No notes.")
-  "The bounded Notes section descriptor (R53 P3).
+  "The bounded Notes section descriptor.
 Rendered ONLY when headingless note file-items exist (see
-`org-air-view--section-descriptors'), so a notes-free board — every
-existing golden — renders exactly the pre-R53 sections.")
+`org-air-view--section-descriptors'), so a notes-free board renders the
+task sections alone.")
 
 (defconst org-air-view--backlog-descriptor
   '(backlog "Backlog" "Nothing deferred.")
-  "The conditional Backlog section descriptor (R83/R90).
+  "The conditional Backlog section descriptor.
 A normal board shows it when the display knob is on; an exact
 `is:backlog' lens forces it even when the knob is nil.  The ▽ section
 icon comes from `org-air-glyphs'.")
@@ -1349,18 +1340,18 @@ intentionally not an explicit Backlog lens."
 
 (defun org-air-view--section-expanded-p (bucket)
   "Return non-nil when BUCKET is explicitly expanded in this live board.
-This is the one R90 expansion read seam shared by row selection, fold-row
+This is the one expansion read seam shared by row selection, fold-row
 emission, TAB and width measurement."
   (and (memq bucket org-air-view--expanded-sections) t))
 
 (defun org-air-view--expand-batch ()
-  "Return the row batch ONE TAB reveals, or nil for unbounded (R98)."
+  "Return the row batch ONE TAB reveals, or nil for unbounded."
   (and (integerp org-air-section-expand-max)
        (> org-air-section-expand-max 0)
        org-air-section-expand-max))
 
 (defun org-air-view--section-reveal-limit (bucket)
-  "Return how many rows an EXPANDED BUCKET may paint, or nil for all (R98).
+  "Return how many rows an EXPANDED BUCKET may paint, or nil for all.
 The bucket's own accumulated budget when TAB has paged it open, else one
 `org-air-section-expand-max' batch; nil when the bound is switched off."
   (let ((batch (org-air-view--expand-batch))
@@ -1369,7 +1360,7 @@ The bucket's own accumulated budget when TAB has paged it open, else one
           (batch batch))))
 
 (defun org-air-view--section-reveal-more (bucket)
-  "Grow BUCKET's reveal budget by one batch and return the new budget (R98).
+  "Grow BUCKET's reveal budget by one batch and return the new budget.
 No-op returning nil when the bound is switched off (everything is already
 painted)."
   (when-let* ((batch (org-air-view--expand-batch)))
@@ -1378,12 +1369,12 @@ painted)."
       next)))
 
 (defun org-air-view--section-reveal-reset (bucket)
-  "Forget BUCKET's reveal budget; a fresh expand then begins at one batch (R98)."
+  "Forget BUCKET's reveal budget; a fresh expand then begins at one batch."
   (setq org-air-view--section-reveal
         (assq-delete-all bucket org-air-view--section-reveal)))
 
 (defun org-air-view--take-revealed (bucket rows)
-  "Return the leading window of ROWS an expanded BUCKET may paint (R98)."
+  "Return the leading window of ROWS an expanded BUCKET may paint."
   (let ((limit (org-air-view--section-reveal-limit bucket)))
     (if (and limit (> (length rows) limit))
         (seq-take rows limit)
@@ -1395,8 +1386,8 @@ painted)."
     (cl-pushnew 'backlog org-air-view--expanded-sections)))
 
 (defun org-air-view--section-descriptors (items)
-  "Return the section descriptors to render for ITEMS (R53 P3, R83).
-The fixed task sections, then the R94 Untracked section when any visible
+  "Return the section descriptors to render for ITEMS.
+The fixed task sections, then the Untracked section when any visible
 item has neither a plan nor a recorded history, then the single collapsed
 Notes section when any visible item is a `kind' `file' note and
 `org-air-show-notes-section' is on, and finally the Backlog section when
@@ -1405,7 +1396,7 @@ any visible item defers into the `backlog' bucket and
 conditional-and-empty-suppressed, so a board with none of them renders
 byte-identically to the fixed five."
   (let ((descriptors org-air-view--sections))
-    ;; R94: Untracked goes FIRST of the conditional tail, so it stays with
+    ;; Untracked goes FIRST of the conditional tail, so it stays with
     ;; the task sections it belongs to and above the Notes/Backlog lenses.
     (when (org-air-view--items-for-bucket 'untracked items)
       (setq descriptors
@@ -1421,7 +1412,7 @@ byte-identically to the fixed five."
     descriptors))
 
 ;;;; =====================================================================
-;;;; R35-1 — one switch to opt out of EVERY default keybinding.
+;;;; One switch to opt out of EVERY default keybinding.
 ;;;; `org-air-use-default-keybindings' (default t).  When nil org-air
 ;;;; installs NONE of its own keys — the board / project / rail /
 ;;;; doc-session maps, the `z' column-toggle prefix, the `g' prefix, the
@@ -1444,7 +1435,7 @@ byte-identically to the fixed five."
 ;;;; =====================================================================
 
 (defvar org-air--default-key-specs nil
-  "Registry of org-air default key bindings (R35-1).
+  "Registry of org-air default key bindings.
 Each entry is (MAP-SYMBOL KEY BINDING): MAP-SYMBOL names a shared keymap
 variable; KEY is a `kbd' STRING or a raw key VECTOR (e.g. `[remap
 quit-window]'); BINDING is a command symbol or a `(:prefix . PREFIX-MAP-
@@ -1454,19 +1445,19 @@ file and in `org-air-project.el'); consumed by
 `org-air--install-default-keybindings' / `-clear-default-keybindings'.")
 
 (defvar org-air--default-leader-specs nil
-  "Registry of (HOST-MAP-SYMBOL . PREFIX-MAP-SYMBOL) leader installs (R35-1).
+  "Registry of (HOST-MAP-SYMBOL . PREFIX-MAP-SYMBOL) leader installs.
 Each registered pair is installed at `org-air-leader-key' via
 `org-air-view--leader-install' when the defaults are on, and unbound when
 they are off.")
 
 (defvar org-air--default-keybindings-state 'unset
-  "Whether the org-air defaults are currently installed (R35-1).
+  "Whether the org-air defaults are currently installed.
 One of `unset' (never synced), t (installed) or nil (cleared).  Guards the
 `org-air-leader-key' :set reinstall (D-4): a leader re-bind is a no-op
 while the defaults are not installed.")
 
 (defcustom org-air-use-default-keybindings t
-  "When non-nil (the default), install org-air's default keybindings (R35-1).
+  "When non-nil (the default), install org-air's default keybindings.
 Set to nil to make org-air install NO keys of its own — in ANY org-air
 buffer OR in the files you visit from org-air.  Skipped when nil: the
 board / project / rail / doc-session maps, the `z' column-toggle prefix,
@@ -1497,7 +1488,7 @@ those are your bindings, not defaults."
   "Register default BINDINGS for MAP-SYMBOL into `org-air--default-key-specs'.
 BINDINGS is a flat list of KEY BINDING KEY BINDING…: KEY a `kbd' STRING or
 a raw key VECTOR; BINDING a command symbol or a `:prefix' marker cons
-`(:prefix . PREFIX-SYM)' (R35-1).  Data only, nothing is bound until
+`(:prefix . PREFIX-SYM)'.  Data only, nothing is bound until
 `sync' runs."
   (while bindings
     (let ((key (pop bindings))
@@ -1506,7 +1497,7 @@ a raw key VECTOR; BINDING a command symbol or a `:prefix' marker cons
   org-air--default-key-specs)
 
 (defun org-air--register-default-leader (host-symbol prefix-symbol)
-  "Register a (HOST-SYMBOL . PREFIX-SYMBOL) default leader install (R35-1)."
+  "Register a (HOST-SYMBOL . PREFIX-SYMBOL) default leader install."
   (cl-pushnew (cons host-symbol prefix-symbol) org-air--default-leader-specs
               :test #'equal)
   org-air--default-leader-specs)
@@ -1516,13 +1507,13 @@ a raw key VECTOR; BINDING a command symbol or a `:prefix' marker cons
   (if (stringp key) (kbd key) key))
 
 (defun org-air--install-default-keybindings ()
-  "Install EVERY org-air default binding into the shared maps (R35-1).
+  "Install EVERY org-air default binding into the shared maps.
 Idempotent: populates the board / view-core / project / doc-session / rail
 / calendar-day / snapshot-pane maps and the prefix maps from
 `org-air--default-key-specs', and installs the `org-air-leader-key' leader
 subsets from `org-air--default-leader-specs'.  The per-buffer visited-file
 keys (the `org-air-return-key' and the indirect-pane close map) are gated
-separately at their install call sites (R35.1), since they bind into the
+separately at their install call sites, since they bind into the
 user's OWN buffers at visit time, not into these shared maps.  Never
 touches keymap PARENTS (set once at each `defvar').  Returns t."
   (dolist (spec (reverse org-air--default-key-specs))
@@ -1540,7 +1531,7 @@ touches keymap PARENTS (set once at each `defvar').  Returns t."
   t)
 
 (defun org-air--clear-default-keybindings ()
-  "Remove every org-air default binding, KEEPING the maps + parents (R35-1).
+  "Remove every org-air default binding, KEEPING the maps + parents.
 Each key this package installs is REMOVED (the `define-key' REMOVE arg, so
 it truly falls through to the `special-mode' parent — `q' -> `quit-window',
 `g' -> `revert-buffer', SPC scroll — rather than being nil-SHADOWED); a key
@@ -1571,7 +1562,7 @@ Called at LOAD (seed), at every org-air mode init (so a `use-package'
 from the defcustom `:set' (so a live `customize' set takes effect
 immediately).  Acts only when the desired state differs from
 `org-air--default-keybindings-state' (D-2), so it does not redundantly
-re-run every mode init; idempotent either way (R35-1)."
+re-run every mode init; idempotent either way."
   (let ((want (and org-air-use-default-keybindings t)))
     (unless (eq want org-air--default-keybindings-state)
       (if want
@@ -1579,7 +1570,7 @@ re-run every mode init; idempotent either way (R35-1)."
         (org-air--clear-default-keybindings))
       (setq org-air--default-keybindings-state want))))
 
-;; R35.1: the calendar day-cell keys (installer-owned).  `org-air-calendar'
+;; The calendar day-cell keys (installer-owned).  `org-air-calendar'
 ;; is required at the top of this file, so `org-air-calendar-day-keymap'
 ;; already exists; registering here folds it into the same knob so the
 ;; day cells lose RET / mouse-1 -> `org-air-view-day' when the defaults
@@ -1591,23 +1582,23 @@ re-run every mode init; idempotent either way (R35-1)."
 (defvar org-air-g-prefix-map
   (make-sparse-keymap)
   "Transient g-prefix map (B4): r refresh, g top of pane, R refresh+clear.
-R22-3: g RET visit, g o visit-stay (o/O are the shared sort now).
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+G RET visit, g o visit-stay (o/O are the shared sort now).
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the g-prefix default keys (installer-owned).  R22-3: o/O now
-;; drive the shared SORT (view-core), so the board's visit verbs relocate
-;; under the g-prefix: `g RET' visits in the other window, `g o' visits but
-;; stays.  GUI visit stays on S-RET.
+;; The g-prefix default keys (installer-owned).  o/O drive the shared
+;; SORT in view-core, so the board's visit verbs live under the
+;; g-prefix: `g RET' visits in the other window, `g o' visits but stays.
+;; GUI visit stays on S-RET.
 (org-air--register-default-keys 'org-air-g-prefix-map
   "r" #'org-air-refresh
   "g" #'org-air-goto-top
   "R" #'org-air-refresh-all
   "RET" #'org-air-visit-item
   "o" #'org-air-visit-item-stay
-  "d" #'org-air-goto-date)   ; R78: "go to date" — the prompted day jump
+  "d" #'org-air-goto-date)   ; "go to date" — the prompted day jump
 
 ;;;; =====================================================================
-;;;; R30-2 — a main-window C-c LEADER for the rail actions.  The rail/
+;;;; A main-window C-c LEADER for the rail actions.  The rail/
 ;;;; legend advertises verbs (RET jump, `|' rail, outline nav) that only
 ;;;; fire when the SIDE WINDOW is focused; from the editable doc-session
 ;;;; org buffer single keys self-insert.  A shared `C-c' leader prefix
@@ -1616,15 +1607,15 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 ;;;; =====================================================================
 
 (defvar org-air-view--leader-installs nil
-  "List of (HOST-MAP . PREFIX-MAP) leader installs to keep synced (R30-2).
+  "List of (HOST-MAP . PREFIX-MAP) leader installs to keep synced.
 Each registered pair is re-bound whenever `org-air-leader-key' changes so
 the leader prefix follows a user rebinding.")
 
 (defvar org-air-view--leader-installed-key nil
-  "The key sequence at which the leader prefix is currently installed (R30-2).")
+  "The key sequence at which the leader prefix is currently installed.")
 
 (defcustom org-air-leader-key "C-c C-a"
-  "Key sequence for the org-air main-window action leader (R30-2).
+  "Key sequence for the org-air main-window action leader.
 A clean, org-safe `C-c C-<letter>' prefix (mnemonic: Air) that does not
 collide with org-mode's own `C-c' bindings in the doc session and is left
 alone by evil in normal AND insert state.  Rebinding it re-installs the
@@ -1643,7 +1634,7 @@ Unbinds the previous key first (a no-op on a fresh install), so a
 `org-air-leader-key' change moves the prefix without leaving the old one
 bound.  The legend follows automatically (it derives keys via
 `where-is').
-R35-1 (D-4): a no-op while the org-air defaults are NOT installed — there
+A no-op while the org-air defaults are NOT installed — there
 is no leader prefix to move; when the user later turns the defaults on the
 installer binds the leader at the then-current `org-air-leader-key'."
   (unless (eq org-air--default-keybindings-state nil)
@@ -1656,7 +1647,7 @@ installer binds the leader at the then-current `org-air-leader-key'."
   (setq org-air-view--leader-installed-key org-air-leader-key)))
 
 (defun org-air-view--leader-install (host-map prefix-map)
-  "Bind PREFIX-MAP at `org-air-leader-key' in HOST-MAP (R30-2).
+  "Bind PREFIX-MAP at `org-air-leader-key' in HOST-MAP.
 Registers the pair so a later `org-air-leader-key' change re-installs it
 via `org-air-view--leader-reinstall'.  Returns PREFIX-MAP."
   (cl-pushnew (cons host-map prefix-map) org-air-view--leader-installs
@@ -1666,7 +1657,7 @@ via `org-air-view--leader-reinstall'.  Returns PREFIX-MAP."
   prefix-map)
 
 (defun org-air-view--legend-key (command buffer &optional fallback)
-  "Return the key text for COMMAND live in BUFFER, or FALLBACK (R30-2).
+  "Return the key text for COMMAND live in BUFFER, or FALLBACK.
 `where-is-internal' FIRSTONLY on COMMAND resolved in BUFFER's OWN active
 keymaps (so an evil/custom rebinding shows what is really bound there),
 formatted via `key-description'.  In a read-only rail this returns the
@@ -1682,8 +1673,8 @@ reachability."
 
 (defun org-air-outline--heading-positions ()
   "Return the buffer positions of the Org headings in the current buffer.
-A pure `^\\*+[ \\t]+' scan (R26-5 shape) — no Org re-parse, no Air struct;
-reused by the R30-2 leader outline motions and the R30-4 outline mode."
+A pure `^\\*+[ \\t]+' scan — no Org re-parse, no Air struct;
+reused by the leader outline motions and the outline mode."
   (save-excursion
     (save-restriction
       (widen)
@@ -1695,7 +1686,7 @@ reused by the R30-2 leader outline motions and the R30-4 outline mode."
 
 (defun org-air--repeat-pn-commands ()
   "Return (NEXT . PREV) the live prev/next motion commands for this buffer.
-Resolves the context-correct motion so ONE shared repeat map (R39-4) steps
+Resolves the context-correct motion so ONE shared repeat map steps
 the board items, the project rows, or the doc/outline headings, whichever
 the current buffer is.  The doc/outline motion is the fallback."
   (cond
@@ -1710,13 +1701,13 @@ the current buffer is.  The doc/outline motion is the fallback."
     (define-key map "n" #'org-air--repeat-next)
     (define-key map "p" #'org-air--repeat-prev)
     map)
-  "Transient repeat map for the leader prev/next motions (R39-4).
+  "Transient repeat map for the leader prev/next motions.
 Armed via `set-transient-map' after a leader (or bare) prev/next so a bare
 `n'/`p' repeats the motion until ANY other key; its `n'/`p' dispatch to the
 context-correct motion via `org-air--repeat-pn-commands'.")
 
 (defun org-air--repeat-pn-arm ()
-  "Install the shared p/n repeat transient map (R39-4), gated on the knob.
+  "Install the shared p/n repeat transient map, gated on the knob.
 `set-transient-map' with KEEP-PRED = t keeps the map live as long as the
 last key was a bound `n'/`p'; the first other key deactivates it AND runs
 normally.  A no-op when `org-air-use-default-keybindings' is nil.  Only the
@@ -1727,7 +1718,7 @@ unrelated buffer."
     (set-transient-map org-air--repeat-pn-map t)))
 
 (defun org-air--repeat-next ()
-  "Leader NEXT motion made repeatable: run the context motion, arm p/n (R39-4).
+  "Leader NEXT motion made repeatable: run the context motion, arm p/n.
 Bound at the leader `n' (and in `org-air--repeat-pn-map'); it calls the SAME
 context-correct motion primitive (no fork) then arms the transient map so a
 bare `n'/`p' repeats until any other key."
@@ -1738,7 +1729,7 @@ bare `n'/`p' repeats until any other key."
   (org-air--repeat-pn-arm))
 
 (defun org-air--repeat-prev ()
-  "Leader PREV motion made repeatable: run the context motion, arm p/n (R39-4).
+  "Leader PREV motion made repeatable: run the context motion, arm p/n.
 Bound at the leader `p' (and in `org-air--repeat-pn-map'); it calls the SAME
 context-correct motion primitive (no fork) then arms the transient map so a
 bare `n'/`p' repeats until any other key."
@@ -1749,7 +1740,7 @@ bare `n'/`p' repeats until any other key."
   (org-air--repeat-pn-arm))
 
 (defun org-air-outline-next-heading ()
-  "Move point to the next Org heading in this buffer (R30-2 leader `n')."
+  "Move point to the next Org heading in this buffer (leader `n')."
   (interactive nil org-air-outline-mode org-air-doc-session-mode)
   (let ((next (cl-find-if (lambda (p) (> p (point)))
                           (org-air-outline--heading-positions))))
@@ -1757,7 +1748,7 @@ bare `n'/`p' repeats until any other key."
       (message "org-air: no next heading"))))
 
 (defun org-air-outline-prev-heading ()
-  "Move point to the previous Org heading in this buffer (R30-2 leader `p')."
+  "Move point to the previous Org heading in this buffer (leader `p')."
   (interactive nil org-air-outline-mode org-air-doc-session-mode)
   (let ((prev (cl-find-if (lambda (p) (< p (line-beginning-position)))
                           (reverse (org-air-outline--heading-positions)))))
@@ -1765,7 +1756,7 @@ bare `n'/`p' repeats until any other key."
       (message "org-air: no previous heading"))))
 
 (defun org-air-outline-goto-current-heading ()
-  "Jump to the Org heading enclosing point — the outline anchor (R30-2 `o').
+  "Jump to the Org heading enclosing point — the outline anchor (`o').
 Reuses the same heading scan as the rail outline: the `jump' verb from
 the editable doc buffer, where `RET' self-inserts."
   (interactive nil org-air-outline-mode org-air-doc-session-mode)
@@ -1776,11 +1767,11 @@ the editable doc buffer, where `RET' self-inserts."
 
 (defvar org-air-leader-map
   (make-sparse-keymap)
-  "Leader prefix map for the BOARD content buffer (R30-2).
+  "Leader prefix map for the BOARD content buffer.
 Installed at `org-air-leader-key' on `org-air-view-mode-map'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the board leader default keys (installer-owned).  Board/project
+;; The board leader default keys (installer-owned).  Board/project
 ;; content buffers: rail toggle, outline jump, the shared sort, the
 ;; per-view filter — all EXISTING commands, reached from the main window
 ;; under the `C-c' leader (never a fork).
@@ -1791,18 +1782,18 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "/" #'org-air-filter)
 
 ;;;; =====================================================================
-;;;; R30-3 — dashboard column toggles (defcustom-backed display group).
+;;;; Dashboard column toggles (defcustom-backed display group).
 ;;;; The origin/date/tag cluster columns hide/show through the EXISTING
-;;;; compute-once / V6 relock; a hidden column reclaims its width for the
+;;;; compute-once width relock; a hidden column reclaims its width for the
 ;;;; flex title.  A `z' display-column prefix keeps the flat board
 ;;;; namespace clean; filter/scope still read the hidden data.
 ;;;; =====================================================================
 
 (defun org-air-view--toggle-column (var label)
-  "Flip board column toggle VAR buffer-locally, re-render, echo (R30-3).
+  "Flip board column toggle VAR buffer-locally, re-render, echo.
 VAR is one of `org-air-show-origin' / `-dates' / `-tags'; LABEL names the
 column for the echo.  Re-renders through the shared
-`org-air-view--refresh-current' (compute-once partition + V6 relock
+`org-air-view--refresh-current' (compute-once partition + width relock
 reused) so the hidden column's width reflows to the title and everything
 stays aligned."
   (set (make-local-variable var) (not (symbol-value var)))
@@ -1811,30 +1802,30 @@ stays aligned."
            (if (symbol-value var) "shown" "hidden")))
 
 (defun org-air-toggle-origin ()
-  "Toggle the board FILENAME (origin) column (R30-3).  Key `z f'."
+  "Toggle the board FILENAME (origin) column.  Key `z f'."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (org-air-view--toggle-column 'org-air-show-origin "origin"))
 
 (defun org-air-toggle-dates ()
-  "Toggle the board DATE/SCHEDULE column (R30-3).  Key `z d'."
+  "Toggle the board DATE/SCHEDULE column.  Key `z d'."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (org-air-view--toggle-column 'org-air-show-dates "dates"))
 
 (defun org-air-toggle-tags ()
-  "Toggle the board TAGS column (R30-3).  Key `z t'."
+  "Toggle the board TAGS column.  Key `z t'."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (org-air-view--toggle-column 'org-air-show-tags "tags"))
 
 (defvar org-air-columns-prefix-map
   (make-sparse-keymap)
-  "Display-column toggle prefix map (R30-3), bound to `z' on the board.
+  "Display-column toggle prefix map, bound to `z' on the board.
 `z f' origin (Filename), `z d' dates, `z t' tags.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the `z' column-toggle default keys (installer-owned).
+;; The `z' column-toggle default keys (installer-owned).
 (org-air--register-default-keys 'org-air-columns-prefix-map
   "f" #'org-air-toggle-origin
   "d" #'org-air-toggle-dates
@@ -1843,20 +1834,20 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 (defvar org-air-view-core-map
   (let ((map (make-sparse-keymap)))
     ;; Keep the `special-mode' defaults reachable below the shared core.
-    ;; PARENT stays at defvar time — always, even with the knob nil (R35-1).
+    ;; PARENT stays at defvar time — always, even with the knob nil.
     (set-keymap-parent map special-mode-map)
     map)
-  "Shared view-core keymap, parent of the board + project mode maps (R18 D-P3).
+  "Shared view-core keymap, parent of the board + project mode maps.
 Reuse the core, override the bespoke: the keys here are identical across
 both views; per-mode domain verbs stay in each child map.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the shared VIEW-CORE default keys (installer-owned).  R18 D-P3:
-;; the unambiguous keys live here ONCE, so they can never drift between the
-;; board and project maps (both inherit via `set-keymap-parent').  RET owns
-;; the bottom view pane; v/V open+close it; \ clears the filter; M-/
-;; toggles AND/OR.  R22-3: o/O are the shared within-view SORT.  R22-5: `|'
-;; pops the rail.  R29-2: vim-ish j/k line motion is shared here.
+;; The shared VIEW-CORE default keys (installer-owned).  The unambiguous
+;; keys live here ONCE, so they can never drift between the board and
+;; project maps (both inherit via `set-keymap-parent').  RET owns the
+;; bottom view pane; v/V open+close it; \ clears the filter; M-/ toggles
+;; AND/OR; o/O are the shared within-view SORT; `|' pops the rail;
+;; vim-ish j/k line motion is shared here.
 (org-air--register-default-keys 'org-air-view-core-map
   "RET" #'org-air-view-pane-return
   "<mouse-1>" #'org-air-view-pane-return
@@ -1872,17 +1863,16 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 (defvar org-air-view-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; R18 D-P3: inherit the shared view-core keys (RET pane, v/V, \, M-/).
-    ;; PARENT stays at defvar time — always, even with the knob nil (R35-1).
+    ;; Inherit the shared view-core keys (RET pane, v/V, \, M-/).
+    ;; PARENT stays at defvar time — always, even with the knob nil.
     (set-keymap-parent map org-air-view-core-map)
     map)
   "Keymap for `org-air-view-mode'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the BOARD default keys (installer-owned).  R18 D-P4: S-RET visits
-;; the file in the other window (and `O' via the shared core sort); RET
-;; opens the pane (inherited).  T2: TAB toggles a section; motion on
-;; M-n/M-p/M-TAB.  Triage verbs c/m/s/d/e/f/t/T/a/D/x/u/I.  `/' per-mode
+;; The BOARD default keys (installer-owned).  S-RET visits the file in
+;; the other window; RET opens the pane (inherited).  TAB toggles a
+;; section; motion on M-n/M-p/M-TAB.  Triage verbs c/m/s/d/e/f/t/T/a/D/x/u/I.  `/' per-mode
 ;; filter.  `g' -> g-prefix, `z' -> columns prefix.
 (org-air--register-default-keys 'org-air-view-mode-map
   "<S-return>" #'org-air-visit-item
@@ -1904,7 +1894,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "f" #'org-air-item-file-group
   "t" #'org-air-set-tag
   "T" #'org-air-item-cycle-todo
-  ;; R83: `b' toggles the backlog tag — defer/un-defer the item off the
+  ;; `b' toggles the backlog tag — defer/un-defer the item off the
   ;; attention surfaces (audited FREE on this map + the review map).
   "b" #'org-air-item-backlog
   "a" #'org-air-item-archive
@@ -1922,14 +1912,14 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   ">" #'org-air-calendar-next
   "." #'org-air-calendar-today
   "z" '(:prefix . org-air-columns-prefix-map)
-  ;; R54-3: the symmetric view-switch pair — `P' project, `N' revisit.
+  ;; The symmetric view-switch pair — `P' project, `N' revisit.
   "N" #'org-air-revisit
-  ;; R61-4: the third leg — `W' opens the review (week/period) surface.
+  ;; The third leg — `W' opens the review (week/period) surface.
   "W" #'org-air-review
   "?" #'org-air-help
   "q" #'org-air-quit)
 
-;; R30-2/R35-1: install the main-window leader on the board map so the rail
+;; Install the main-window leader on the board map so the rail
 ;; actions (rail toggle, outline jump, sort, filter) are reachable from the
 ;; board content buffer under `C-c C-a', not only the side window.
 (org-air--register-default-leader 'org-air-view-mode-map 'org-air-leader-map)
@@ -1937,12 +1927,12 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 (defalias 'org-air-mode-map 'org-air-view-mode-map)
 
 (defvar-local org-air-view--mode-line-count nil
-  "Cached visible-item count for the calm status mode-line (R20-2).
+  "Cached visible-item count for the calm status mode-line.
 Set once per board render so the redisplay :eval never re-scans all items.")
 
 (defun org-air-view--mode-line-filter-text ()
   "Return the `filter …' / `filter none' segment from the active tag filter.
-R22-4: empty reads `filter none' (not `no filter') so the FILTER segment is
+Empty reads `filter none' (not `no filter') so the FILTER segment is
 named the same way whether empty or active, and never collides with the
 `source ...' segment's wording."
   (let ((filters (org-air-view--filter-tags)))
@@ -1954,7 +1944,7 @@ named the same way whether empty or active, and never collides with the
       "filter none")))
 
 (defun org-air-view--mode-line-content ()
-  "Return the calm status text for the current org-air buffer (R20-2).
+  "Return the calm status text for the current org-air buffer.
 Branches on `major-mode' so the board and project share ONE construct per
 invariant #4: the board reports its visible item count · filter · scope;
 the project reports its doc count · filter; rail/pane buffers fall back to
@@ -1964,7 +1954,7 @@ cheap in the redisplay :eval (no render-path work)."
    ((derived-mode-p 'org-air-view-mode)
     (let ((n (or org-air-view--mode-line-count
                  (length (org-air-view--visible-items org-air-view--items)))))
-      ;; R22-4: `source <...>' (was `scope <...>') so the two segments no
+      ;; `source <...>' (was `scope <...>') so the two segments no
       ;; longer both read "all items"; the filter segment is `filter none'.
       (format "org-air · %d item%s · %s · source %s · sort %s"
               n (if (= n 1) "" "s")
@@ -1986,19 +1976,19 @@ cheap in the redisplay :eval (no render-path work)."
 ;; before its referent" warning (a defvaralias whose base is already bound
 ;; trips that check); 0 compile warnings.
 (defvaralias 'org-air-view--calm-mode-line 'org-air-view--status-mode-line
-  "Back-compat alias for the renamed status construct (R20-2).")
+  "Back-compat alias for the renamed status construct.")
 
 (defconst org-air-view--status-mode-line
   '(:eval (propertize (concat "  " (org-air-view--mode-line-content) "  ")
                       'face 'org-air-face-modeline))
-  "The calm nano-style STATUS mode-line construct (R18 D-P5.1 / R20-2).
+  "The calm nano-style STATUS mode-line construct.
 A single quiet :eval that earns its row — counts · filter · scope from the
 buffer-locals already on hand — in the faded `org-air-face-modeline' (which
 also draws the boundary overline).  Mode-line is not part of the buffer-
 text fixtures, so this is byte-invisible.")
 
 (defun org-air-view--install-modeline ()
-  "Install the calm nano-style mode-line, or restore the user's own (R23-2).
+  "Install the calm nano-style mode-line, or restore the user's own.
 `calm' installs the minimal faded nano construct; ANY other value
 \(`default'/nil) drops any buffer-local override so the user's normal
 mode-line shows.  Symmetric so a runtime `calm'->`default' flip actively
@@ -2011,24 +2001,24 @@ line either way, so the body-height derivation is unchanged; byte-invisible
 
 (define-derived-mode org-air-view-mode special-mode "org-air"
   "Major mode for the org-air dashboard."
-  ;; R35-1: reconcile the shared maps to `org-air-use-default-keybindings'
+  ;; Reconcile the shared maps to `org-air-use-default-keybindings'
   ;; on the FIRST org-air buffer — honours use-package `:custom' / a runtime
   ;; `setq' (always run after load) before the map is consulted here.
   (org-air--sync-default-keybindings)
   (setq-local truncate-lines t)
-  ;; S1: the header band is in-buffer text only; never a header line.
+  ;; The header band is in-buffer text only; never a header line.
   (setq-local header-line-format nil)
-  ;; R18 D-P5.1: a calm, faded nano-style mode-line (status lives in the
+  ;; A calm, faded nano-style mode-line (status lives in the
   ;; in-buffer banner); byte-invisible (mode-line is not buffer text).
   (org-air-view--install-modeline)
-  ;; D-P3: `org-air-line-spacing' default 0 keeps the `│' divider glyph an
+  ;; `org-air-line-spacing' default 0 keeps the `│' divider glyph an
   ;; unbroken vertical rule (no gap below the row for the per-cell glyph
   ;; to skip).  The capsule breathing now lives inside each pill via
   ;; `org-air-pill-vinset'.  A non-zero value re-introduces spacing.
   (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type 'bar)
   (setq-local org-air-layout-refresh-function #'org-air-view--resize-refresh)
-  ;; R22-3: seed the shared sort spec — the board's key list + the refresh fn
+  ;; Seed the shared sort spec — the board's key list + the refresh fn
   ;; the shared `o'/`O' commands call; the default key `date' reproduces the
   ;; historical within-bucket order so the goldens stay byte-identical.
   (setq-local org-air-view--sort-keys '(date priority title recency))
@@ -2038,48 +2028,48 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   (unless org-air-view--sort-direction
     (setq-local org-air-view--sort-direction org-air-sort-direction))
   (setq-local buffer-read-only t)
-  ;; R58: the board is bookmarkable (activities.el / burly / `C-x r m') —
+  ;; The board is bookmarkable (activities.el / burly / `C-x r m') —
   ;; a FULL record: view kind, scope, filter, sort, day, plus the durable
   ;; (FILE . POS) row locator.  Restored by `org-air-view-bookmark-jump'.
   (setq-local bookmark-make-record-function
               #'org-air-view--bookmark-make-record)
-  ;; T6: re-fit when the font/text size changes (text-scale alters how many
+  ;; Re-fit when the font/text size changes (text-scale alters how many
   ;; columns/rows fit), debounced through the same window-size path.
   (add-hook 'text-scale-mode-hook #'org-air-view--text-scale-refresh nil t)
-  ;; D-P7 / R14 D-P1.B: this buffer hosts the mid-rail inspector; the core
+  ;; This buffer hosts the mid-rail inspector; the core
   ;; reads the board defaults (`org-air-item' property, item fields).
   (setq-local org-air-view--inspector-active org-air-show-inspector)
   ;; track point to keep the rail inspector synced (debounced).
-  ;; P0: INERT when noninteractive — never install the live hook under
+  ;; INERT when noninteractive — never install the live hook under
   ;; batch (`make check' / `make regen-mockups') so nothing schedules a
   ;; timer or waits for input; the compose path stays pure/synchronous.
   (unless noninteractive
     (add-hook 'post-command-hook #'org-air-view--inspector-post-command nil t))
-  ;; V3: the round-4/T7 buffer-box outer frame is DROPPED — it shipped
-  ;; half-drawn (partial top edge, deferred right) and a half-box reads
+  ;; No buffer-box outer frame: drawn half-way (partial top edge,
+  ;; deferred right) it reads
   ;; worse than none.  Structure comes from the in-buffer full-width
-  ;; hairline rules (S2) and the single internal rail divider; no chrome
-  ;; frame, so `header-line-format' stays nil (S1) and the mode-line is
+  ;; hairline rules and the single internal rail divider; no chrome
+  ;; frame, so `header-line-format' stays nil and the mode-line is
   ;; the default.
-  ;; R90 pass-2: only the canonical `*org-air*' board owns global source
+  ;; Only the canonical `*org-air*' board owns global source
   ;; tracking.  Incidental mode buffers neither install nor tear down its hook.
   (org-air-view--source-tracking-claim)
-  ;; R15 D-P2: tear down the side-window rail when the board buffer is
+  ;; Tear down the side-window rail when the board buffer is
   ;; killed (the rail buffer + side window must not outlive the board).
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
-  ;; R26-8: a dying board cancels its in-flight chunked refresh outright
+  ;; A dying board cancels its in-flight chunked refresh outright
   ;; (token bump + timer cancel), so no slice can outlive its buffer.
   (add-hook 'kill-buffer-hook #'org-air-view--refresh-teardown nil t)
-  ;; R16 D-P1: cooperative reconciler — fall back to inline when the user
+  ;; Cooperative reconciler — fall back to inline when the user
   ;; closes the popped-out rail with a native window command.  Reactive
   ;; only; never re-creates a window the user closed.
   (unless noninteractive
     (add-hook 'window-configuration-change-hook #'org-air-rail--reconcile nil t))
-  ;; R16 D-P3: follow-mode point-tracking for the bottom view pane (inert
+  ;; Follow-mode point-tracking for the bottom view pane (inert
   ;; in batch; a separate consumer of board point from the inspector).
   (unless noninteractive
     (add-hook 'post-command-hook #'org-air-view--view-pane-post-command nil t))
-  ;; R22-2b/R29-2: snap point off the dead gutter/margin/rail/pad columns
+  ;; Snap point off the dead gutter/margin/rail/pad columns
   ;; onto the row title after any LINE-crossing command (incl. native
   ;; arrow/C-n/C-p/mouse and evil's line motions) — the pre-command line
   ;; snapshot gates the snap so in-row horizontal motion is never hijacked;
@@ -2087,7 +2077,7 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   (unless noninteractive
     (add-hook 'pre-command-hook #'org-air-view--pre-command-snapshot nil t)
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
-  ;; R35-1: the evil overriding-map setup is gated on the knob — with the
+  ;; The evil overriding-map setup is gated on the knob — with the
   ;; defaults off there is nothing to override, so no motion state is
   ;; forced and `org-air-view--evil-modes' stays empty.
   (when org-air-use-default-keybindings
@@ -2095,7 +2085,7 @@ line either way, so the body-height derivation is unchanged; byte-invisible
   (org-air-layout-install-window-size-hook))
 
 (defun org-air-view--text-scale-refresh ()
-  "Re-fit the dashboard after a text-scale/font-size change (T6).
+  "Re-fit the dashboard after a text-scale/font-size change.
 Routes through the debounced resize handler so a rapid sequence of scale
 changes coalesces into a single re-render."
   (org-air-layout--window-size-change))
@@ -2107,27 +2097,27 @@ changes coalesces into a single re-render."
 
 (defvar org-air-view--evil-modes nil
   "Alist of (MODE . MAP) views registered via `org-air-view--setup-evil'.
-R29-2 registration hardening: `org-air-view--evil-registration-replay'
-walks this table when evil loads AFTER the org-air modes initialised, so
+`org-air-view--evil-registration-replay' walks this table when evil
+loads AFTER the org-air modes initialised, so
 a deferred evil still gets motion state + overriding maps for every
 view.")
 
 (defun org-air-view--setup-evil (mode map)
   "Integrate the org-air special-mode MODE + MAP with evil, when loaded.
-U2: under evil, single-key org-air bindings are otherwise shadowed by
+Under evil, single-key org-air bindings are otherwise shadowed by
 evil's motion/normal state maps and only fire after a \\=`\\\=' prefix.
 This is a soft dependency — evil is never required.  When evil is
 available we place MODE's buffers in motion state and make MAP an
 overriding map so the org-air keys win, while evil's own scrolling and
 search motions keep working.  Non-evil users are entirely unaffected.
-R27-4: parameterised (was board-only) and called from EVERY org-air
+Parameterised (was board-only) and called from EVERY org-air
 special-mode view — board, project, rail, entry-view pane — so no view's
 keys are shadowed into evil-record-macro / evil-open-below / etc. under
 evil's normal state; one shared setup, no fork.  The two minor modes
 \(doc-session + return) need NOTHING: their verbs are `C-c'-prefixed or
 remaps on the user's own editable file buffers, where forcing a state
 would be wrong.  Idempotent; runs once per mode init.
-R29-2: every MODE + MAP pair is also recorded in
+Every MODE + MAP pair is also recorded in
 `org-air-view--evil-modes' so a LATE-loading evil (deferred `use-package')
 still registers the already-defined modes — see
 `org-air-view--evil-registration-replay' below."
@@ -2138,8 +2128,8 @@ still registers the already-defined modes — see
     (evil-set-initial-state mode 'motion)))
 
 (defun org-air-view--evil-registration-replay (&rest _)
-  "Replay evil registration for every recorded org-air view (R29-2).
-Registration hardening (defense-in-depth, the R28-1 soft-dep idiom): mode
+  "Replay evil registration for every recorded org-air view.
+Registration hardening (defense-in-depth, the soft-dep idiom): mode
 init runs `org-air-view--setup-evil' behind an fboundp gate, so an evil
 loaded AFTER the first org-air buffer silently got NO registration.  This
 runs from `after-load-functions' (a standard hook — no `eval-after-load'
@@ -2164,19 +2154,19 @@ both are), so already-registered modes are unaffected."
 (defvar dimmer-buffer-exclusion-predicates)
 
 (defun org-air-dimmer-buffer-p (buf)
-  "Non-nil when BUF is an org-air-OWNED buffer (R28-1).
+  "Non-nil when BUF is an org-air-OWNED buffer.
 Matches the shipped `*org-air' naming contract — board `*org-air*', rail
 `*org-air-rail*', snapshot pane `*org-air-view*', editable pane
 `*org-air-pane:TITLE*', project `*org-air-project*' — with an
 optional-space belt so any legacy/hidden org-air internal stays covered
-no matter what the naming layer renames.  The doc-session and R20
+no matter what the naming layer renames.  The doc-session and
 return-mode host buffers are the USER'S file buffers: never renamed,
 never matched here (dimming those stays the user's own policy)."
   (and (string-match-p "\\` ?\\*org-air" (buffer-name buf)) t))
 
 (defun org-air-view--setup-dimmer (&optional _file)
-  "Register `org-air-dimmer-buffer-p' on dimmer's exclusion seam (R28-1).
-Soft-dep dimmer integration (zero config, the R27-4 evil idiom):
+  "Register `org-air-dimmer-buffer-p' on dimmer's exclusion seam.
+Soft-dep dimmer integration (zero config, the evil idiom):
 `dimmer-buffer-exclusion-predicates' is dimmer 0.4's per-buffer predicate
 seam (called with the buffer; truthy = never dimmed) — the exact seam
 dimmer's own `dimmer-configure-*' helpers use.  `add-to-list' is
@@ -2184,15 +2174,15 @@ idempotent and the seam is only touched when dimmer is LOADED (`boundp'
 gate — dimmer is never required): without dimmer this is provably
 dormant and no dimmer variable is created.  Returns non-nil once
 registered (and disarms the deferred `after-load-functions' seam below).
-Users with the manual exclusion regexp keep working — the R28-1(a)
-naming makes their regexp true again; this makes it unnecessary."
+Users with a manual exclusion regexp keep working; this makes such a
+regexp unnecessary."
   (when (boundp 'dimmer-buffer-exclusion-predicates)
     (add-to-list 'dimmer-buffer-exclusion-predicates
                  #'org-air-dimmer-buffer-p)
     (remove-hook 'after-load-functions #'org-air-view--setup-dimmer)
     t))
 
-;; R28-1(b): register NOW when dimmer is already loaded, else on the load
+;; Register NOW when dimmer is already loaded, else on the load
 ;; that brings it in (`after-load-functions' — a one-shot boundp probe,
 ;; removed the moment it registers).  Either order — dimmer before or
 ;; after org-air — lands the same idempotent registration.
@@ -2204,7 +2194,7 @@ naming makes their regexp true again; this makes it unnecessary."
   (org-air-layout-glyph name))
 
 (defun org-air-view--sep ()
-  "Return the chrome separator wrapped as \" SEP \" (R33-1).
+  "Return the chrome separator wrapped as \" SEP \".
 A single source of truth for the chrome middle-dot; see
 `org-air-chrome-separator'."
   (format " %s " org-air-chrome-separator))
@@ -2214,7 +2204,7 @@ A single source of truth for the chrome middle-dot; see
   (make-string org-air-margin ?\s))
 
 (defun org-air-view--item-margin ()
-  "Return the item-row indentation so rows hang under their heading (D6).
+  "Return the item-row indentation so rows hang under their heading.
 Item rows sit at the content margin plus `org-air-item-indent' (col 6);
 inside the two-pane item pane the wrapping margin is added downstream,
 so only `org-air-item-indent' is applied here.  This is width-
@@ -2226,7 +2216,7 @@ stacked and two-pane layouts."
                ?\s))
 
 (defun org-air-view--item-source-key (item)
-  "Return ITEM's exact R90 source key `(ABSOLUTE-FILE . POSITION)'.
+  "Return ITEM's exact source key `(ABSOLUTE-FILE . POSITION)'.
 The position is read from the durable marker slot: the integer cdr of a
 cache-hydrated `(FILE . POS)' cell, or `marker-position' for a live
 marker.  `expand-file-name' is the only normalisation paid; titles never
@@ -2947,8 +2937,8 @@ title fallback, no per-render work — an unchanged generation returns above."
 
 (defvar org-air-view--timestamp-time-memo
   (make-hash-table :test #'eq :weakness 'key)
-  "Weak memo from an Org timestamp OBJECT to its Emacs time (R98).
-`org-timestamp-to-time' was the single hottest frame in the R98 render
+  "Weak memo from an Org timestamp OBJECT to its Emacs time.
+`org-timestamp-to-time' was the single hottest frame in the render
 profile (25% of self time in a collapsed repaint at 3k items): the sort
 keys, the meta-width pass and the row painter each re-parse the SAME
 immutable timestamp object, several times per render, every render.
@@ -2963,7 +2953,7 @@ outlive the fact it memoises.")
 (defun org-air-view--timestamp-time (timestamp)
   "Return Emacs time for Org TIMESTAMP.
 Memoised per timestamp object through `org-air-view--timestamp-time-memo'
-since R98 — the parse is pure and the object immutable."
+— the parse is pure and the timestamp object immutable."
   (when timestamp
     (let ((hit (gethash timestamp org-air-view--timestamp-time-memo 'miss)))
       (if (eq hit 'miss)
@@ -2986,7 +2976,7 @@ since R98 — the parse is pure and the object immutable."
      (t (format-time-string "%d %b %y" time)))))
 
 (defun org-air-view--day-relative-face (time &optional now)
-  "Return the R88 PROXIMITY heat-ramp face for TIME relative to NOW, else nil.
+  "Return the PROXIMITY heat-ramp face for TIME relative to NOW, else nil.
 Keyed on the SAME `org-air-view--days-between' delta as `--human-date' (so
 the label and the face agree by construction):
   delta = 0     -> `org-air-face-day-today'    (ORANGE)
@@ -2997,7 +2987,7 @@ the label and the face agree by construction):
                         neutral note keeps its default `org-air-face-date')
   delta >= 7    -> nil  (BEYOND a week -> the slot's default face)
 Returned to the deadline / scheduled / notes arms of `org-air-view--date-
-label' (R87 rule A), so ANY date within the coming week reads warmer the
+label', so ANY date within the coming week reads warmer the
 nearer it is; a date >=7 days out reads the slot default.  OVERDUE (delta<0)
 is owned by the slot's OVERDUE arm, not this helper (a stale note must not
 flash critical-red)."
@@ -3010,7 +3000,7 @@ flash critical-red)."
 
 (defun org-air-view--marker-timestamp-time (item)
   "Return first timestamp in ITEM subtree, if any.
-R53 P2: resolves LIVE markers only (`org-air-classify--item-source'
+Resolves LIVE markers only (`org-air-classify--item-source'
 returns nil for a (FILE . POS) cons — render never opens a file); scanned
 items answer from the `activity' slot at the call sites instead.  A stale
 position degrades to nil, never a crash."
@@ -3028,17 +3018,17 @@ position degrades to nil, never a crash."
                   (match-string-no-properties 0)))))))))))
 
 (defconst org-air-view--days-text-max 3650
-  "Largest day count org-air prints as a NUMBER — ten years (R95).
+  "Largest day count org-air prints as a NUMBER — ten years.
 Beyond it every label degrades to `10y+' (`org-air-view--days-text').")
 
 (defun org-air-view--days-text (days)
-  "Return the printable text for a DAYS count, clamped for legibility (R95).
+  "Return the printable text for a DAYS count, clamped for legibility.
 `\"%dd\"' up to `org-air-view--days-text-max', `\"10y+\"' above it.
 
 WHY.  Every day count on the board is derived by subtraction from a date
 somebody typed, and Org accepts anything: a mis-typed `[0001-01-01]', a
 filesystem that reports a zero mtime, an epoch a restore wrote wrong.
-The R94 review found `~739781d quiet' rendering verbatim in an Untracked
+The review found `~739781d quiet' rendering verbatim in an Untracked
 row — an eight-character number in a narrow cell that is, at best, noise.
 
 THE FACT IS NOT CLAMPED, only its presentation: the sort keys
@@ -3054,7 +3044,7 @@ clamp has to pass to be honest."
 
 (defun org-air-view--attention-reason (item now)
   "Return the (LABEL . FACE) REASON ITEM surfaced in Needs attention as of NOW.
-R93.  The section's promise is that the user can see WHY a row is there, and
+The section's promise is that the user can see WHY a row is there, and
 it is kept in the row's EXISTING date cell — no new column, no new
 chrome, no alignment change (the cell is measured board-wide like every
 other date label):
@@ -3062,8 +3052,8 @@ other date label):
   \"Nd quiet\"   ITEM has gone N calendar days with no update, which has
                  reached its priority's `org-air-attention-days'
                  threshold.  Under the defaults this is EVERY row in the
-                 section (R93 FIX-3 moved `#A' off threshold 0), so the
-                 cell carries a real number the user can act on.
+                 section, so the cell carries a real number the user
+                 can act on.
   \"always\"     ITEM's threshold is 0 — it surfaces unconditionally, and
                  the row's own priority cookie says which priority did
                  that.  No default produces this any more; it appears
@@ -3076,10 +3066,10 @@ and org-air never invents a number.  The two public classify helpers are
 the SAME ones the bucket and the inspector read, so label, section
 membership and explanation cannot drift.
 
-R94: the number here is now always MEASURED —
+The number here is now always MEASURED —
 `org-air-classify-quiet-days' reads the heading's own history and nothing
 else — so this cell can no longer print a file's mtime dressed as a
-heading's age.  The R93 review found 52 % of this section's members, and
+heading's age.  The review found 52 % of this section's members, and
 83 % of the rows visible under its cap, were file-derived guesses wearing
 exactly the same clothes as facts.  The `~' spelling for a file-level
 bound now lives where a file-level bound is the honest answer: the
@@ -3093,7 +3083,7 @@ Untracked section (`org-air-view--untracked-reason')."
 
 (defun org-air-view--untracked-reason (item now)
   "Return the (LABEL . FACE) cell for an Untracked row for ITEM as of NOW.
-R94.  The section holds headings with no plan and no recorded history, so
+The section holds headings with no plan and no recorded history, so
 there is no heading-level number to print.  What there IS, sometimes, is
 the FILE-level lower bound (`org-air-classify-quiet-floor-days'): every
 edit to the heading is an edit to its file, so \"this file has not changed
@@ -3111,7 +3101,7 @@ in N days\" means \"this heading has been quiet for at LEAST N days\".
 
 Quiet `org-air-face-date' in both cases: a missing record is not an
 alarm.  The number printed here is exactly the section's sort key
-\(`org-air-view--sort-by-floor'), so the FIX-2 law — each section ordered
+\(`org-air-view--sort-by-floor'), so the law — each section ordered
 worst-first by the very number its own rows print — holds here too."
   (let ((floor-days (org-air-classify-quiet-floor-days item now)))
     (cons (if (and floor-days (> floor-days 0))
@@ -3120,7 +3110,7 @@ worst-first by the very number its own rows print — holds here too."
           'org-air-face-date)))
 
 (defun org-air-view--overdue-time (item now)
-  "Return the timestamp an OVERDUE row PRINTS for ITEM as of NOW, or nil (R94).
+  "Return the timestamp an OVERDUE row PRINTS for ITEM as of NOW, or nil.
 Deadline first when it is past, else scheduled when it is past — the
 exact arm order `org-air-view--date-label' uses to compose
 \"OVERDUE Nd\", hoisted so the label and the Overdue section's sort can
@@ -3129,11 +3119,10 @@ read it from ONE place.
 Why it exists: `org-air-view--item-sort-time' keys on
 \(or deadline scheduled) unconditionally, so a heading overdue by its
 SCHEDULE while its DEADLINE is still in the future printed a big number
-and sorted by a future date — last.  Reproduced through the real renderer
-by the R93 review: printed order 30d, 20d, 4d, 2d, 40d, i.e. the worst
-row of the alarm section at the BOTTOM, where the 6-row cap can hide it
-behind \"and N more\".  That is the same defect R93 FIX-2 fixed, in a
-shape its corpus did not contain.  Keying the sort on this function makes
+and sorted by a future date — last.  Measured through the real renderer:
+printed order 30d, 20d, 4d, 2d, 40d, i.e. the worst row of the alarm
+section at the BOTTOM, where the 6-row cap can hide it behind \"and N
+more\".  Keying the sort on this function makes
 the law (\"ordered worst-first by the very number its own rows print\")
 true by construction rather than by coincidence of slot order."
   (let ((deadline (org-air-view--timestamp-time (org-air-item-deadline item)))
@@ -3149,16 +3138,16 @@ true by construction rather than by coincidence of slot order."
          (deadline (org-air-view--timestamp-time (org-air-item-deadline item)))
          (overdue (org-air-view--overdue-time item now)))
     (cond
-     ;; R93: in Needs attention the date cell carries the REASON, ahead of
+     ;; In Needs attention the date cell carries the REASON, ahead of
      ;; every date arm.  A row is in that section because it went QUIET,
      ;; not because of its dates — and its dates are never lost: an
      ;; overdue or upcoming item has its own section row showing them, and
      ;; the inspector always lists both.
      ((eq bucket 'attention) (org-air-view--attention-reason item now))
-     ;; R94: the same arm, for the same reason — an Untracked row is there
+     ;; The same arm, for the same reason — an Untracked row is there
      ;; because org-air has no record of it, not because of a date.
      ((eq bucket 'untracked) (org-air-view--untracked-reason item now))
-     ;; R94: the two OVERDUE arms collapsed onto `--overdue-time', the ONE
+     ;; The two OVERDUE arms collapsed onto `--overdue-time', the ONE
      ;; definition of "the slot this row is late by", which the Overdue
      ;; section's sort now keys on as well.
      (overdue
@@ -3168,7 +3157,7 @@ true by construction rather than by coincidence of slot order."
             'org-air-face-overdue))
      (deadline
       (cons (org-air-view--human-date deadline now)
-            ;; R87: a deadline that falls today/tomorrow WINS its slot — it
+            ;; A deadline that falls today/tomorrow WINS its slot — it
             ;; reads teal/rose (day face) instead of the slot orange, so the
             ;; standout reaches the due-date column (text AND svg pill); a
             ;; deadline >=2 days out keeps `org-air-face-deadline'.
@@ -3176,14 +3165,14 @@ true by construction rather than by coincidence of slot order."
                 'org-air-face-deadline)))
      (scheduled
       (cons (org-air-view--human-date scheduled now)
-            ;; R87: a scheduled today/tomorrow WINS its slot too (consistency).
+            ;; A scheduled today/tomorrow WINS its slot too (consistency).
             (or (org-air-view--day-relative-face scheduled now)
                 'org-air-face-scheduled)))
      ((eq bucket 'notes)
-      ;; R53 P3: a note row's date pill is its scan-time activity.
+      ;; A note row's date pill is its scan-time activity.
       (when-let* ((activity (org-air-item-activity item)))
         (cons (org-air-view--human-date activity now)
-              ;; R85: a today/tomorrow neutral date stops reading as muted
+              ;; A today/tomorrow neutral date stops reading as muted
               ;; grey; a non-today/tomorrow date keeps `org-air-face-date'.
               (or (org-air-view--day-relative-face activity now)
                   'org-air-face-date)))))))
@@ -3196,10 +3185,10 @@ true by construction rather than by coincidence of slot order."
 
 (defconst org-air-view--denote-id-regexp
   "\\`[0-9]\\{8\\}T[0-9]\\{6\\}--"
-  "Anchored regexp matching the Denote identifier prefix of a file name (F1).")
+  "Anchored regexp matching the Denote identifier prefix of a file name.")
 
 (defun org-air-view--denote-title (filename)
-  "Return the de-machined Denote title of FILENAME, or nil (F1).
+  "Return the de-machined Denote title of FILENAME, or nil.
 Strips the \"YYYYMMDDTHHMMSS--\" identifier, the \"__tag_tag\" signature
 and the extension, leaving the title slug; hyphens become spaces when
 `org-air-origin-deslugify' is non-nil.  Returns nil when FILENAME is not a
@@ -3216,8 +3205,8 @@ Denote-style name."
             slug))))))
 
 (defun org-air-view--org-file-title (file)
-  "Return the \"#+title:\" keyword of FILE, or nil (F1, `title-from-org').
-R54-2: answered from the scan's file-meta table when FILE has an entry
+  "Return the \"#+title:\" keyword of FILE, or nil (`title-from-org').
+Answered from the scan's file-meta table when FILE has an entry
 \(`:org-title', the raw `#+title' alone — nil there means the scan SAW no
 title, so no read happens and the denote de-slug fallback takes over);
 the bounded 4KB read survives only for files the scan has not met."
@@ -3235,7 +3224,7 @@ the bounded 4KB read survives only for files the scan has not met."
                 (unless (string-empty-p title) title)))))))))
 
 (defun org-air-view--origin (item)
-  "Return origin breadcrumb for ITEM, honouring `org-air-origin-style' (F1)."
+  "Return origin breadcrumb for ITEM, honouring `org-air-origin-style'."
   (if org-air-show-group
       (or (org-air-item-group item) "")
     (let* ((file (org-air-item-file item))
@@ -3248,7 +3237,7 @@ the bounded 4KB read survives only for files the scan has not met."
         (_ (or (org-air-view--denote-title file) leaf))))))
 
 (defvar org-air-view--filter-now nil
-  "The ONE instant the R72 date/status filter tokens evaluate against.
+  "The ONE instant the date/status filter tokens evaluate against.
 nil (the off-partition default) means `current-time'.
 `org-air-view--compute-partition' binds it to the SAME now it classifies
 with, so within one render the filter and the buckets read a single
@@ -3256,8 +3245,8 @@ instant; ERT freezes time by let-binding it.  Day-granular predicates,
 same as classify.")
 
 (defun org-air-view--filter-tags ()
-  "Return active filter tokens as a list (R24-6: tokens stored VERBATIM).
-Each token is either a `#tag' (a tag match), an R72 date/status token
+  "Return active filter tokens as a list; tokens are stored VERBATIM.
+Each token is either a `#tag' (a tag match), a date/status token
 \(`is:overdue', `due:7d', … — `org-air-view--filter-token-parse') or a
 bare substring token."
   (cond
@@ -3267,23 +3256,22 @@ bare substring token."
 
 (defconst org-air-view--filter-is-values
   '("overdue" "upcoming" "attention" "untracked" "nodate" "hipri" "backlog")
-  "The closed value set of the R72 `is:' status-token family.
-R83: `backlog' is the bucket-exact twin of the raw-tag `#backlog' — it
+  "The closed value set of the `is:' status-token family.
+`backlog' is the bucket-exact twin of the raw-tag `#backlog' — it
 selects exactly the `backlog' bucket (board-active ∧ task-routed ∧
 tagged), a strict subset of `#backlog' (which also hits done / archived /
 note-typed carriers of the tag).
-R94: `untracked' joins as the Untracked section's own token
+`untracked' joins as the Untracked section's own token
 \(`org-air-classify--untracked-p': no plan and no recorded history), so
 the one place org-air admits it cannot rank something is reachable by
-name.  It is deliberately NOT a synonym for `nodate', and R95 made the
-two genuinely INDEPENDENT rather than nested: `is:nodate' is the date
+name.  It is deliberately NOT a synonym for `nodate': the two are
+INDEPENDENT, not nested.  `is:nodate' is the date
 negation alone (`--dated-p'), while `is:untracked' negates the SCHEDULED
 and DEADLINE slots the date sections read (`--planned-p') plus the
 record.  So an undated heading with a LOGBOOK trail answers `is:nodate'
 and not `is:untracked', AND a heading whose only date is a body
-`<timestamp>' answers `is:untracked' and not `is:nodate' — which is the
-R94 coverage hole, now reachable by name.
-R93: `attention' joins the family as the Needs-attention section's own
+`<timestamp>' answers `is:untracked' and not `is:nodate'.
+`attention' joins the family as the Needs-attention section's own
 token (the aging predicate), and `stale' LEAVES it — the Stale bucket is
 retired.  `is:stale' still PARSES, as a deprecated alias
 \(`org-air-view--filter-is-aliases'); it is simply no longer OFFERED by
@@ -3292,7 +3280,7 @@ This list is the OFFER set; the parser accepts it plus the aliases.")
 
 (defconst org-air-view--filter-is-aliases
   '(("stale" . attention))
-  "Retired `is:' spellings kept alive as aliases (R93).
+  "Retired `is:' spellings kept alive as aliases.
 Each (SPELLING . CURRENT-SYMBOL) still PARSES to CURRENT-SYMBOL, so a
 saved bookmark or a muscle-memory `is:stale' degrades honestly — it
 selects the aging Needs-attention set, the closest surviving meaning —
@@ -3302,18 +3290,18 @@ read like a bug).  Aliases are NOT offered by `/' completion, so the
 vocabulary org-air teaches is always the current one.")
 
 (defun org-air-view--filter-token-parse (token)
-  "Parse TOKEN as an R72 date/status filter token, or return nil.
+  "Parse TOKEN as a date/status filter token, or return nil.
 The closed `qualifier:value' grammar (case-insensitive throughout):
   is:overdue / is:upcoming / is:attention / is:untracked / is:nodate /
   is:hipri
-  \(plus the retired `is:stale', aliased to `attention' — R93)
+  \(plus the retired `is:stale', aliased to `attention')
     => (is . SYMBOL)
   due:Nd / due:Nw (and the scheduled:/deadline: slot twins; the unit is
   REQUIRED, `w' = 7×N days)
     => (SLOT . DAYS) with SLOT one of `due' / `scheduled' / `deadline'.
-  is:done / todo:KEYWORD (R79 keyword-identity axis)
+  is:done / todo:KEYWORD (the keyword-identity axis)
     => (status . done) / (todo . NAME).
-  path:VALUE (R86 LOCATION axis; VALUE a `/'-joined run of whole path
+  path:VALUE (the LOCATION axis; VALUE a `/'-joined run of whole path
   components, matched segment-aware + org-root-relative at match time)
     => (path . VALUE).
 A `#'-prefixed token is refused outright (the `#' branch of the matcher
@@ -3335,7 +3323,7 @@ errors; the label quoting is the tell —
                  "\\)\\'")
          token)
         (let ((value (downcase (match-string 1 token))))
-          ;; R93: a retired spelling resolves to its current symbol here,
+          ;; A retired spelling resolves to its current symbol here,
           ;; ONCE, so every downstream consumer (the matcher, the lens,
           ;; the bucket agreement) only ever sees current vocabulary.
           (cons 'is (or (cdr (assoc value org-air-view--filter-is-aliases))
@@ -3348,15 +3336,15 @@ errors; the label quoting is the tell —
                  (if (string-equal-ignore-case (match-string 3 token) "w")
                      7
                    1))))
-       ;; R79 keyword-identity axis, AFTER the date/status branches so no
-       ;; #tag or R72 token is stolen: `is:done' (any done keyword) and
+       ;; The keyword-identity axis, AFTER the date/status branches so
+       ;; no #tag or date token is stolen: `is:done' (any done keyword) and
        ;; `todo:KEYWORD' (case-insensitive keyword identity).  Read the
        ;; item's OWN keyword/done slot with NO board-active gate.
        ((string-equal-ignore-case token "is:done")
         (cons 'status 'done))
        ((string-match "\\`todo:\\(.+\\)\\'" token)
         (cons 'todo (match-string 1 token)))
-       ;; R86 LOCATION axis: `path:VALUE' — VALUE is a `/'-joined run of
+       ;; The LOCATION axis: `path:VALUE' — VALUE is a `/'-joined run of
        ;; whole path components, matched SEGMENT-aware and org-root-
        ;; RELATIVE at MATCH time (`org-air-view--filter-path-token-match-p').
        ;; Kept as the RAW VALUE atom here so the token prints back verbatim
@@ -3369,15 +3357,15 @@ errors; the label quoting is the tell —
         (cons 'path (match-string 1 token)))))))
 
 (defun org-air-view--filter-keyword-token-match-p (parsed item)
-  "Non-nil when PARSED keyword token matches ITEM's own keyword/done slot (R79).
+  "Non-nil when PARSED keyword token matches ITEM's own keyword/done slot.
 PARSED is a `(todo . NAME)' or `(status . done)' cell from
 `org-air-view--filter-token-parse'.  Reads the item's OWN slots with NO
 `org-air-classify--board-active-p' gate — the keyword axis is orthogonal
-to the R72 date/status axis and MUST select done items (the day pane's
+to the date/status axis and MUST select done items (the day pane's
 staple).  `(todo . NAME)' is a case-insensitive keyword-identity match;
 `(status . done)' is the item's done flag.  Vacuously false when ITEM
-carries no keyword slot (empty project/revisit records), like the R72
-tokens."
+carries no keyword slot (empty project/revisit records), like the
+date/status tokens."
   (pcase parsed
     (`(todo . ,name)
      (and (org-air-item-todo item)
@@ -3387,7 +3375,7 @@ tokens."
      (and (org-air-item-donep item) t))))
 
 (defun org-air-view--path-segments (path)
-  "Split PATH into a list of lower-cased, non-empty path components (R86).
+  "Split PATH into a list of lower-cased, non-empty path components.
 `/'-delimited; empty runs (a leading `/', `//', a trailing `/') are
 dropped.  Lower-cased so `path:' matching is case-insensitive (the
 `org-air-view--filter-token-match-p' throughout-rule).  Pure string work
@@ -3395,13 +3383,13 @@ dropped.  Lower-cased so `path:' matching is case-insensitive (the
   (when path (split-string (downcase path) "/" t)))
 
 (defun org-air-view--path-run-match-p (needle haystack)
-  "Non-nil when the NEEDLE component list is a CONTIGUOUS run in HAYSTACK (R86).
+  "Non-nil when the NEEDLE component list is a CONTIGUOUS run in HAYSTACK.
 Both are `org-air-view--path-segments' outputs (already lower-cased).
 Segment-aware, not substring: NEEDLE `(\"re\")' matches HAYSTACK
 `(… \"tasks\" \"re\" \"air\" …)' but NOT `(… \"tasks\" \"restore.org\")';
 NEEDLE `(\"tasks\" \"re\")' matches only where `tasks' is IMMEDIATELY
 followed by `re'.  An empty NEEDLE never matches (an empty `path:' does
-not parse — D1).  Pure list work."
+not parse).  Pure list work."
   (and needle
        (let ((n (length needle)) (hit nil) (tail haystack))
          (while (and tail (not hit))
@@ -3412,7 +3400,7 @@ not parse — D1).  Pure list work."
          hit)))
 
 (defun org-air-view--path-relative (file)
-  "Return FILE relative to its `org-air-files' source root, else absolute (R86).
+  "Return FILE relative to its `org-air-files' source root, else absolute.
 Decision B: FILE is made relative to the PARENT of the SHALLOWEST
 `org-air-files' source that contains it, so the source's own basename
 survives as the first segment (`~/org' + `…/org/tasks/re/foo.org' =>
@@ -3437,15 +3425,15 @@ branch, still matchable)."
       exp)))
 
 (defun org-air-view--filter-path-token-match-p (value item)
-  "Non-nil when ITEM's source path matches the `path:' VALUE (R86).
+  "Non-nil when ITEM's source path matches the `path:' VALUE.
 VALUE is the raw `(path . VALUE)' payload; ITEM's `org-air-item-file' is
-made root-RELATIVE (`org-air-view--path-relative', Decision B) and
-SEGMENT-matched against VALUE's component run via
-`org-air-view--path-run-match-p' (Decision A).  Vacuously FALSE when
-ITEM carries no file (empty project/revisit records) — like the R72/R79
-slot tokens.  Reads a cached slot + `org-air-files'; NO file access, NO
-board-active/task-routed gate (a LOCATION is orthogonal to planning
-state — a DONE note under `tasks/re' still lives there)."
+made root-RELATIVE (`org-air-view--path-relative') and SEGMENT-matched
+against VALUE's component run via `org-air-view--path-run-match-p'.
+Vacuously FALSE when ITEM carries no file (empty project/revisit
+records), like the other slot tokens.  Reads a cached slot plus
+`org-air-files': NO file access, NO board-active/task-routed gate.  A
+LOCATION is orthogonal to planning state — a DONE note under `tasks/re'
+still lives there."
   (when-let* ((file (org-air-item-file item)))
     (org-air-view--path-run-match-p
      (org-air-view--path-segments value)
@@ -3455,14 +3443,14 @@ state — a DONE note under `tasks/re' still lives there)."
   "Non-nil when PARSED (a date/status token) matches ITEM as of NOW.
 PARSED is `org-air-view--filter-token-parse' output.  Dispatches onto the
 buckets' OWN hoisted classify predicates — the filter contains NO date
-arithmetic of its own, so filter⇔bucket agreement holds by construction
-\(R72 Decision 3).  Every token conjoins the buckets' top gate
+arithmetic of its own, so filter⇔bucket agreement holds by
+construction.  Every token conjoins the buckets' top gate
 \(`org-air-classify--board-active-p': not done, not archived) — the
 filter never resurrects what the board buries — AND the routing gate
-\(`org-air-classify--task-routed-p', R77): date/status tokens are TASK
-vocabulary, so an item the R54-2 routing layer sends to a note bucket
+\(`org-air-classify--task-routed-p'): date/status tokens are TASK
+vocabulary, so an item the routing layer sends to a note bucket
 \(a demoted routine under `org-air-task-requires-todo', a `#+type: note'
-overridden scheduled heading) never matches them, extending the R72
+overridden scheduled heading) never matches them, extending the
 agreement law through the routing layer."
   (and (org-air-classify--board-active-p item)
        (org-air-classify--task-routed-p item)
@@ -3471,30 +3459,28 @@ agreement law through the routing layer."
          (`(is . upcoming)
           ;; `is:upcoming' means the KNOB horizon (it widens nothing).
           (org-air-classify--due-within-p item now org-air-upcoming-days))
-         ;; R93: the Needs-attention section's OWN predicate — one
+         ;; The Needs-attention section's OWN predicate — one
          ;; definition shared by bucket and token, so `is:attention'
          ;; selects EXACTLY the section's rows.  `is:stale' parses to
          ;; this same symbol (the deprecated alias).
          (`(is . attention) (org-air-classify--attention-p item now))
-         ;; R94: the Untracked section's OWN predicate — one definition
+         ;; The Untracked section's OWN predicate — one definition
          ;; shared by bucket and token, so `is:untracked' selects EXACTLY
          ;; the section's rows.  Date-free and clock-free: it asks what
-         ;; org-air KNOWS, not what the calendar says.  R95: the inbox
-         ;; clause lives INSIDE that predicate, so the agreement law
-         ;; survives the change — the token drops the inbox dwellers the
-         ;; section drops, by construction rather than by a second rule.
+         ;; org-air KNOWS, not what the calendar says.  The inbox
+         ;; clause lives INSIDE that predicate, so the token drops the
+         ;; inbox dwellers the section drops, by construction rather
+         ;; than by a second rule.
          (`(is . untracked) (org-air-classify--untracked-p item))
          (`(is . nodate)
-          ;; Deliberately the R54-1 date NEGATION, not "has no plan":
+          ;; Deliberately the date NEGATION, not "has no plan":
           ;; an item whose only date is a body <ts> is dated (it feeds
-          ;; the calendar) and must not answer "nodate".  R93 renamed the
-          ;; predicate to `org-air-classify--dated-p'; the rule is
-          ;; unchanged.
+          ;; the calendar) and must not answer "nodate".
           (not (org-air-classify--dated-p item)))
          (`(is . hipri) (org-air-classify--hipri-p item))
-         ;; R83: `is:backlog' is the bucket-exact twin of `#backlog'.  The
+         ;; `is:backlog' is the bucket-exact twin of `#backlog'.  The
          ;; enclosing board-active ∧ task-routed conjunction already holds,
-         ;; so this selects EXACTLY the `backlog' bucket — the R72
+         ;; so this selects EXACTLY the `backlog' bucket — the
          ;; agreement law extended to the deferred set for free.
          (`(is . backlog) (org-air-classify--backlog-p item))
          (`(due . ,days) (org-air-classify--due-within-p item now days))
@@ -3506,8 +3492,8 @@ agreement law through the routing layer."
 
 (defun org-air-view--filter-window-days ()
   "Return the MAX days over the active filter's parsed window tokens.
-nil when no `due:'/`scheduled:'/`deadline:' window token is active (R72
-Decision 4 — the Upcoming-horizon widening input)."
+nil when no `due:'/`scheduled:'/`deadline:' window token is active.
+This is the Upcoming-horizon widening input."
   (let ((days nil))
     (dolist (tok (org-air-view--filter-tags))
       (pcase (org-air-view--filter-token-parse tok)
@@ -3516,7 +3502,7 @@ Decision 4 — the Upcoming-horizon widening input)."
     days))
 
 (defun org-air-view--filter-effective-horizon ()
-  "Return the effective Upcoming horizon in days (R72 Decision 4).
+  "Return the effective Upcoming horizon in days.
 \(max `org-air-upcoming-days' ACTIVE-WINDOW-DAYS) — widening only, never
 narrowing: `due:2d' still renders the full knob-wide Upcoming section
 \(the FILTER does the narrowing, the bucket keeps its shape), while
@@ -3525,7 +3511,7 @@ row (the probed +8d bucketless hole)."
   (max org-air-upcoming-days (or (org-air-view--filter-window-days) 0)))
 
 (defun org-air-view--filter-path-segments ()
-  "Return the distinct DIRECTORY segments across the loaded items (R86).
+  "Return the distinct DIRECTORY segments across the loaded items.
 For each `org-air-view--items' file, `org-air-view--path-relative' then
 `org-air-view--path-segments' MINUS the leaf filename (`butlast'); the
 union, case-insensitively de-duplicated (segments are already lower-cased)
@@ -3545,20 +3531,20 @@ not require-match)."
     (sort out #'string<)))
 
 (defun org-air-view--filter-vocabulary ()
-  "Return the date/status + R79 keyword token offer list for `/' completion.
-The `org-air-view--filter-is-values' `is:' tokens (R93: the RETIRED
-aliases in `org-air-view--filter-is-aliases' still parse but are
-deliberately NOT offered) plus knob-tracking window examples
+  "Return the date/status + keyword token offer list for `/' completion.
+The `org-air-view--filter-is-values' `is:' tokens (the RETIRED aliases
+in `org-air-view--filter-is-aliases' still parse but are deliberately
+NOT offered) plus knob-tracking window examples
 \(`due:7d' / `scheduled:7d' / `deadline:7d' where 7 is the LIVE
-`org-air-upcoming-days'), plus the R79 keyword axis: `is:done' and a
+`org-air-upcoming-days'), plus the keyword axis: `is:done' and a
 `todo:<KW>' for each bare name in the merged scan vocabulary
 \(`org-air-view--scan-keyword-names') so `/' completion teaches the
-axis by the user's real keywords, plus the R86 LOCATION axis: a
+axis by the user's real keywords, plus the LOCATION axis: a
 `path:SEG' for each distinct DIRECTORY segment across the loaded items'
 root-relative paths (`org-air-view--filter-path-segments').  Offered by
 the board and the review view; project and revisit pass nothing (their
-records carry no planning slots — R72 Decision 8; the keyword and
-location axes are vacuously false there too)."
+records carry no planning slots, and the keyword and location axes are
+vacuously false there too)."
   (append
    (mapcar (lambda (v) (concat "is:" v)) org-air-view--filter-is-values)
    (mapcar (lambda (q) (format "%s:%dd" q org-air-upcoming-days))
@@ -3566,16 +3552,16 @@ location axes are vacuously false there too)."
    (list "is:done")
    (mapcar (lambda (kw) (concat "todo:" kw))
            (org-air-view--scan-keyword-names))
-   ;; R86: a `path:SEG' offer per distinct DIRECTORY segment across the
+   ;; A `path:SEG' offer per distinct DIRECTORY segment across the
    ;; loaded items' root-relative paths (the leaf filename dropped).
    (mapcar (lambda (seg) (concat "path:" seg))
            (org-air-view--filter-path-segments))))
 
 (defun org-air-view--filter-token-label (token)
-  "Return TOKEN as it should appear in the filter lens display (R24-6).
+  "Return TOKEN as it should appear in the filter lens display.
 A `#tag' token reads verbatim; a bare substring token reads quoted
-\(`\"git\"') so the lens presents it as text, not a tag.  R72: a token
-that PARSES as a date/status token renders verbatim-unquoted (like a
+\(`\"git\"') so the lens presents it as text, not a tag.  A token that
+PARSES as a date/status token renders verbatim-unquoted (like a
 `#tag'), while an unparsed near-miss keeps its quotes — the rail/banner/
 mode-line read `is:overdue' for the real thing but `\"is:urgent\"' for
 the typo, so the quoting is the tell."
@@ -3585,7 +3571,7 @@ the typo, so the quoting is the tell."
     (format "%S" token)))
 
 (defun org-air-view--tag-chip-label (tag)
-  "Return TAG's chip label: the `#'-prefixed tag name, prefix-DEDUPED (R69-5).
+  "Return TAG's chip label: the `#'-prefixed tag name, prefix-DEDUPED.
 A tag whose own text already starts with `#' (a literal `:#Nix:' org tag,
 kept for svg-tag-mode) is returned VERBATIM — org-air never adds a second
 `#' on its chrome (`##Nix').  Only the org-air-prepended prefix collapses:
@@ -3596,12 +3582,12 @@ rollups); filter-TOKEN surfaces use `org-air-view--filter-token-label'."
   (if (string-prefix-p "#" tag) tag (concat "#" tag)))
 
 (defun org-air-view--filter-token-match-p (token text tags &optional item)
-  "Non-nil when TOKEN matches TEXT/TAGS (R24-6 filter mini-language).
+  "Non-nil when TOKEN matches TEXT/TAGS in the filter mini-language.
 A `#tag' token = exact TAG membership of the STRIPPED name OR of the
-VERBATIM token (R69-5: a literal `#'-named org tag like `:#Nix:' is hit
-by the `#Nix' token its own chip toggles, so deduped chips stay
-clickable/filterable — a strict superset of the old stripped-only rule);
-an R72 date/status token (`is:overdue', `due:7d', … — the `#' branch
+VERBATIM token: a literal `#'-named org tag like `:#Nix:' is hit by the
+`#Nix' token its own chip toggles, so deduped chips stay clickable and
+filterable;
+a date/status token (`is:overdue', `due:7d', … — the `#' branch
 stays FIRST, so `#'-spelled tags can never be stolen) = the bucket
 predicate over ITEM's cached planning slots, evaluated against
 `org-air-view--filter-now' (one NOW per render) — vacuously FALSE when
@@ -3618,17 +3604,17 @@ Case-insensitive throughout."
     (if-let* ((parsed (org-air-view--filter-token-parse token)))
         (and item
              (pcase parsed
-               ;; R79 keyword axis: read the item's OWN keyword/done slot,
+               ;; Keyword axis: read the item's OWN keyword/done slot,
                ;; NO board-active gate (must select done items).
                ((or `(todo . ,_) `(status . done))
                 (org-air-view--filter-keyword-token-match-p parsed item))
-               ;; R86 LOCATION axis (gate-free): the item's source path.
+               ;; LOCATION axis (gate-free): the item's source path.
                ;; Orthogonal to planning state (a DONE note under
                ;; `tasks/re' still lives there), so routed here beside the
                ;; keyword axis, NOT through the gated date matcher.
                (`(path . ,value)
                 (org-air-view--filter-path-token-match-p value item))
-               ;; R72 date/status axis: the bucket predicate under one NOW.
+               ;; Date/status axis: the bucket predicate under one NOW.
                (_ (org-air-view--filter-date-token-match-p
                    parsed item (or org-air-view--filter-now (current-time))))))
       (and (string-search (downcase token)
@@ -3640,12 +3626,12 @@ Case-insensitive throughout."
   "Return non-nil when TEXT/TAGS satisfy the active filter tokens + combinator.
 SHARED by the board (item title+origin+tags), the review view and the
 project (doc name+relpath+tags) — the one matcher every view calls
-\(R24-6, generalising R18 D-P3).  Empty filter passes everything;
+— never a per-view fork.  Empty filter passes everything;
 `org-air-filter-match' selects `all' (AND) or `any' (OR) and spans MIXED
 #tag / date-status / bare-substring tokens.  ITEM, when non-nil, is the
-`org-air-item' the R72 date/status tokens read their planning slots from
+`org-air-item' the date/status tokens read their planning slots from
 \(board + review thread it; project/revisit pass none — there a date
-token is vacuously false, Decision 8)."
+token is vacuously false)."
   (let ((tokens (org-air-view--filter-tags)))
     (or (null tokens)
         (and (funcall (if (eq org-air-filter-match 'all) #'seq-every-p #'seq-some)
@@ -3656,20 +3642,20 @@ token is vacuously false, Decision 8)."
 
 (defun org-air-view--tags-pass-filter-p (item-tags)
   "Return non-nil when ITEM-TAGS satisfy the active filter + combinator.
-R18 D-P3: the pure matcher SHARED by the board (`org-air-item-tags') and
-the project (`org-air-doc-tags').  R24-6: a thin tags-only wrapper over
+The pure matcher SHARED by the board (`org-air-item-tags') and
+the project (`org-air-doc-tags') — a thin tags-only wrapper over
 `org-air-view--tokens-pass-filter-p' (no searchable text) so any legacy
 caller still tag-matches; the real call sites pass the title/path text."
   (org-air-view--tokens-pass-filter-p "" item-tags))
 
 (defun org-air-view--passes-filter-p (item)
-  "Return non-nil when ITEM passes the active filter (R24-6).
+  "Return non-nil when ITEM passes the active filter.
 Passes the item's title + origin breadcrumb as the searchable TEXT so a
 bare token substring-matches the title; `#tag' tokens still tag-match;
-the ITEM itself is threaded so R72 date/status tokens read its planning
+the ITEM itself is threaded so date/status tokens read its planning
 slots.
 
-R98: with NO filter active every item passes and the searchable text is
+With NO filter active every item passes and the searchable text is
 never read, so it is not BUILT.  Composing it costs an origin breadcrumb
 per item (a Denote-title probe plus `file-name-nondirectory'), and this
 runs over every item on every repaint — it was 14% of a TAB expansion at
@@ -3696,7 +3682,7 @@ second rule."
 (defun org-air-view--visible-items (items)
   "Return ITEMS after scope and filter.
 Reads the compute-once `org-air-view--render-partition' when bound for the
-SAME ITEMS (R20-6), so a render computes the visible set exactly once
+SAME ITEMS, so a render computes the visible set exactly once
 instead of 21x; falls back to a fresh scan off-render."
   (if (and org-air-view--render-partition
            (eq items (car org-air-view--render-partition)))
@@ -3707,12 +3693,12 @@ instead of 21x; falls back to a fresh scan off-render."
                 items)))
 
 (defun org-air-view--compute-partition (items &optional now)
-  "Build the compute-once render partition for ITEMS as of NOW (R20-6).
+  "Build the compute-once render partition for ITEMS as of NOW.
 Returns (ITEMS VISIBLE . TABLE): VISIBLE is `org-air-view--visible-items'
 in source order; TABLE is an `eq' hash mapping each classify bucket to its
 visible members in SOURCE order, byte-identical to what repeated
 `org-air-view--items-for-bucket' calls produced, in ONE classify pass.
-R72: binds `org-air-view--filter-now' to the SAME now it classifies with,
+Binds `org-air-view--filter-now' to the SAME now it classifies with,
 so the date/status filter tokens and the buckets evaluate against a
 single instant within one render."
   (let* ((now (or now (current-time)))
@@ -3727,16 +3713,16 @@ single instant within one render."
     (cons items (cons visible table))))
 
 (defun org-air-view--classify-cache-ensure (&optional now)
-  "Ensure this board's classify cache table exists for NOW's day (R18 D-P1c).
+  "Ensure this board's classify cache table exists for NOW's day.
 Called once in the MAIN board buffer at the start of a render so the temp
 pane buffers (`org-air-view--render-lines') can bind the cache var to the
 SAME table object; `puthash' there then persists back to this buffer.  A
-day rollover (or a missing table) rebuilds it.  R72: the memo key is the
+day rollover (or a missing table) rebuilds it.  The memo key is the
 pair (DAY . EFFECTIVE-HORIZON), so toggling a window filter token that
 widens the Upcoming horizon rebuilds the memo instead of serving stale
 buckets — a pure slot-fold rebuild — and is a NO-OP when the horizon is
 unchanged (`due:7d' at defaults keys identically to no filter).
-R83: `org-air-backlog-tag' joins the key (a RENDER-time classify input,
+`org-air-backlog-tag' joins the key (a RENDER-time classify input,
 not a scan-key input — the tag NAME never forces a file reopen), so a
 mid-session `setq' of the tag name self-invalidates the memo on the next
 repaint (a cheap slot-fold rebuild), never a cold file re-derive; a
@@ -3744,7 +3730,7 @@ backlog-free default keys identically to before."
   (let ((key (list (time-to-days (or now (current-time)))
                    (org-air-view--filter-effective-horizon)
                    org-air-backlog-tag
-                   ;; R93: the aging thresholds are a RENDER-time classify
+                   ;; The aging thresholds are a RENDER-time classify
                    ;; input too (they read no file), so retuning
                    ;; `org-air-attention-days' mid-session self-invalidates
                    ;; the memo on the next repaint — a slot-fold rebuild,
@@ -3758,12 +3744,12 @@ backlog-free default keys identically to before."
             org-air-view--classify-cache-day key))))
 
 (defun org-air-view--classify-cached (item &optional now)
-  "Return ITEM's bucket list, memoised per board (R18 D-P1c).
+  "Return ITEM's bucket list, memoised per board.
 Delegates to the pure `org-air-classify-item'; caches the result keyed on
 the item object (`eq').  Classify is DAY-granular (every predicate is a
 day-window comparison), so the cache key is the day of NOW: a render later
 the same day is a pure cache hit; a render after midnight rebuilds.
-R72 Decision 4: `org-air-upcoming-days' is bound to the effective horizon
+`org-air-upcoming-days' is bound to the effective horizon
 \(`org-air-view--filter-effective-horizon' — widened by an active window
 filter token, never narrowed) around the ONE classify choke point, so an
 item `due:2w' selects always has a home row; the memo key carries the
@@ -3781,11 +3767,11 @@ horizon (`org-air-view--classify-cache-ensure')."
 
 (defun org-air-view--items-for-bucket (bucket items)
   "Return visible ITEMS classified into BUCKET.
-Real-signal membership (ruling xsqrnoyn): an item appears in every bucket
-it genuinely qualifies for, so a dated inbox capture shows in BOTH Inbox
-and its date bucket.  The no-date attention default for inbox-dwellers is
-suppressed in `org-air-classify-item', not here, so no dedup is needed.
-Classify is routed through `org-air-view--classify-cached' (R18 D-P1c) so
+Real-signal membership: an item appears in every bucket it genuinely
+qualifies for, so a dated inbox capture shows in BOTH Inbox and its date
+bucket.  Routing exclusions live in `org-air-classify-item', not here, so
+no dedup is needed.
+Classify is routed through `org-air-view--classify-cached' so
 each item is classified at most once per render; one NOW is bound for the
 whole call so every item classifies against a single instant."
   (if (and org-air-view--render-partition
@@ -3799,12 +3785,12 @@ whole call so every item classifies against a single instant."
 (defun org-air-view--section-limit (bucket)
   "Return the row cap a section renders for BUCKET (used when not expanded)."
   (pcase bucket
-    ;; R93: Overdue inherits the cap Needs attention used to carry for
+    ;; Overdue inherits the cap Needs attention used to carry for
     ;; its overdue disjunct — the same rows, in their own section.
     ('overdue 6)
     ('attention 6)
     ('upcoming 5)
-    ;; R94: Untracked is a standing statement, not a queue to work down,
+    ;; Untracked is a standing statement, not a queue to work down,
     ;; so it claims the smallest budget of any task section; the fold row
     ;; carries the true count and TAB expands it like any other.
     ('untracked 4)
@@ -3812,22 +3798,22 @@ whole call so every item classifies against a single instant."
     (_ org-air-section-max)))
 
 (defconst org-air-view--untracked-per-file-max 2
-  "Most Untracked rows ONE file may claim in the collapsed window (R95).
+  "Most Untracked rows ONE file may claim in the collapsed window.
 See `org-air-view--collapsed-window'.")
 
 (defun org-air-view--collapsed-window (bucket sorted)
-  "Return BUCKET's COLLAPSED row window over its SORTED members (R95).
+  "Return BUCKET's COLLAPSED row window over its SORTED members.
 SORTED is the section's own order (`org-air-view--sort-items'), so the
 plain answer is its first `org-air-view--section-limit' rows — and for
 every bucket but `untracked' that is exactly what this returns.
 
-UNTRACKED GETS A PER-FILE DIVERSITY RULE (R95).  Its rank key is
+UNTRACKED GETS A PER-FILE DIVERSITY RULE.  Its rank key is
 `org-air-classify-quiet-floor-days', a fact about the heading's FILE, and
 every heading in one file shares it.  So one cold `someday.org' took the
-whole capped section: the R94 review measured 4 of 4 visible rows from a
+whole capped section: the review measured 4 of 4 visible rows from a
 single file, with the five bare admin `TODO's in the file the user edits
-every day at ranks 16-20 of 21, behind the fold — the exact pathology R93
-found in Needs attention, rebuilt one section lower.  A section whose
+every day at ranks 16-20 of 21, behind the fold — the same pathology the
+aging rule fixed in Needs attention, rebuilt one section lower.  A section whose
 whole claim is \"org-air cannot rank this work\" must not then let one
 file's mtime decide which four rows the user sees.
 
@@ -3855,7 +3841,7 @@ count, `is:untracked' and the `…and N more' arithmetic all count MEMBERS,
 not visible rows, and TAB expands to the full worst-first list.
 
 COST: two linear passes and O(1) membership through an `eq' hash — never
-`memq'/`assq' over items, which is the R90 linearity law (`r90-50'): at
+`memq'/`assq' over items, which is the linearity law (`r90-50'): at
 5k rows a list membership test per item is the shape that turns a repaint
 quadratic.  No file access; the per-file key is the item's own `file'
 slot."
@@ -3885,7 +3871,7 @@ slot."
         (seq-filter (lambda (it) (gethash it chosen)) sorted)))))
 
 (defun org-air-view--notes-by-recency (notes)
-  "Return NOTES sorted most-recent-first by scan-time activity (R53 P3).
+  "Return NOTES sorted most-recent-first by scan-time activity.
 A top-K selection over precomputed floats — milliseconds at 4k notes."
   (sort (copy-sequence notes)
         (lambda (a b)
@@ -3893,11 +3879,11 @@ A top-K selection over precomputed floats — milliseconds at 4k notes."
              (float-time (or (org-air-item-activity b) 0))))))
 
 (defun org-air-view--displayed-for-bucket-1 (bucket items)
-  "Compute (no memo) the BUCKET rows of ITEMS a section renders (R20-6).
+  "Compute (no memo) the BUCKET rows of ITEMS a section renders.
 Mirrors `org-air-view--insert-section'.  Notes and Backlog are header-only
 while collapsed.  Expanded Notes remains preview-capped; expanded Backlog
 shows every currently visible member in the active sort order.
-R98: every EXPANDED window is additionally bounded by the section's
+Every EXPANDED window is additionally bounded by the section's
 reveal budget (`org-air-view--take-revealed'), so one TAB paints at most
 `org-air-section-expand-max' rows and the surplus stays behind the fold
 row that counts it."
@@ -3917,17 +3903,17 @@ row that counts it."
         (org-air-view--items-for-bucket bucket items) bucket))))
    (t
     (let* ((bucket-items (org-air-view--items-for-bucket bucket items))
-           ;; R22-3: order WITHIN the bucket by the active sort key/direction.
+           ;; Order WITHIN the bucket by the active sort key/direction.
            ;; The default key `date' reproduces the historical order exactly.
            (bucket-items (org-air-view--sort-items bucket-items bucket)))
       (if (org-air-view--section-expanded-p bucket)
           (org-air-view--take-revealed bucket bucket-items)
-        ;; R95: the collapsed window is the section cap PLUS, for
+        ;; The collapsed window is the section cap PLUS, for
         ;; Untracked, a per-file quota (`org-air-view--collapsed-window').
         (org-air-view--collapsed-window bucket bucket-items))))))
 
 (defun org-air-view--displayed-items-for-bucket (bucket items)
-  "Return the BUCKET rows of ITEMS a section actually renders (R20-6).
+  "Return the BUCKET rows of ITEMS a section actually renders.
 Memoised per render via `org-air-view--render-displayed' so the section
 pass and `org-air-view--compute-meta-widths' (which measures only THESE
 displayed rows, ~35, not every member) SHARE one sort+take per bucket
@@ -3965,7 +3951,7 @@ remain in the action target set.  Duplicate bucket rows count once."
       (hash-table-count seen))))
 
 (defun org-air-view--marked-count-label (items)
-  "Return the conditional R90 total/shown mark label for ITEMS, or nil."
+  "Return the conditional total/shown mark label for ITEMS, or nil."
   (when org-air-view--marked-keys
     (let ((total (length org-air-view--marked-keys))
           (shown (org-air-view--marked-shown-count items)))
@@ -3978,11 +3964,11 @@ remain in the action target set.  Duplicate bucket rows count once."
   (or org-air-view--line-width org-air-view-width (org-air-layout-current-width)))
 
 (defun org-air-view--render-height ()
-  "Return the total body height for full-height composition (S6)."
+  "Return the total body height for full-height composition."
   (or org-air-view-height (org-air-layout-current-height)))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R99 — the GUI measurement layer.
+;;;; The GUI measurement layer.
 ;;;;
 ;;;; `string-width' is NOT the same function on a graphical frame as it is
 ;;;; in `--batch'.  Measured, Emacs 30.2, same corpus, same build:
@@ -3995,7 +3981,8 @@ remain in the action target set.  Duplicate bucket rows count once."
 ;;;; `▤', `…'), so EVERY row takes the multibyte path, and in a frame each
 ;;;; measurement conses ~4 objects per column.  That allocation is what
 ;;;; drives the collector, and the collector is what the user feels
-;;;; (R99: 87% of a TAB's wall clock was `Automatic GC').  So the cheapest
+;;;; — measured at 87% of a TAB's wall clock in `Automatic GC'.  So the
+;;;; cheapest
 ;;;; measurement is the one that is not taken twice.
 ;;;; ---------------------------------------------------------------------
 
@@ -4012,7 +3999,7 @@ every tag/priority style, plus CJK and emoji titles: `current-column' and
 
 (defvar org-air-view--width-memo
   (make-hash-table :test 'eq :weakness 'key :size 256)
-  "Memo of `string-width' keyed on string IDENTITY (R99).
+  "Memo of `string-width' keyed on string IDENTITY.
 `eq' + `:weakness key': an entry is exact (it is the very object that was
 measured) and dies with its string, so the table is self-bounding and can
 never go stale for a live key.  Sound because org-air never destructively
@@ -4023,7 +4010,7 @@ change a string's display width.  Strings matching
 is buffer-dependent, so there is no one answer to cache.")
 
 (defun org-air-view--display-width (string)
-  "Return STRING's `string-width', memoised on STRING's identity (R99).
+  "Return STRING's `string-width', memoised on STRING's identity.
 The SAME string object is measured up to three times as a rendered line
 travels pane -> band -> splice; in a frame each of those measurements is
 ~15us and ~480 conses.  This makes the second and third free."
@@ -4035,7 +4022,7 @@ travels pane -> band -> splice; in a frame each of those measurements is
             (puthash string w org-air-view--width-memo))))))
 
 (defvar org-air-view--render-memo nil
-  "Per-render `equal'-keyed memo for PURE row-cell builders (R99), or nil.
+  "Per-render `equal'-keyed memo for PURE row-cell builders, or nil.
 Bound to a fresh table by `org-air-view--render' and `org-air-view--render-
 section' and carried into the pane temp buffers, so a board where 191 rows
 share two tags builds the tag-chip string ONCE instead of 382 times.
@@ -4047,7 +4034,7 @@ and no cross-render leak.  When nil (any call outside a render) every
 memoised builder falls through to the plain computation.")
 
 (defmacro org-air-view--memoised (key &rest body)
-  "Return BODY's value for KEY, computed at most once per render (R99).
+  "Return BODY's value for KEY, computed at most once per render.
 KEY must capture every input BODY depends on that is not constant for the
 render.  Falls through to BODY when `org-air-view--render-memo' is nil."
   (declare (indent 1) (debug (form body)))
@@ -4066,8 +4053,8 @@ render.  Falls through to BODY when `org-air-view--render-memo' is nil."
 (defcustom org-air-render-gc-threshold (* 16 1024 1024)
   "`gc-cons-threshold' FLOOR for the extent of ONE board repaint, or nil.
 
-R99, measured in a real frame (Emacs 30.2, 191-item section, default
-styles).  A repaint allocates a few MB in a single burst; with the
+Measured in a real frame (Emacs 30.2, 191-item section, default
+styles): a repaint allocates a few MB in a single burst; with the
 interactive `gc-cons-percentage' of 0.1 the collector interrupts that
 burst two or three times, and in a session with Org, org-ql and a loaded
 board ONE collection costs ~55 ms — so the collector, not the renderer,
@@ -4089,7 +4076,7 @@ repaint.  Set to nil to leave the collector entirely alone."
 
 (defmacro org-air-view--with-render-gc (&rest body)
   "Run BODY with `gc-cons-threshold' floored at `org-air-render-gc-threshold'.
-See that variable for the measurement this exists for (R99)."
+See that variable for the measurement this exists for."
   (declare (indent 0) (debug t))
   `(let ((gc-cons-threshold
           (if (integerp org-air-render-gc-threshold)
@@ -4102,7 +4089,7 @@ See that variable for the measurement this exists for (R99)."
 Padding uses literal spaces and `string-width'; no display alignment
 properties are introduced.
 
-R99: STRING is measured ONCE (through `org-air-view--display-width') and
+STRING is measured ONCE (through `org-air-view--display-width') and
 `truncate-string-to-width' — which re-measures the whole string and copies
 it with every text property — is called ONLY when STRING is genuinely too
 wide.  Measured on the reported corpus, 1435 of 1435 calls per TAB fitted,
@@ -4186,7 +4173,7 @@ flush-right layout."
 PANES is a list of (LINES . WIDTH).  Short panes are blank-filled and each
 line is normalized with `org-air-view--pad-to'.
 
-R99: every part is padded to EXACTLY its pane width, so the composed row's
+Every part is padded to EXACTLY its pane width, so the composed row's
 display width is arithmetic — the pane widths plus one divider between
 adjacent panes.  It is seeded into the identity memo here, which is what
 lets `org-air-view--postprocess-line' and the finalize pass read it back
@@ -4235,7 +4222,7 @@ When ACTIVE is non-nil, use the active-filter tag face."
       (insert " " (propertize (format "+%d" overflow) 'face 'org-air-face-count)))))
 
 (defcustom org-air-header-accent-count nil
-  "When non-nil, the header item count is salient too (D-P3).
+  "When non-nil, the header item count is salient too.
 Default nil keeps the count faded; the date token always takes the quiet
 `org-air-face-header-date' accent.  Face-only: the assembled header string
 width is unchanged, so fixtures hold."
@@ -4243,12 +4230,12 @@ width is unchanged, so fixtures hold."
   :group 'org-air)
 
 (defun org-air-view--refresh-progress-string ()
-  "Return the live scan-progress banner segment text (R56 P3a).
+  "Return the live scan-progress banner segment text.
 `⟳ scanning N/M…' from the machine's own `org-air-view--refresh-total' /
 `org-air-view--refresh-queue' — the ONE honest progress source,
 independent of the self-clearing `org-air-view--loading' flag (whose
 gating killed the old `loading N/M files' numbers at the first
-progressive paint).  The glyph degrades by the S5b tier table."
+progressive paint).  The glyph degrades by the glyph tier table."
   (if (> org-air-view--refresh-total 0)
       (format "%s scanning %d/%d…"
               (org-air-view--glyph 'scanning)
@@ -4264,35 +4251,36 @@ status cluster reserves the SAME count as a trailing gutter so the header is
 left/right symmetric.  One constant so the two sides can never drift.")
 
 (defun org-air-view--insert-banner (items)
-  "Insert the org-air header band for ITEMS (S1 single in-buffer band).
+  "Insert the org-air header band for ITEMS.
 The right status is justified to the displaying window width W and its
 last visible glyph sits at the last usable column (W-1) with NO trailing
 pad past the content: the left margin is counted INSIDE W and is never
-mirrored as a trailing right blank.  R36-1: the S7 spare column (so a
-zero-fringe GUI never draws a continuation glyph over the content) is now
-supplied UPSTREAM by R34's fringe-aware `org-air-layout--usable-columns',
-not by a hand-reserved trailing space here.  When the window is too
+mirrored as a trailing right blank.  The spare column that stops a
+zero-fringe GUI drawing a continuation glyph over the content is
+supplied UPSTREAM by the fringe-aware
+`org-air-layout--usable-columns', not by a hand-reserved trailing space
+here.  When the window is too
 narrow the status sheds tokens in
 priority order — filter chips, then scope, then the item count — always
-keeping the date.  R27-3: the active-sort badge sheds LAST of the
-optional segments (after filter, scope and count)."
+keeping the date.  The active-sort badge sheds LAST of the optional
+segments (after filter, scope and count)."
   (let* ((w (org-air-view--render-width))
          (left (propertize "  org-air" 'face 'org-air-face-header))
-         ;; R38-1: on a GRAPHICAL frame the height-scaled title paints more
+         ;; On a GRAPHICAL frame the height-scaled title paints more
          ;; canonical pixel-columns than `string-width' counts; charge it
          ;; its true pixel cost so the row never overhangs the text area.
          ;; In batch/TTY this is `string-width', so goldens are unchanged.
          (left-cols (org-air-view--banner-left-cols left))
-         ;; D-P3: per-segment faces — date salient, count faded (or salient
+         ;; Per-segment faces — date salient, count faded (or salient
          ;; via `org-air-header-accent-count'), filter/scope faded.  The
          ;; assembled width is unchanged (propertize never alters it).
          (date (propertize (format-time-string "%a %d %b" (current-time))
                            'face 'org-air-face-header-date))
-         ;; R20-1: during the brief synchronous fast-paint window the count
+         ;; During the brief synchronous fast-paint window the count
          ;; slot shows a static `loading…' cue instead of the item count.
          ;; `org-air-view--loading' is nil on every normal render, so this
          ;; collapses to the unchanged item count (byte-identical).
-         ;; R56 P3a: while the machine is REFRESHING the slot is ONE
+         ;; While the machine is REFRESHING the slot is ONE
          ;; prominent progress segment — `⟳ scanning N/M…', salient-faced,
          ;; numbers from the machine's own queue/total — shown on the
          ;; skeleton, the streaming cold board AND the painted cache-stale
@@ -4316,7 +4304,7 @@ optional segments (after filter, scope and count)."
                  ((eq org-air-view--refresh-state 'failed)
                   (propertize
                    (concat (org-air-view--sep) "stale"
-                           ;; R50-1: the retry key is the TRUE sequence
+                           ;; The retry key is the TRUE sequence
                            ;; `g r' (`g' alone is the B4 prefix map).
                            (org-air-view--sep)
                            "refresh failed (g r retries)")
@@ -4329,10 +4317,10 @@ optional segments (after filter, scope and count)."
                      'face (if (and (not busy) org-air-header-accent-count)
                                'org-air-face-count
                              'org-air-face-faded)))))
-         ;; R18 D-P2.3: with >=2 active filter tags, join them with the
+         ;; With >=2 active filter tags, join them with the
          ;; combinator word (AND/OR) so the mode reads inline; a single tag
          ;; shows no combinator (irrelevant).
-         ;; R90: source-key marks are a non-sheddable-before-filter status
+         ;; Source-key marks are a non-sheddable-before-filter status
          ;; segment.  Empty mark state contributes no bytes.
          (mark-text (when-let* ((label (org-air-view--marked-count-label items)))
                       (propertize (concat (org-air-view--sep) label)
@@ -4344,21 +4332,18 @@ optional segments (after filter, scope and count)."
                         (when filters
                           (propertize
                            (concat (org-air-view--sep)
-                                   ;; R69-5: route through the R24-6 token
+                                   ;; Route through the token
                                    ;; primitive (verbatim `#…', quoted bare)
                                    ;; instead of hand-prepending `#'.
-                                   ;; R74 (the R69-2 sibling site): the
-                                   ;; trailing ✕ clear glyph is DROPPED —
-                                   ;; it carried no keymap/button action (a
-                                   ;; promise the banner could not honour);
-                                   ;; the rail's `\\ clears' hint is the
-                                   ;; teaching surface.  The glyph table
-                                   ;; entry stays (the project header still
-                                   ;; renders it).
+                                   ;; No trailing ✕ clear glyph here: it
+                                   ;; would carry no keymap or button
+                                   ;; action, a promise the banner cannot
+                                   ;; honour.  The rail's `\\ clears' hint
+                                   ;; is the teaching surface.
                                    (mapconcat #'org-air-view--filter-token-label filters sep))
                            'face 'org-air-face-faded))))
          (scope-text (pcase org-air-view--scope
-                       ;; R69-5: prefix-deduped chip label (a `#Nix' tag
+                       ;; Prefix-deduped chip label (a `#Nix' tag
                        ;; scope reads `#Nix', never `##Nix').
                        (`(:tag ,tag) (propertize (concat (org-air-view--sep)
                                                          (org-air-view--tag-chip-label tag))
@@ -4369,9 +4354,9 @@ optional segments (after filter, scope and count)."
                                         (concat (org-air-view--sep) (file-name-nondirectory file))
                                         'face 'org-air-face-faded))
                        (_ nil)))
-         ;; R22-3: the within-bucket sort indicator, shown ONLY when a
+         ;; The within-bucket sort indicator, shown ONLY when a
          ;; non-default sort is active (default `date'/ascending -> nil ->
-         ;; the default banner is byte-identical).  R27-3: whenever the
+         ;; the default banner is byte-identical).  Whenever the
          ;; segment exists it IS the active state, so it takes the bold
          ;; high-contrast `org-air-face-sort-active' and sheds LAST under
          ;; narrow widths (see the shed order below).
@@ -4382,9 +4367,10 @@ optional segments (after filter, scope and count)."
                                (org-air-view--sort-active-direction)
                                (not (org-air-view--sort-default-p))))))
          ;; Budget for the status: window minus the left token, the >=1-col
-         ;; gap, and R39-1's symmetric right gutter (the same indent the left
-         ;; token bakes).  R36-1: no reserved right-margin column beyond this
-         ;; (R34's usable-columns already supplies the spare column upstream).
+         ;; gap, and the symmetric right gutter (the same indent the
+         ;; left token bakes).  No reserved right-margin column beyond
+         ;; this — usable-columns already supplies the spare column
+         ;; upstream.
          (budget (- w left-cols org-air-view--banner-indent))
          (assemble (lambda (shed)
                      (concat date
@@ -4394,12 +4380,12 @@ optional segments (after filter, scope and count)."
                              (unless (memq :scope shed) (or scope-text ""))
                              (unless (memq :sort shed) (or sort-text "")))))
          (status (catch 'fit
-                   ;; R27-3: the active-sort segment sheds LAST among the
+                   ;; The active-sort segment sheds LAST among the
                    ;; optional segments — the state the user asked for must
                    ;; not be the first casualty of a narrow window.  With no
                    ;; active sort the segment is nil, so the order change is
                    ;; unobservable and the default goldens hold.
-                   ;; R56 P3a: while REFRESHING the progress segment (the
+                   ;; While REFRESHING the progress segment (the
                    ;; count slot) sheds LAST of all — a narrow window drops
                    ;; decoration before it drops "it's working".
                    (dolist (shed (if refreshing
@@ -4415,15 +4401,16 @@ optional segments (after filter, scope and count)."
                      (let ((s (funcall assemble shed)))
                        (when (<= (string-width s) budget)
                          (throw 'fit s))))))
-         ;; D-P3: the segments already carry their faces; keep the assembled
+         ;; The segments already carry their faces; keep the assembled
          ;; status as-is (no blanket faded override).
          (right status)
-         ;; R39-1: right-align the status to (usable - banner-indent) so the
+         ;; Right-align the status to (usable - banner-indent) so the
          ;; header has a trailing gutter equal to the left indent — the line
          ;; is symmetric (lhs-margin == rhs-margin == banner-indent).  The
          ;; gutter stays INSIDE w (justify pads to w-indent), never emitted as
-         ;; trailing whitespace past the declared width.  S7's spare column is
-         ;; supplied upstream by R34's fringe-aware usable-columns.
+         ;; trailing whitespace past the declared width.  The spare
+         ;; column is supplied upstream by the fringe-aware
+         ;; usable-columns.
          (line (org-air-view--justify left right
                                       (- w org-air-view--banner-indent)
                                       left-cols)))
@@ -4435,14 +4422,14 @@ optional segments (after filter, scope and count)."
     (mapconcat #'identity (make-list width glyph) "")))
 
 (defun org-air-view--insert-rule ()
-  "Insert a faint FULL-WIDTH separator flush to both text-area edges (R41-1).
+  "Insert a faint FULL-WIDTH separator flush to both text-area edges.
 The rule spans the entire usable width (`0' .. `usable', where `usable' =
-`org-air-view--render-width', the R37 body-1 safety margin), so it is
+`org-air-view--render-width', the body-1 safety margin), so it is
 `org-air-view--banner-indent' (2) columns wider on the LEFT and 2 wider
-on the RIGHT than the R40-1 inset rule — a full-bleed rule under the
-inset R39-1 banner content.  The rule ends exactly at the last usable
+on the RIGHT than the inset rule — a full-bleed rule under the
+inset banner content.  The rule ends exactly at the last usable
 column (`usable - 1') and never overshoots past `usable'."
-  (let* (;; R41-1: full usable width, no leading margin — flush left window
+  (let* (;; Full usable width, no leading margin — flush left window
          ;; edge, ending at the last usable column (no right overshoot).
          (rule-width (max 0 (org-air-view--render-width))))
     (insert (propertize (org-air-view--rule-string rule-width)
@@ -4451,7 +4438,7 @@ column (`usable - 1') and never overshoots past `usable'."
 
 (defun org-air-view--empty-upcoming ()
   "Return upcoming empty state.
-R72: reads the EFFECTIVE horizon (`org-air-view--filter-effective-horizon'
+Reads the EFFECTIVE horizon (`org-air-view--filter-effective-horizon'
 — the knob, widened by an active window filter token), so it can never
 announce \"next 7 days\" under a 14-day lens."
   (format "Nothing scheduled in the next %d days."
@@ -4469,7 +4456,7 @@ ATTENTIONP means the count should use the attention badge face."
             (propertize (org-air-view--glyph bucket) 'face 'org-air-face-section-icon)
             " "
             (propertize title 'face 'org-air-face-section)
-            ;; D6 — one space before the inverse count chip; never wraps
+            ;; One space before the inverse count chip; never wraps
             ;; (single heading line, `truncate-lines' is t).
             " "
             (propertize (format "%d" count)
@@ -4483,24 +4470,24 @@ ATTENTIONP means the count should use the attention badge face."
 
 (defconst org-air-view--dropped-keyword-names
   '("DROPPED" "DROP" "CANCELLED" "CANCELED" "KILL" "KILLED" "ABANDONED")
-  "Bare (upcased) keyword names that read as cancelled/abandoned (R79).
+  "Bare (upcased) keyword names that read as cancelled/abandoned.
 An unknown keyword whose bare name is here resolves to
 `org-air-face-dropped' even when it is not declared in the scan
 vocabulary, so the user's real spelling paints terracotta, not blue.")
 
 (defun org-air-view--dropped-keyword-p (keyword)
-  "Non-nil when KEYWORD is a cancelled/abandoned spelling (R79/R84).
+  "Non-nil when KEYWORD is a cancelled/abandoned spelling.
 The ONE membership test over `org-air-view--dropped-keyword-names',
 matched on the bare upcased name (`org-air-query--todo-keyword-name');
-shared by the R79 face resolver (`org-air-view--merged-vocab-face') and
-R84's `org-air-review--abandoned-p' — the face split and the review's
-Dropped routing agree by construction.  Pure; never signals."
+shared by the face resolver (`org-air-view--merged-vocab-face') and
+the review's `org-air-review--abandoned-p' — the face split and the
+review's Dropped routing agree by construction.  Pure; never signals."
   (let ((name (and keyword (org-air-query--todo-keyword-name keyword))))
     (and name (member (upcase name) org-air-view--dropped-keyword-names) t)))
 
 (defun org-air-view--scan-keyword-names ()
-  "Return the flat list of bare keyword names in the merged scan vocabulary (R79).
-Flattens `org-air-query--scan-todo-keywords' (the R57 merged
+  "Return the flat list of bare keyword names in the merged scan vocabulary.
+Flattens `org-air-query--scan-todo-keywords' (the merged
 user+supplement sequence) to bare names, dropping the `|' separators;
 never signals (a nil/malformed scan yields nil)."
   (delete-dups
@@ -4510,13 +4497,13 @@ never signals (a nil/malformed scan yields nil)."
                             collect (org-air-query--todo-keyword-name kw)))))
 
 (defun org-air-view--merged-vocab-face (keyword &optional donep)
-  "Return a family face for KEYWORD via the R57 merged scan vocabulary (R79).
+  "Return a family face for KEYWORD via the merged scan vocabulary.
 An unknown KEYWORD is placed in a family by its POSITION in its scan
 sequence: a cancelled/abandoned spelling (`org-air-view--dropped-keyword-
 names') is `org-air-face-dropped'; a scan-DONE keyword is
 `org-air-face-done'; a scan not-done keyword is `org-air-face-todo'.  A
 keyword absent from the whole vocabulary falls back on DONEP — done items
-still never wear an active badge (R57-1).  Pure over cached list data; no
+still never wear an active badge.  Pure over cached list data; no
 rescan, never signals."
   (let* ((name (and keyword (org-air-query--todo-keyword-name keyword)))
          (in-vocab (and name (member name (org-air-view--scan-keyword-names))))
@@ -4532,7 +4519,7 @@ rescan, never signals."
      (t 'org-air-face-todo))))
 
 (defun org-air-view--org-keyword-face (keyword)
-  "Return the user's own `org-todo-keyword-faces' face for KEYWORD, or nil (R79).
+  "Return the user's own `org-todo-keyword-faces' face for KEYWORD, or nil.
 Consulted only when `org-air-keyword-face-source' is `org' — the literal
 \"same colours Org fontifies headings with\".  A face symbol passes
 through; a colour string wraps to `(:foreground COLOR)'; an anonymous
@@ -4549,24 +4536,23 @@ caller degrades to the `own' mapping.  Never signals."
          (t nil))))))
 
 (defun org-air-view--todo-face (keyword &optional donep)
-  "Return the face for TODO KEYWORD (T1a; R79 supersedes the R57-1 fallback).
+  "Return the face for TODO KEYWORD.
 Resolution order: when `org-air-keyword-face-source' is `org', the user's
 own `org-todo-keyword-faces' first; then org-air's own
-`org-air-todo-keyword-faces' alist; then the R57 merged scan-vocabulary
+`org-air-todo-keyword-faces' alist; then the merged scan-vocabulary
 family (`org-air-view--merged-vocab-face': not-done→active, done→done
 unless a cancelled spelling→dropped), finally DONEP→done / else→todo.
-R79 splits the DONE family so a completion (DONE/COMP) and an abandonment
-\(DROPPED/CANCELLED/KILL) read as DIFFERENT faces, and resolves unknown
-keywords through the merged vocabulary instead of the blanket done
-fallback — so COMP/DROPPED/READY/WIP each read distinctly.  DEFAULT
-\(`own') keeps R57-1 and the board goldens byte-identical."
+The DONE family is SPLIT so a completion (DONE/COMP) and an abandonment
+\(DROPPED/CANCELLED/KILL) read as DIFFERENT faces, and an unknown
+keyword resolves through the merged vocabulary rather than a blanket
+done fallback — so COMP/DROPPED/READY/WIP each read distinctly."
   (or (and (eq org-air-keyword-face-source 'org)
            (org-air-view--org-keyword-face keyword))
       (cdr (assoc keyword org-air-todo-keyword-faces))
       (org-air-view--merged-vocab-face keyword donep)))
 
 (defun org-air-view--priority-face (char)
-  "Return the boxed-pill face for priority CHAR (T1b; R22-1 covers D/E)."
+  "Return the boxed-pill face for priority CHAR."
   (pcase char
     (?A 'org-air-face-priority-a)
     (?B 'org-air-face-priority-b)
@@ -4576,7 +4562,7 @@ fallback — so COMP/DROPPED/READY/WIP each read distinctly.  DEFAULT
     (_ 'org-air-face-priority-c)))
 
 (defun org-air-view--priority-color (char)
-  "Return the badge colour string for priority CHAR (D-P4).
+  "Return the badge colour string for priority CHAR.
 Resolved light/dark from `org-air-priority-colors' against the frame
 background (like the accent palette); falls back to the priority face
 foreground when CHAR is absent from the table."
@@ -4587,7 +4573,7 @@ foreground when CHAR is absent from the table."
         "gray")))
 
 (defun org-air-view--priority-token (char)
-  "Return the `[#C]' priority token for CHAR, badge-pilled when enabled (D-P4).
+  "Return the `[#C]' priority token for CHAR, badge-pilled when enabled.
 With `org-air-priority-style' = `badge and svg available the existing
 `[#A]' text cell is pillified — the calm capsule tinted by level via
 `org-air-view--svg-pillify' :border-color — pixel-locked to its 4-col
@@ -4601,7 +4587,7 @@ cell.  Otherwise the plain coloured `[#A]' text (the TTY/byte fallback)."
       text)))
 
 (defun org-air-view--svg-priority-square (char text)
-  "Return TEXT (the `■' cell) carrying a tiny filled-square overlay (R13 D-P2).
+  "Return TEXT (the `■' cell) carrying a tiny filled-square overlay.
 Draws a small solid square — no stroke, slightly rounded — filled in the
 CHAR priority colour (`org-air-view--priority-color'), sized ~62% of the
 cell and centred,
@@ -4614,7 +4600,7 @@ fallback)."
           (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
                  (ch (or org-air-view--pill-char-h (frame-char-height)))
                  (color (org-air-view--priority-color char))
-                 ;; R18 D-P1a: the square is a pure function of (colour, cw,
+                 ;; The square is a pure function of (colour, cw,
                  ;; ch); build it once and share the image.
                  (image
                   (org-air-view--svg-image-cached
@@ -4630,12 +4616,12 @@ fallback)."
         text)))
 
 (defun org-air-view--priority-slot (char)
-  "Return the FIXED 2-column priority slot for CHAR (R13 D-P2 `square style).
-A coloured filled square (svg on GUI, `■' glyph in TTY) + one pad space
-when CHAR is a shown priority (`org-air-priority-show'); two blanks
-otherwise — so every item-row title starts at the same column (V6).
+  "Return the FIXED 2-column priority slot for CHAR (`square style).
+A coloured filled square (svg on GUI, `■' glyph in TTY) plus one pad
+space when CHAR is a shown priority (`org-air-priority-show'); two
+blanks otherwise, so every item-row title starts at the same column.
 
-R99: memoised for the render — three priority letters, 191 rows."
+Memoised for the render — three priority letters, 191 rows."
   (if (and char (member char org-air-priority-show))
       (org-air-view--memoised (list 'priority-slot char)
         (let* ((sq (org-air-view--glyph 'priority-square))
@@ -4646,14 +4632,13 @@ R99: memoised for the render — three priority letters, 191 rows."
     "  "))
 
 (defun org-air-view--priority-cell (item)
-  "Return ITEM's row-prefix priority cell (the shared board idiom; R84).
+  "Return ITEM's row-prefix priority cell (the shared board idiom).
 `square (default): the FIXED 2-col `org-air-view--priority-slot' (a
 coloured square + pad, or two blanks — every title aligns).  `badge/
 `text: the conditional `org-air-view--priority-token' + one pad, ONLY
 when ITEM carries a shown priority (`org-air-priority-show'), else nil.
 The ONE definition the board (`org-air-view--insert-item') and the
-review row (`org-air-review--insert-body') both prepend — no fork; a
-byte-golden on the board proves the refactor is inert (R84 r84-2)."
+review row (`org-air-review--insert-body') both prepend — no fork."
   (let ((priority (org-air-view--priority-char item)))
     (if (eq org-air-priority-style 'square)
         (org-air-view--priority-slot priority)
@@ -4661,17 +4646,17 @@ byte-golden on the board proves the refactor is inert (R84 r84-2)."
         (concat (org-air-view--priority-token priority) " ")))))
 
 (defun org-air-view--svg-available-p ()
-  "Return non-nil when svg pills can be drawn on this display (C2)."
+  "Return non-nil when svg pills can be drawn on this display."
   (and (display-graphic-p)
        (require 'svg nil t)))
 
 (defun org-air-view--char-dimensions ()
-  "Return (CHAR-W . CHAR-H) device pixels for the displaying window (C2/C3).
+  "Return (CHAR-W . CHAR-H) device pixels for the displaying window.
 Uses `window-font-width'/`window-font-height' on the window actually
 showing the org-air buffer so the metrics track the current font AND any
-`text-scale-mode' adjustment (C3).
+`text-scale-mode' adjustment.
 
-R44-1 (pixel split-brain fix): a board svg pill spans N text cells as a
+WHY NOT THE FRAME METRICS: a board svg pill spans N text cells as a
 `display' image whose width is N * this CHAR-W, while the redisplay engine
 advances the divider column and the surrounding plain text at the window's
 REAL default-face font advance (`window-font-width').  When the two
@@ -4686,7 +4671,7 @@ NEVER the `frame-char-width' fallback while the two disagree.  Only a
 truly non-graphical context (pure batch, no frame) keeps the frame char
 metrics, and there svg pills are not drawn at all (the TTY text fallback)."
   (let ((win (or (get-buffer-window (current-buffer) t)
-                 ;; R44-1: no live window shows this buffer yet — resolve
+                 ;; No live window shows this buffer yet — resolve
                  ;; the metric off the destination window so a pill is sized
                  ;; to `window-font-width', the SAME advance the divider
                  ;; column and plain text use, not `frame-char-width'.
@@ -4701,7 +4686,7 @@ metrics, and there svg pills are not drawn at all (the TTY text fallback)."
       (cons (frame-char-width) (frame-char-height)))))
 
 (defun org-air-view--font-ascent ()
-  "Return the default font ASCENT in device px for the displaying window (D-P1.A).
+  "Return the default font ASCENT in device px for the displaying window.
 Used to baseline-align org-air svg overlays with the text line so an image
 clamped to the line height never grows the row.  Falls back to ~80% of the
 line height when `font-info' is unavailable."
@@ -4713,7 +4698,7 @@ line height when `font-info' is unavailable."
       (round (* 0.8 (or org-air-view--pill-char-h (frame-char-height)))))))
 
 (defun org-air-view--svg-line-image (svg width height)
-  "Return an `svg-image' of SVG at WIDTH x HEIGHT clamped to the line box (D-P1.A).
+  "Return an `svg-image' of SVG at WIDTH x HEIGHT clamped to the line box.
 Displays SVG with an INTEGER :ascent derived from the font ascent ratio
 \(NOT `:ascent center'), so a HEIGHT = line-height image occupies exactly
 the text line box and NEVER grows the row.  Because no org-air svg row
@@ -4732,7 +4717,7 @@ row."
   (and (fboundp 'string-pixel-width) (display-graphic-p)))
 
 (defun org-air-view--pill-label-width (label fs cw ch)
-  "Return LABEL's natural pixel width at font-size FS (device px) (D-P1.FIT).
+  "Return LABEL's natural pixel width at font-size FS (device px).
 Prefer `string-pixel-width' inside a temp face scaled to FS/CH of the
 frame default; fall back to the column-width estimate `(* (string-width
 LABEL) CW)' when `string-pixel-width' is unavailable (Emacs < 29)."
@@ -4745,31 +4730,32 @@ LABEL) CW)' when `string-pixel-width' is unavailable (Emacs < 29)."
 
 (cl-defun org-air-view--svg-pillify (text face &key (align 'center) border-color
                                          label font-weight)
-  "Return TEXT carrying a rounded svg-pill `display' overlay (C2/D-P1).
+  "Return TEXT carrying a rounded svg-pill `display' overlay.
 ALIGN places the label inside the box: `center' (default) or `right'
-\(D-P1 `org-air-date-pill-align').  LABEL overrides the DRAWN glyph string
-\(default: TEXT trimmed) so a chip can show a glyph DIFFERENT from its text-
-cell contract (R25-2: the project state badge keeps the `[D]' cell text for
-the byte/pixel-lock box but draws just `D').  FONT-WEIGHT (e.g. `bold') is
-passed to `svg-text' (default: normal).  BORDER-COLOR overrides the neutral
-`org-air-pill-border' for this pill (D-P4: the priority badge passes its
-level colour; tags/dates pass nil = the neutral border).  When non-nil
+\(see `org-air-date-pill-align').  LABEL overrides the DRAWN glyph
+string (default: TEXT trimmed) so a chip can show a glyph DIFFERENT from
+its text-cell contract — the project state badge keeps the `[D]' cell
+text for the byte and pixel-lock box but draws just `D'.  FONT-WEIGHT
+\(e.g. `bold') is passed to `svg-text' (default: normal).  BORDER-COLOR
+overrides the neutral
+`org-air-pill-border' for this pill (the priority badge passes its level
+colour; tags and dates pass nil = the neutral border).  When non-nil
 the border draws a touch stronger (full opacity) since it is salient.
 The pill SVG occupies EXACTLY TEXT's text-cell box —
 box-w = Ncols * char-px, height = the line's pixel height — where Ncols is
 TEXT's column width (INCLUDING the `org-air-pill-pad-cols' reserved pad
-spaces, D-P1.PAD) and char-px/line-px are the current (text-scale aware)
-metrics bound in `org-air-view--pill-char-w'/`-h'.  Because the image is
-locked to that box it never adds external width, so turning pills on/off
-changes zero V6 column positions (C2).
+spaces) and char-px/line-px are the current (text-scale aware) metrics
+bound in `org-air-view--pill-char-w'/`-h'.  Because the image is locked
+to that box it never adds external width, so turning pills on or off
+changes zero column positions.
 
 The label (TEXT trimmed) is drawn centred and WIDTH-FITTED to the box's
 inner width (box minus the reserved pad columns) so the glyph run can
-NEVER reach the rounded edge (D-P1.FIT) — no clipping at any tag length or
+NEVER reach the rounded edge — no clipping at any tag length or
 text-scale.  The capsule is a calm monochrome: a soft `org-air-pill-radius'
 corner, no per-chip fill (`org-air-pill-fill-alpha' default 0) and ONE
-muted `org-air-pill-border'; colour lives only in the LABEL via FACE, per
-D-P1.LOOK.  On a non-graphical frame, when SVG is unavailable, the box
+muted `org-air-pill-border'; colour lives only in the LABEL via FACE.
+On a non-graphical frame, when SVG is unavailable, the box
 is degenerate, OR the label cannot be guaranteed to fit, TEXT is returned
 unchanged so the byte/TTY layer keeps the plain padded coloured text as a
 mandatory fallback."
@@ -4785,10 +4771,10 @@ mandatory fallback."
                    (box-w (* ncols cw))
                    (h ch)
                    ;; the width the label is allowed to occupy = box minus
-                   ;; the reserved pad columns (D-P1.FIT).
+                   ;; the reserved pad columns.
                    (inner-w (* (max 1 (- ncols (* 2 pad))) cw))
                    (radius (max 0.0 (float (or org-air-pill-radius (/ h 6.0)))))
-                   ;; R25-2: LABEL overrides the drawn glyph (default = TEXT),
+                   ;; LABEL overrides the drawn glyph (default = TEXT),
                    ;; so a chip can draw a single letter while its cell text
                    ;; (the pixel-lock box) stays the 3-col `[D]' token.
                    (label (string-trim (or label text)))
@@ -4799,7 +4785,7 @@ mandatory fallback."
                                "gray"))
                    (alpha (max 0.0 (min 1.0 (float org-air-pill-fill-alpha))))
                    (desired-fs (max 7 (round (* ch org-air-pill-font-scale))))
-                   ;; R18 D-P1a: defer the (expensive) label measurement into
+                   ;; Defer the (expensive) label measurement into
                    ;; a thunk so it runs ONLY on a cache miss; width-fit never
                    ;; exceeds inner-w (the clip fix).
                    (fit-font-size
@@ -4814,11 +4800,11 @@ mandatory fallback."
                        (> (org-air-view--pill-label-width
                            label (funcall fit-font-size) cw ch)
                           inner-w))
-                  ;; D-P1.FIT cannot guarantee a fit (no string-pixel-width
+                  ;; The fit cannot be guaranteed (no string-pixel-width
                   ;; AND the estimate already overruns) -> mandatory text
                   ;; fallback (plain padded coloured label, no pill).
                   text
-                ;; R18 D-P1a: build the pixel-identical pill image ONCE and
+                ;; Build the pixel-identical pill image ONCE and
                 ;; share it; `propertize' returns a FRESH string so a caller
                 ;; that later adds row props never mutates the shared image.
                 ;; The salient-border flag joins the key because `stroke-op'
@@ -4826,7 +4812,7 @@ mandatory fallback."
                 ;; not only on the resolved `border' string.
                 (let ((image
                        (org-air-view--svg-image-cached
-                        ;; R25-2: the cache key includes the LABEL override,
+                        ;; The cache key includes the LABEL override,
                         ;; the weight, and the effective pad/scale so a badge
                         ;; image is never confused with a same-text board pill.
                         (list 'pill text label font-weight fg border align cw ch
@@ -4836,14 +4822,14 @@ mandatory fallback."
                         (lambda ()
                           (let* ((font-size (funcall fit-font-size))
                                  (svg (svg-create box-w h))
-                                 ;; D-P4: a salient priority border draws full
+                                 ;; A salient priority border draws full
                                  ;; strength; the neutral tag/date border stays
                                  ;; a hairline.
                                  (stroke-op
                                   (if border-color 1.0
                                     (max 0.0 (min 1.0
                                                   (float org-air-pill-border-opacity)))))
-                                 ;; D-P3: draw the capsule `org-air-pill-vinset'
+                                 ;; Draw the capsule `org-air-pill-vinset'
                                  ;; px shorter top+bottom, vertically centred,
                                  ;; so the pill breathes INSIDE its cell while
                                  ;; the cell grid (and the `│' divider glyph)
@@ -4857,10 +4843,10 @@ mandatory fallback."
                                            :fill (if (> alpha 0) fg "none")
                                            :fill-opacity (if (> alpha 0) alpha 0)
                                            :stroke border :stroke-width 1
-                                           ;; D-P2 #1: hairline border at
-                                           ;; reduced opacity.
+                                           ;; Hairline border at reduced
+                                           ;; opacity.
                                            :stroke-opacity stroke-op)
-                            ;; D-P1: label placement — centred or right-hugged.
+                            ;; Label placement — centred or right-hugged.
                             (if (eq align 'right)
                                 (svg-text svg label
                                           :x (- box-w (* pad cw))
@@ -4876,18 +4862,18 @@ mandatory fallback."
                                         :fill fg
                                         :font-size font-size
                                         :font-weight (or font-weight 'normal)))
-                            ;; Lock the image to the exact cell box (C2) with
-                            ;; the D-P1.A integer-ascent clamp so it is exactly
+                            ;; Lock the image to the exact cell box with
+                            ;; the integer-ascent clamp so it is exactly
                             ;; one line tall and never grows the row.
                             (org-air-view--svg-line-image svg box-w h))))))
                   (propertize text 'display image)))))
           text))))
 
 (defcustom org-air-origin-icon-svg t
-  "When non-nil, overlay the origin cell with a drawn document icon (D-P2).
+  "When non-nil, overlay the origin cell with a drawn document icon.
 On a capable GUI the 1-col origin glyph (`▤') carries an svg `display'
 of a crisp document — a rounded rectangle with a folded top-right corner,
-box-fit to the single reserved column (1 × char-px, V6 pixel-lock holds)
+box-fit to the single reserved column (1 × char-px, the pixel-lock holds)
 and stroked in `org-air-face-group' (the origin face).  Turning it off (or
 on a TTY) shows the plain `▤' glyph.  The svg is a non-byte overlay over
 the unchanged glyph cell, so fixtures assert `▤' either way."
@@ -4895,7 +4881,7 @@ the unchanged glyph cell, so fixtures assert `▤' either way."
   :group 'org-air)
 
 (defun org-air-view--svg-file-icon (glyph)
-  "Return GLYPH carrying a drawn document-icon `display' overlay (D-P2).
+  "Return GLYPH carrying a drawn document-icon `display' overlay.
 The icon is box-fit to GLYPH's single text cell (1 × char-px), a rounded
 rectangle with a folded top-right corner, stroked in `org-air-face-group'.
 Returns GLYPH unchanged when the icon is off or svg is unavailable (the
@@ -4907,7 +4893,7 @@ glyph is then the mandatory fallback)."
           (let* ((cw (or org-air-view--pill-char-w (frame-char-width)))
                  (ch (or org-air-view--pill-char-h (frame-char-height)))
                  (color (or (face-foreground 'org-air-face-group nil t) "gray"))
-                 ;; R18 D-P1a: one document icon per (glyph, colour, cw, ch);
+                 ;; One document icon per (glyph, colour, cw, ch);
                  ;; one per row, so the highest-count overlay — build it once.
                  (image
                   (org-air-view--svg-image-cached
@@ -4940,12 +4926,12 @@ glyph is then the mandatory fallback)."
         glyph)))
 
 (defun org-air-view--pill-pad-label (label face)
-  "Return LABEL carrying FACE and the reserved pill pad columns (D-P1.PAD).
+  "Return LABEL carrying FACE and the reserved pill pad columns.
 When a pill style is active the label string carries `org-air-pill-pad-cols'
 space columns on EACH side in the text layer (svg-tag-mode's technique), so
-`org-air-view--compute-meta-widths' counts the pad automatically and V6
-alignment holds.  The pad spaces inherit FACE so the TTY/fallback shows the
-same quiet coloured breathing space."
+`org-air-view--compute-meta-widths' counts the pad automatically and the
+column alignment holds.  The pad spaces inherit FACE so the TTY
+fallback shows the same quiet coloured breathing space."
   (let* ((pad (max 0 org-air-pill-pad-cols))
          (sp (make-string pad ?\s)))
     (propertize (concat sp label sp) 'face face)))
@@ -4953,11 +4939,11 @@ same quiet coloured breathing space."
 (defun org-air-view--item-tagstr (tags k total)
   "Return inline tag chips showing K of TOTAL TAGS, with overflow marker.
 When fewer than TOTAL chips are shown the `more' glyph signals the rest.
-Each chip carries its deterministic accent face (T1c); when the pill style
-is active the chip text also carries the D-P1.PAD reserved pad columns so
-the svg box gains genuine internal margin and the byte/V6 widths track it.
+Each chip carries its deterministic accent face; when the pill style is
+active the chip text also carries the reserved pad columns so the svg
+box gains genuine internal margin and the byte widths track it.
 
-R99: memoised for the render (`org-air-view--memoised').  The chip string
+Memoised for the render (`org-air-view--memoised').  The chip string
 is a pure function of TAGS/K/TOTAL once faces and pill geometry are fixed,
 and they are fixed for a render; a board whose rows share two tags built
 this 382 times per TAB (once for the width pass, once for the row)."
@@ -4965,13 +4951,13 @@ this 382 times per TAB (once for the width pass, once for the row)."
     (org-air-view--item-tagstr-1 tags k total)))
 
 (defun org-air-view--item-tagstr-1 (tags k total)
-  "Compose the inline tag chips showing K of TOTAL TAGS (R99 memo body).
+  "Compose the inline tag chips showing K of TOTAL TAGS (the memo body).
 The uncached body of `org-air-view--item-tagstr'; see there."
   (let ((shown (mapconcat
                 (lambda (tg)
                   (let* ((face (org-air-faces-tag-face tg))
                          (pill (eq org-air-tag-style 'pill))
-                         ;; R69-5: prefix-deduped chip label (one shared
+                         ;; Prefix-deduped chip label (one shared
                          ;; primitive; a literal `#nix' tag never `##nix').
                          (chip (if pill
                                    (org-air-view--pill-pad-label
@@ -4985,7 +4971,7 @@ The uncached body of `org-air-view--item-tagstr'; see there."
         (overflow (- total k)))
     (cond
      ((<= total 0) "")
-     ;; D-P3: NEVER `string-trim' a string carrying pill display props.
+     ;; NEVER `string-trim' a string carrying pill display props.
      ;; Trimming strips the first chip's reserved leading pad, desyncing
      ;; its baked svg box from its column run and drifting the origin
      ;; column.  Keep every chip's pad; append the overflow marker as a
@@ -4996,10 +4982,10 @@ The uncached body of `org-air-view--item-tagstr'; see there."
      (t shown))))
 
 (defun org-air-view--origin-capped (item)
-  "Return ITEM's origin TEXT capped to `org-air-origin-max-width' (R17).
+  "Return ITEM's origin TEXT capped to `org-air-origin-max-width'.
 The 2-col `▤ ' lead is reserved separately (`org-air-view--item-origin-raw'),
 so the text budget is the cap minus those 2 columns; a longer text
-truncates with the ellipsis glyph.  V6: only the TEXT truncates -- the
+truncates with the ellipsis glyph: only the TEXT truncates -- the
 glyph cell (and its box-fit svg overlay) is untouched."
   (let* ((text (org-air-view--origin item))
          (budget (max 1 (- org-air-origin-max-width 2))))
@@ -5010,12 +4996,12 @@ glyph cell (and its box-fit svg overlay) is untouched."
 
 (defun org-air-view--item-origin-raw (item)
   "Return the origin breadcrumb \"▤ FILE\" for ITEM (unfaced).
-D-P2: the leading origin glyph carries the drawn document-icon svg overlay
+The leading origin glyph carries the drawn document-icon svg overlay
 via `org-air-view--svg-file-icon'; the glyph TEXT is unchanged so the byte
-width/cell holds.  R17: the origin TEXT is capped via
+width and cell hold.  The origin TEXT is capped via
 `org-air-view--origin-capped' so a long Denote slug cannot grow the cell.
 
-R99: memoised for the render on the two inputs the breadcrumb reads (the
+Memoised for the render on the two inputs the breadcrumb reads (the
 item's FILE and, under `org-air-show-group', its GROUP).  A board whose
 items come from a handful of files re-derived this on every row of every
 repaint: `expand-file-name', `file-name-nondirectory', the Denote/#+title
@@ -5027,7 +5013,7 @@ lookup, a `string-width' cap and an svg icon."
             " " (org-air-view--origin-capped item))))
 
 (defun org-air-view--timestamp-repeater (timestamp)
-  "Return (TYPE VALUE UNIT) of TIMESTAMP's Org repeater, or nil (R14 D-P2).
+  "Return (TYPE VALUE UNIT) of TIMESTAMP's Org repeater, or nil.
 Reads the org-timestamp object's :repeater-type / :repeater-value /
 :repeater-unit directly (no marker round-trip, no recomputation).  These
 props are present on the `org-timestamp-from-string' object stored in
@@ -5040,7 +5026,7 @@ props are present on the `org-timestamp-from-string' object stored in
         (list type value unit)))))
 
 (defun org-air-view--repeat-string (timestamp)
-  "Return a human repeat rule for TIMESTAMP like \"every 1w\", or nil (R14 D-P2).
+  "Return a human repeat rule for TIMESTAMP like \"every 1w\", or nil.
 The cookie kind (.+/++/+) is irrelevant to the displayed rule, so only the
 N and the unit (day->d / week->w / month->m / year->y / hour->h) show."
   (when-let* ((rep (org-air-view--timestamp-repeater timestamp)))
@@ -5052,7 +5038,7 @@ N and the unit (day->d / week->w / month->m / year->y / hour->h) show."
                 (_ (substring (symbol-name unit) 0 1)))))))
 
 (defun org-air-view--item-repeat-timestamp (item)
-  "Return ITEM's effective (deadline-or-scheduled) timestamp IF it repeats (D-P2)."
+  "Return ITEM's effective (deadline-or-scheduled) timestamp IF it repeats."
   (let ((deadline (org-air-item-deadline item))
         (scheduled (org-air-item-scheduled item)))
     (cond
@@ -5061,7 +5047,7 @@ N and the unit (day->d / week->w / month->m / year->y / hour->h) show."
      (t nil))))
 
 (defun org-air-view--item-repeat-marker (item)
-  "Return the date-cluster repeat marker for ITEM (R14 D-P2), or \"\".
+  "Return the date-cluster repeat marker for ITEM, or \"\".
 A leading space + the `repeat' glyph (TTY ~), faded, when the effective
 date carries an Org repeater; empty otherwise."
   (if (org-air-view--item-repeat-timestamp item)
@@ -5070,7 +5056,7 @@ date carries an Org repeater; empty otherwise."
     ""))
 
 (defun org-air-view--inspector-repeat-line (item inset)
-  "Return the inspector Repeat line for ITEM at INSET, or nil (R14 D-P2).
+  "Return the inspector Repeat line for ITEM at INSET, or nil.
 \"every 1w -> next Mon 22 Jun\": the repeating timestamp's own stored date
 IS the next occurrence by Org convention, so it is read directly (no
 repeat math reimplemented)."
@@ -5086,11 +5072,11 @@ repeat math reimplemented)."
      inset)))
 
 (defun org-air-view--item-date-text (item bucket)
-  "Return the propertized date text for ITEM in BUCKET (V6/R10), or nil.
-The date is coloured TEXT in its semantic face; the GUI pill (V3) is a
-non-byte overlay over this same text.  R26-6: the old \"· r to file\"
-Inbox nudge is GONE from rows — it cost 12 columns per dated inbox row,
-read as a path fragment, and broke that row's V6 tag/origin columns via
+  "Return the propertized date text for ITEM in BUCKET, or nil.
+The date is coloured TEXT in its semantic face; the GUI pill is a
+non-byte overlay over this same text.  There is deliberately no \"· r to
+file\" Inbox nudge in a row: it costs 12 columns per dated inbox row,
+reads as a path fragment, and breaks that row's tag/origin columns via
 the local date-cell expansion; discovery lives in `?' help + the Actions
 legend (`e' `org-air-refile-item' stays bound), the single teaching
 surface."
@@ -5098,9 +5084,9 @@ surface."
     (when date
       (let* ((face (or (cdr date) 'org-air-face-date))
              (pill (eq org-air-date-style 'pill))
-             ;; D-P1: pad the label to the FULL date column before pillify
+             ;; Pad the label to the FULL date column before pillify
              ;; (left-justified text fallback) so every date pill's box =
-             ;; meta-date-w × char-px — uniform capsules (V6 pixel-lock holds).
+             ;; meta-date-w × char-px — uniform capsules (the pixel-lock holds).
              (col (max (or org-air-view--meta-date-w org-air-date-column)
                        (string-width (car date))))
              (text (if pill
@@ -5110,21 +5096,21 @@ surface."
                     (org-air-view--svg-pillify text face
                                                :align org-air-date-pill-align)
                   text)
-                ;; R14 D-P2: the repeat marker sits AFTER the date pill,
+                ;; The repeat marker sits AFTER the date pill,
                 ;; within the date cell (the cell is widened by
                 ;; `org-air-view--meta-date-repeat' so the column stays
-                ;; aligned).  R26-6: nothing follows it — the date cell is
+                ;; aligned).  Nothing follows it — the date cell is
                 ;; exactly date + optional repeat marker.
                 (org-air-view--item-repeat-marker item))))))
 
 (defun org-air-view--compute-meta-widths (items width)
-  "Set the V6 metadata column widths over the DISPLAYED ITEMS at WIDTH.
+  "Set the metadata column widths over the DISPLAYED ITEMS at WIDTH.
 Walks the same section buckets the pane renders and records the widest
 date label (bare, no Inbox nudge), tag string and origin so date / tags /
 origin each occupy a fixed-width column down the whole list and line up
 vertically.  The date floor is `org-air-date-column'.
 
-R20-6: measures only the rows a section actually renders via
+Measures only the rows a section actually renders via
 `org-air-view--displayed-items-for-bucket' (the per-bucket `seq-take' subset,
 plus any expanded section), not every member.  The contract is per-render
 alignment of WHAT IS SHOWN, so the columns still align; the cost drops from
@@ -5132,19 +5118,19 @@ O(N) over every item to O(shown) over ~35 rows -- the dominant warm re-render
 win.  Widths can only be <= the all-items result (tighter where a hidden item
 was widest), so the common case is byte-identical.
 
-R17: the origin column is capped at `org-air-origin-max-width' (it is
+The origin column is capped at `org-air-origin-max-width' (it is
 already capped per-item at the source, this is belt-and-braces), then a
 width-aware fit pass reclaims columns for the flex title so it keeps at
 least `org-air-title-min-width': the origin shrinks toward
 `org-air-origin-min' first, then tags toward a 1-col floor; the date
-column is held.  This INVERTS the never-wired D2 origin-protected
+column is held.  This INVERTS the never-wired origin-protected
 priority -- the title is the row's primary identity and is protected
 first."
-  ;; R30-3: each cluster column is GATED at the width pass by its
+  ;; Each cluster column is GATED at the width pass by its
   ;; defcustom toggle.  A hidden column seeds/accumulates 0 width, so
   ;; `org-air-view--insert-row' skips the cell (its `(when (> col 0))'
   ;; guards already exist) and the freed columns flow to the flex title
-  ;; via the SAME title-min fit pass — V6 alignment holds by construction
+  ;; via the SAME title-min fit pass — alignment holds by construction
   ;; (the widths are recomputed every render, so the relock is automatic).
   (let ((dw (if org-air-show-dates org-air-date-column 0))
         (tw 0) (ow 0) (rep 0) (tw-todo 0))
@@ -5172,7 +5158,7 @@ first."
             (when org-air-show-origin
               (setq ow (max ow (string-width
                                 (org-air-view--item-origin-raw item)))))))))
-    ;; R80: floor the keyword column so a SHORT keyword (OUT/OFF, 3 cols)
+    ;; Floor the keyword column so a SHORT keyword (OUT/OFF, 3 cols)
     ;; reserves a cell the SAME width as a 5-col DRAFT state chip -- the
     ;; keyword badge (`org-air-view--svg-keyword-badge') pads its pill to
     ;; the same floor, so box <= cell and the pill never overflows.  Only
@@ -5181,11 +5167,11 @@ first."
     ;; identical), and an all-keywordless board reserves no column.
     (when (and (eq org-air-keyword-style 'badge) (> tw-todo 0))
       (setq tw-todo (max tw-todo org-air-keyword-badge-min-cols)))
-    ;; R17 piece C: the per-item origin TEXT is already capped at the
+    ;; The per-item origin TEXT is already capped at the
     ;; source (`org-air-view--origin-capped'), so OW is inherently <= the
     ;; cap; clamp anyway (belt-and-braces -- width and rendered cell agree).
     (setq ow (min ow org-air-origin-max-width))
-    ;; R17 piece D: title-min budget.  The title's left edge is board-wide
+    ;; Title-min budget.  The title's left edge is board-wide
     ;; constant: margin+indent + the reserved keyword cell (+1 sep) + the
     ;; fixed priority slot (`square style only).  Mirror `insert-row''s
     ;; arithmetic EXACTLY (gap=2; cluster cells joined by single spaces).
@@ -5224,13 +5210,13 @@ first."
           org-air-view--meta-todo-w tw-todo)))
 
 (defun org-air-view--svg-keyword-badge (text face)
-  "Return TEXT carrying a small coloured keyword/state svg chip (R21-4).
+  "Return TEXT carrying a small coloured keyword/state svg chip.
 Reuses `org-air-view--svg-pillify' with FACE's foreground as the salient
 \(full-strength) border, so the chip reads as a coloured BADGE -- distinct
 from the calm monochrome tag/date pills.  Shared by the board keyword
 cell and the project state cell.
 
-R80: TEXT is first padded to at least `org-air-keyword-badge-min-cols'
+TEXT is first padded to at least `org-air-keyword-badge-min-cols'
 columns (default 5 = `org-air-project--state-cell-w'), the label centring,
 so a SHORT keyword (OUT/OFF, 3 cols) renders a pill the SAME size as a
 5-col DRAFT state chip instead of a tiny capsule -- the widening is
@@ -5251,19 +5237,19 @@ token."
         (org-air-view--svg-pillify padded face :border-color color)))))
 
 (defun org-air-view--todo-cell (todo width &optional donep)
-  "Return a fixed-width reserved TODO-keyword cell (R15 D-P1).
+  "Return a fixed-width reserved TODO-keyword cell.
 WIDTH is the board-wide widest keyword (`org-air-view--meta-todo-w').
 When WIDTH is 0 no rendered item has a keyword, so return an empty
 string (no wasted column).  Otherwise return TODO in its todo-face (or
 WIDTH blanks when absent), left-justified and padded to WIDTH, plus a
 single trailing space separator -- so every row contributes WIDTH+1
-columns here and all titles share one left edge.  R21-4: when TODO is
-present, overlay the shared svg keyword badge on the (unchanged) padded
+columns here and all titles share one left edge.  When TODO is present,
+overlay the shared svg keyword badge on the (unchanged) padded
 keyword text -- a `display' overlay, so the byte/TTY layer is identical.
-R57-1: DONEP is the item's done flag, threaded to
+DONEP is the item's done flag, threaded to
 `org-air-view--todo-face' so an unknown done keyword renders faded.
 
-R99: memoised for the render.  A board of 191 TODO rows built (and
+Memoised for the render.  A board of 191 TODO rows built (and
 svg-badged, and padded) the same three-keyword vocabulary once per row."
   (if (<= width 0)
       ""
@@ -5282,7 +5268,7 @@ svg-badged, and padded) the same three-keyword vocabulary once per row."
 Sums the present (width>0) date / tags / origin columns plus one single-space
 separator between each, mirroring `org-air-view--compute-meta-widths' and
 `org-air-view--insert-row' EXACTLY.  This is the fixed cluster width every
-standard no-rail row reserves on its right (R34-2)."
+standard no-rail row reserves on its right."
   (let* ((dcol (+ (or org-air-view--meta-date-w 0)
                   (or org-air-view--meta-date-repeat 0)))
          (tcol (or org-air-view--meta-tags-w 0))
@@ -5294,34 +5280,35 @@ standard no-rail row reserves on its right (R34-2)."
 
 (defun org-air-view--fence-column (width &optional cluster-w)
   "Return the column the no-rail fence / metadata cluster right-anchors to.
-WIDTH is the live `org-air-view--render-width' (post R37 usable=body-1).  BOTH
-the vertical fence line and every standard row's metadata cluster right-anchor
-share this ONE column so they align exactly — the column is `WIDTH minus the
-cluster width'.  CLUSTER-W defaults to the live board `meta-cluster-width'
-\(the no-arg form the fence renderer / test call); `org-air-view--insert-row'
-passes its own row CLUSTER-W so board and project share this ONE derivation.
-Deriving it here, from the one live WIDTH passed into the render pass, keeps
-the fence and the cluster from desyncing (the R37 usable / R38-2 inspector
-seams).  Reverting it (fence and cluster read different widths) reintroduces
-the reported 1-2 col drift."
+WIDTH is the live `org-air-view--render-width' (the usable width, body-1).
+BOTH the vertical fence line and every standard row's metadata cluster
+right-anchor share this ONE column so they align exactly — the column is
+`WIDTH minus the cluster width'.  CLUSTER-W defaults to the live board
+`meta-cluster-width' (the no-arg form the fence renderer uses);
+`org-air-view--insert-row' passes its own row CLUSTER-W, so board and
+project share this ONE derivation.
+Deriving it here, from the one live WIDTH passed into the render pass,
+keeps the fence and the cluster from desyncing across the usable-width
+and inspector seams.  Let them read different widths and the 1-2 column
+drift comes straight back."
   (- width (or cluster-w (org-air-view--meta-cluster-width))))
 
 (cl-defun org-air-view--insert-row (&key prefix title date-text tags
                                          origin-text origin-face widths
                                          props face own-fence marked)
-  "Insert one shared V6 fixed-column row (D-P5.A; the board + project floor).
+  "Insert one shared fixed-column row (the board + project floor).
 PREFIX leads the line (todo/priority markers, or a state chip); the TITLE
 owns the LEFT and stays clean; the metadata is a fixed-width
 right-aligned cluster of DATE-TEXT / TAGS / ORIGIN-TEXT.  WIDTHS is
 \(DCOL TCOL OCOL); a cell whose column width is 0 is omitted.  DATE-TEXT
 and TAGS are pre-faced/pilled strings (left-justified); ORIGIN-TEXT is
 right-justified in OCOL and faced with ORIGIN-FACE.  Because every cell is
-fixed width the columns line up vertically down the list (V6).  The title
-flexes and truncates LAST (D2) in the single gap before the cluster.
+fixed width the columns line up vertically down the list.  The title
+flexes and truncates LAST in the single gap before the cluster.
 PROPS are added as text properties over the whole row and FACE is its
 `font-lock-face' (so both the board's items and the project's docs share
 this one primitive, faces, truncation, alignment and svg pills).
-Exception (R47-2): a `mouse-face' in PROPS is scoped to the TEXT-ONLY
+Exception: a `mouse-face' in PROPS is scoped to the TEXT-ONLY
 title band [title-start, cluster-start) instead of the whole row, so no
 position ever carries both `mouse-face' and an image `display' — hover
 never re-rasterizes the SVG pills (Emacs 30's DRAW_MOUSE_FACE SVG
@@ -5329,31 +5316,30 @@ re-lookup can never fire)."
   (let* ((start (point))
          (width (org-air-view--render-width))
          (prefix (or prefix ""))
-         ;; R90: the mark glyph consumes one existing indentation space.
-         ;; Width and every downstream V6 column remain unchanged.
+         ;; The mark glyph consumes one existing indentation space.
+         ;; Width and every downstream column remain unchanged.
          (prefix (if (and marked (string-match " " prefix))
                      (concat (substring prefix 0 (match-beginning 0))
                              "•"
                              (substring prefix (1+ (match-beginning 0))))
                    prefix))
          (prefix-w (org-air-view--display-width prefix))
-         ;; R23-1 (defensive): normalise the incoming title to PLAIN text
-         ;; before any width math, so the row is rendered purely via org-air's
-         ;; own font-lock-face/propertize and never inherits a caller's
+         ;; Defensive: normalise the incoming title to PLAIN text before
+         ;; any width math, so the row renders purely via org-air's own
+         ;; font-lock-face/propertize and never inherits a caller's
          ;; face/display/org property (e.g. the `org-level-1' that
-         ;; `org-get-heading' leaks from a fontified buffer post-refile).  The
-         ;; R21-2 step then re-adds only org-air's own title mark.
+         ;; `org-get-heading' leaks from a fontified buffer post-refile).
+         ;; The step below then re-adds only org-air's own title mark.
          (title (substring-no-properties (or title "")))
          (gap 2)
          (dcol (or (nth 0 widths) 0))
          (tcol (or (nth 1 widths) 0))
          (ocol (or (nth 2 widths) 0))
          ;; date cell: left-justified, padded to EXACTLY its global column
-         ;; DCOL — no local expansion past DCOL (R40-2 lockstep).  The R26-6
-         ;; no-nudge contract removed the one expander (the "· r to file"
-         ;; Inbox nudge that baked extra width into DATE-TEXT), so a bare
-         ;; DATE-TEXT always fits DCOL and this is byte-identical to the old
-         ;; `(max dcol …)' form on every fixture.  Keeping it at DCOL (not
+         ;; DCOL — no local expansion past DCOL, in lockstep with the
+         ;; cluster.  Nothing bakes extra width into DATE-TEXT (see the
+         ;; no-nudge rule in `org-air-view--item-date-text'), so a bare
+         ;; DATE-TEXT always fits DCOL.  Keeping it at DCOL (not
          ;; `max') means the cluster field width can never exceed the
          ;; board-wide `meta-cluster-width', so every row's cluster field ==
          ;; `meta-cluster-width' in lockstep and the shared fence column
@@ -5363,13 +5349,13 @@ re-lookup can never fire)."
                       (org-air-view--pad-to (or date-text "") dcol)))
          (tags-cell (when (> tcol 0) (org-air-view--pad-to (or tags "") tcol)))
          (origin-cell (when (> ocol 0)
-                        ;; R17: the fit pass can shrink OCOL below a capped
+                        ;; The fit pass can shrink OCOL below a capped
                         ;; origin's width (e.g. 13 at W80); truncate OT to
                         ;; OCOL FIRST so a wider text can't overflow the
                         ;; cell.  At the wide tiers OT already fits OCOL
                         ;; (the board-wide max), so this is a no-op there
                         ;; and the wide goldens stay byte-identical.
-                        ;; R99: memoised for the render.  The breadcrumb is
+                        ;; Memoised for the render.  The breadcrumb is
                         ;; already shared per source file, and the cell is a
                         ;; pure function of its TEXT, the column and the
                         ;; face; a board reading a handful of files rebuilt
@@ -5386,7 +5372,7 @@ re-lookup can never fire)."
                                       ot))))))
          (cluster-cells (delq nil (list date-cell tags-cell origin-cell)))
          (cluster (mapconcat #'identity cluster-cells " "))
-         ;; R99: the cluster's width is the sum of its CELLS' widths plus
+         ;; The cluster's width is the sum of its CELLS' widths plus
          ;; one separator between adjacent cells — read back from the memo
          ;; `org-air-view--pad-to' seeded when it built each cell, instead
          ;; of a fresh ~45-column multibyte `string-width' of the joined
@@ -5400,7 +5386,7 @@ re-lookup can never fire)."
                            (org-air-view--display-width origin-cell) 0)
                        (max 0 (1- (length cluster-cells)))))
          ;; title flexes/truncates in the space before the fixed cluster.
-         ;; V6: it floors at 1 so the cluster stays at a fixed column — a
+         ;; It floors at 1 so the cluster stays at a fixed column — a
          ;; long title or wide prefix must not push the columns out.
          (avail-title (- width prefix-w gap cluster-w))
          (title-w (org-air-view--display-width title))
@@ -5410,7 +5396,7 @@ re-lookup can never fire)."
                   (truncate-string-to-width
                    title (max 1 avail-title) nil nil
                    (org-air-view--glyph 'more))))
-         ;; R21-2: mark the TITLE's first glyph so motion/open can land
+         ;; Mark the TITLE's first glyph so motion/open can land
          ;; point on the title (not the keyword/priority prefix).  A text
          ;; property, not visible text — byte goldens are byte-identical.
          ;; Copy first so the source item/doc title string is not mutated.
@@ -5421,7 +5407,7 @@ re-lookup can never fire)."
                   title))
          (had-title (> (length title) 0))
          (left (concat prefix title))
-         ;; V6 (D-P1.PAD fix): the cluster MUST start at the fixed column
+         ;; The cluster MUST start at the fixed column
          ;; `width - cluster-w' regardless of prefix/title/pad.  At the
          ;; narrow tier a wide prefix (e.g. the [#A] priority badge) plus
          ;; the reserved pad cols can make prefix + the 1-col title floor
@@ -5431,9 +5417,9 @@ re-lookup can never fire)."
          ;; cluster column never shifts (a no-op when LEFT already fits,
          ;; so the wider tiers stay byte-identical).
          (left-budget (max 0 (- width cluster-w gap)))
-         ;; R99: ONE width for LEFT, reused by the budget test and by the
+         ;; ONE width for LEFT, reused by the budget test and by the
          ;; fence pad below.  In a frame a full-row `string-width' is ~15us
-         ;; and ~480 conses (see the R99 measurement layer) and this ran
+         ;; and ~480 conses (see the measurement layer) and this ran
          ;; TWICE per row per repaint.  LEFT is `prefix' + `title' and the
          ;; join is a plain space-terminated prefix, so no composition can
          ;; straddle it and the width is the sum; an untruncated TITLE has
@@ -5446,12 +5432,12 @@ re-lookup can never fire)."
                  (setq left-w nil)
                  (truncate-string-to-width
                   left left-budget nil nil (org-air-view--glyph 'more))))
-         ;; R46-2 (secondary): the LEFT re-truncation above can chop the
-         ;; R21-2-marked title glyph on a narrow row (the ellipsis replaces
-         ;; the whole title cell), leaving the row with NO title mark, so
-         ;; `org-air-view--row-title-pos' fell back to the row's first
-         ;; visible glyph (the keyword cell) and the R46 band start
-         ;; wandered between columns down one section.  Re-apply the mark
+         ;; The LEFT re-truncation above can chop the MARKED title glyph
+         ;; on a narrow row (the ellipsis replaces the whole title cell),
+         ;; leaving the row with NO title mark; `org-air-view--row-title-pos'
+         ;; then falls back to the row's first visible glyph (the keyword
+         ;; cell) and the band start wanders between columns down one
+         ;; section.  Re-apply the mark
          ;; to the title's surviving first glyph — or the ellipsis remnant
          ;; when even that is gone — so the band start is stable.  A text
          ;; property only; the visible bytes are untouched.
@@ -5465,42 +5451,41 @@ re-lookup can never fire)."
                       'org-air-row-title t lt)
                      lt)
                  left))
-         ;; R40-2: right-anchor the cluster to the ONE board-wide fence
+         ;; Right-anchor the cluster to the ONE board-wide fence
          ;; column.  The standard no-rail BOARD row (OWN-FENCE nil) anchors
          ;; to the SHARED no-arg `org-air-view--fence-column' — derived from
          ;; the live WIDTH and the board-wide `meta-cluster-width' — so the
          ;; vertical fence is CONTINUOUS BY CONSTRUCTION: every board row
          ;; (and every blank/fill/separator row that reads the same helper)
          ;; lands on the identical column regardless of its OWN cluster
-         ;; width, in LOCKSTEP.  This supersedes R39-2's per-row CLUSTER-W
-         ;; anchoring, whose continuity was one divergent row away from
-         ;; breaking.  The project view / day pane compose their OWN cluster
-         ;; field (different globals) and pass OWN-FENCE t to keep anchoring
-         ;; to THIS row's CLUSTER-W (documented exception — not the no-rail
-         ;; board fence the user reports); with a lockstep cluster field this
-         ;; is byte-identical to the board path on the current fixtures.
+         ;; width, in LOCKSTEP.  Anchoring each row to its OWN CLUSTER-W
+         ;; instead leaves continuity one divergent row away from
+         ;; breaking.  The project view and day pane compose their OWN
+         ;; cluster field (different globals) and pass OWN-FENCE t to
+         ;; anchor to THIS row's CLUSTER-W — the documented exception,
+         ;; not the no-rail board fence.
          (anchor (org-air-view--fence-column width (and own-fence cluster-w)))
-         ;; The R21-2/R46 title-mark rebinds above only ever `copy-sequence'
+         ;; The title-mark rebinds above only ever `copy-sequence'
          ;; LEFT, so its width is unchanged; a truncation cleared LEFT-W.
          (pad (max gap (- anchor (or left-w
                                      (org-air-view--display-width left)))))
          (line (concat left (make-string pad ?\s) cluster)))
     (insert line "\n")
     (when (or props face)
-      ;; R47-2: pop `mouse-face' OUT of the whole-extent PROPS.  Since Emacs
+      ;; Pop `mouse-face' OUT of the whole-extent PROPS.  Since Emacs
       ;; 30 (commit e69fafdb, bug#67794, "Respect mouse-face on SVG image
       ;; glyphs") `draw_glyphs' re-looks-up EVERY SVG image glyph drawn under
       ;; DRAW_MOUSE_FACE with the hover face; the C image cache keys on the
       ;; face's fg/bg/font, and the hover :background DIFFERS from the row
       ;; face by construction, so a full-row `mouse-face' forced a synchronous
       ;; librsvg re-rasterization of every SVG pill in the row on EVERY
-      ;; crossing (the R45 cold-pill cost relocated onto the hover hot path).
+      ;; crossing (the cold-pill cost relocated onto the hover hot path).
       ;; Invariant: NO buffer position may carry both `mouse-face' and an
       ;; image `display'.  Every OTHER row-identity property
-      ;; (`org-air-item'/`org-air-doc', marker, R21-2 title mark,
-      ;; `font-lock-face') keeps the FULL row extent so click/RET resolution,
-      ;; R32-3 open-target and the inspector are untouched — ONLY the
-      ;; highlight span narrows.
+      ;; (`org-air-item'/`org-air-doc', marker, title mark,
+      ;; `font-lock-face') keeps the FULL row extent so click/RET
+      ;; resolution, the open target and the inspector are untouched —
+      ;; ONLY the highlight span narrows.
       (let ((hover (plist-member props 'mouse-face))
             (row-props nil))
         (let ((tail props))
@@ -5514,23 +5499,22 @@ re-lookup can never fire)."
                                (append row-props
                                        (when face
                                          (list 'font-lock-face face)))))
-        ;; R47-2: apply the popped `mouse-face' over the TEXT-ONLY TITLE
-        ;; BAND [title-start, cluster-start) — from the R21-2/R46 title mark
+        ;; Apply the popped `mouse-face' over the TEXT-ONLY TITLE
+        ;; BAND [title-start, cluster-start) — from the title mark
         ;; through the flex pad, ENDING where the meta cluster begins (the
-        ;; R40-2 fence).  The band is text-only BY CONSTRUCTION (the title is
-        ;; `substring-no-properties' plain text per R23-1; every pill lives
+        ;; fence).  The band is text-only BY CONSTRUCTION (the title is
+        ;; `substring-no-properties' plain text; every pill lives
         ;; in the prefix badges BEFORE it or the cluster AFTER it), so it is
         ;; ONE contiguous hover run per row that never covers an SVG pill —
         ;; a crossing re-blits only text glyph backgrounds: ZERO pill
         ;; rasterizations, ZERO `lookup_image' calls, on every Emacs
-        ;; version.  It also matches R46: the highlight shows exactly the
-        ;; band point is clamped to on click.  Degenerate rows (empty title
+        ;; version.  It also matches the click behaviour: the highlight
+        ;; shows exactly the band point is clamped to on click.  Degenerate rows (empty title
         ;; after truncation, no title mark) get NO `mouse-face' at all — NO
-        ;; span is always safer than a wrong span.  The R32-1 invariant (no
+        ;; span is always safer than a wrong span.  The invariant (no
         ;; hover run spans a newline, so adjacent rows never fuse) holds by
-        ;; construction: the band ends at the cluster start, never reaching
-        ;; the row's newline; the old explicit newline strip is vacuous now
-        ;; and dropped.
+        ;; construction: the band ends at the cluster start, never
+        ;; reaching the row's newline.
         (when (cadr hover)
           (let ((title-idx (text-property-not-all
                             0 (length left) 'org-air-row-title nil left)))
@@ -5540,21 +5524,21 @@ re-lookup can never fire)."
                                  'mouse-face (cadr hover)))))))))
 
 (defun org-air-view--insert-item (item bucket &optional omit-date)
-  "Insert ITEM as an interactive row in BUCKET (V6 fixed-column table).
-A thin caller of the shared `org-air-view--insert-row' (D-P5.A): it maps
-the task ITEM onto the row args (todo/priority prefix, title, date / tags
-/ origin cluster).  OMIT-DATE drops the date column (R6 day view)."
+  "Insert ITEM as an interactive row in BUCKET (fixed-column table).
+A thin caller of the shared `org-air-view--insert-row': it maps the task
+ITEM onto the row args (todo/priority prefix, title, date / tags /
+origin cluster).  OMIT-DATE drops the date column (the day view)."
   (let* ((todo (org-air-item-todo item))
          (date-text (unless omit-date (org-air-view--item-date-text item bucket)))
-         ;; R15 D-P1: reserve a FIXED keyword cell so keyword-less rows
+         ;; Reserve a FIXED keyword cell so keyword-less rows
          ;; render blank there and ALL titles share one left edge.  The
          ;; board-wide width comes from `org-air-view--meta-todo-w'; in a
-         ;; single-row pane (R6 day view, meta widths unset) fall back to
+         ;; single-row pane (the day view, meta widths unset) fall back to
          ;; this row's own keyword width -- it is the only row, so there is
          ;; no cross-row alignment to honour.
          (todo-w (or org-air-view--meta-todo-w
                      (string-width (or todo ""))))
-         ;; R99: the row prefix is a pure function of (keyword, reserved
+         ;; The row prefix is a pure function of (keyword, reserved
          ;; keyword width, done flag, priority letter) once the styles are
          ;; fixed — which they are for a render — so a 191-row board builds
          ;; the three distinct prefixes it actually has, once each, and
@@ -5567,7 +5551,7 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
             (concat (org-air-view--item-margin)
                     (org-air-view--todo-cell todo todo-w
                                              (org-air-item-donep item))
-                    ;; R13 D-P2 / R84 D1a: the SHARED priority cell —
+                    ;; The SHARED priority cell:
                     ;; `square emits a FIXED 2-col slot on EVERY row
                     ;; (square or blank) so titles align; `badge/`text
                     ;; keep the conditional `[#A]' token.  Extracted to
@@ -5579,10 +5563,10 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
          (tagstr (org-air-view--item-tagstr
                   tags (min org-air-tags-inline-max n-tags) n-tags))
          (origin-raw (org-air-view--item-origin-raw item))
-         ;; V6 fixed column widths (computed over the whole list; fall back
+         ;; Fixed column widths (computed over the whole list; fall back
          ;; to this single row when unset, e.g. the day pane).
-         ;; R14 D-P2: reserve the repeat-marker columns so a repeating
-         ;; row's `␣↻' never shoves the tags column right (V6 alignment).
+         ;; Reserve the repeat-marker columns so a repeating
+         ;; row's `␣↻' never shoves the tags column right.
          (dcol (if omit-date 0
                  (+ (or org-air-view--meta-date-w org-air-date-column)
                     (or org-air-view--meta-date-repeat 0))))
@@ -5596,12 +5580,12 @@ the task ITEM onto the row args (todo/priority prefix, title, date / tags
      :date-text date-text
      :tags tagstr
      :origin-text origin-raw
-     ;; R22-7: the origin reads at AA (mid-tier) instead of sub-AA faded.
+     ;; The origin reads at AA (mid-tier) instead of sub-AA faded.
      :origin-face 'org-air-face-origin
      :widths (list dcol tcol ocol)
-     ;; R40-2: the STANDARD no-rail board row (OMIT-DATE nil) anchors to the
+     ;; The STANDARD no-rail board row (OMIT-DATE nil) anchors to the
      ;; SHARED board-wide fence column (OWN-FENCE nil) so the vertical fence
-     ;; is continuous by construction.  The R6 DAY PANE (OMIT-DATE) composes
+     ;; is continuous by construction.  The DAY PANE (OMIT-DATE) composes
      ;; its own focused cluster field with the board globals let-unset, so it
      ;; keeps anchoring to THIS row's cluster width (OWN-FENCE t).
      :own-fence omit-date
@@ -5623,16 +5607,15 @@ The order is stable so items sharing a date keep their incoming order.
 
 BUCKET `overdue' keys on `org-air-view--overdue-time' instead — the slot
 the row's own \"OVERDUE Nd\" label chose — so the alarm section is
-worst-first by the number it prints even when the two slots disagree (R94
-follow-up 1: overdue by SCHEDULE with a FUTURE deadline).  Any other
-bucket keeps `org-air-view--item-sort-time' verbatim.
+worst-first by the number it prints even when the two slots disagree
+\(overdue by SCHEDULE with a FUTURE deadline).  Any other bucket keeps
+`org-air-view--item-sort-time' verbatim.
 
-R98 — THE KEY IS COMPUTED ONCE PER ITEM, NOT ONCE PER COMPARISON.  This
-was the last date sort still calling its key function from inside the
-comparator (`--sort-by-quiet', `--sort-by-floor' and `--sort-by' all
-precompute), so a 1000-member Overdue section paid ~10 000 Org timestamp
-parses per repaint — visible as `org-timestamp-to-time' at 25% of self
-time in the R98 profile, on EVERY render, collapsed or expanded.  The
+THE KEY IS COMPUTED ONCE PER ITEM, NOT ONCE PER COMPARISON.  Calling the
+key function from inside the comparator makes a 1000-member Overdue
+section pay ~10 000 Org timestamp parses per repaint — measured as
+`org-timestamp-to-time' at 25% of self time in the profile, on EVERY
+render, collapsed or expanded.  The
 decorate/sort/undecorate form below is O(n) parses and produces byte-
 identical order: the keys are pure functions of the item and one NOW,
 which is exactly what the comparator used to recompute."
@@ -5662,14 +5645,14 @@ which is exactly what the comparator used to recompute."
                        (t (< (nth 0 a) (nth 0 b))))))))))
 
 (defun org-air-view--sort-by-quiet (items)
-  "Return ITEMS most-quiet-first, unknown-age items last (R93 FIX-2).
+  "Return ITEMS most-quiet-first, unknown-age items last.
 The key is `org-air-classify-quiet-days' — the SAME clock
 `org-air-view--attention-reason' prints in a Needs-attention row's date
 cell (\"273d quiet\"), so the order IS the number the rows show and is
 verifiable by eye.
 
-A threshold-0 row (label \"always\"; no longer a default — R93 FIX-3 —
-but still reachable by setting one) is sorted by its REAL age too, not
+A threshold-0 row (label \"always\"; not a default, but reachable by
+setting one) is sorted by its REAL age too, not
 parked: an item silent for 200 days needs attention more than one
 silent for 20, and the label suppresses the number only because the
 threshold — not the age — is why it surfaced.
@@ -5677,11 +5660,11 @@ An UNKNOWN age (label \"quiet\") sorts LAST, mirroring how
 `org-air-view--sort-by-date' trails undated items: org-air never invents
 a number and never lets an unknown outrank a measured one.
 
-R94 — PROVENANCE BREAKS TIES.  Two rows printing the same number are
+PROVENANCE BREAKS TIES.  Two rows printing the same number are
 ordered MEASURED first (`org-air-classify-updated-source'), so a heading
 org-air actually watched happen never sits below a number derived from
 something else.  Under the defaults this arm is dormant on the board,
-because R94 also took the file floor out of the attention clock: every
+because the file floor is not part of the attention clock: every
 age this section sorts on is already a measured heading fact.  It is kept
 because the ordering law must not depend on that — a caller handing this
 function a mixed list must still get \"a fact outranks a bound\" rather
@@ -5715,11 +5698,11 @@ keep their incoming order."
                        (t (< (nth 0 a) (nth 0 b))))))))))
 
 (defun org-air-view--sort-by-floor (items)
-  "Return ITEMS ordered by their FILE-level quiet bound, longest first (R94).
+  "Return ITEMS ordered by their FILE-level quiet bound, longest first.
 The Untracked section's order.  The key is
 `org-air-classify-quiet-floor-days' — the same number
 `org-air-view--untracked-reason' prints as \"~210d quiet\" — so the
-section obeys the FIX-2 law (each section ordered worst-first by the very
+section obeys the law (each section ordered worst-first by the very
 number its own rows print) exactly like every other one.
 
 A bound of 0 or nil prints \"no history\" rather than a number, and those
@@ -5727,17 +5710,16 @@ rows sort LAST in stable incoming (query) order: a file that changed
 today says nothing at all about a heading that has no history in it, and
 org-air ranks nothing on a fact it does not have.
 
-R95 — THE ORDER IS NOT THE VISIBLE WINDOW.  This key is a FILE fact,
-shared by every heading in one file, so ranking alone let one cold file
-own the whole capped section (4 of 4 visible rows, measured by the R94
-review).  The ORDER here is unchanged and still worst-first; WHICH of
-these rows a collapsed section shows is decided by
+THE ORDER IS NOT THE VISIBLE WINDOW.  This key is a FILE fact, shared by
+every heading in one file, so ranking alone lets one cold file own the
+whole capped section (measured: 4 of 4 visible rows).  The ORDER here is
+worst-first; WHICH of these rows a collapsed section shows is decided by
 `org-air-view--collapsed-window', which takes at most two per file and
 then fills any slack from this same list.  Order law and selection rule,
 deliberately kept apart — see that function.
 
 One classify call per item, precomputed into the key; no file access (the
-bound is a hash lookup on the scan's file-meta table), so the R53
+bound is a hash lookup on the scan's file-meta table), so the
 render-purity fence is untouched."
   (let* ((now (current-time))
          (i 0)
@@ -5759,24 +5741,24 @@ render-purity fence is untouched."
                        (t (< (nth 0 a) (nth 0 b))))))))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Shared sort core (R22-3) — one cycle/reverse pair + indicator for BOTH
+;;;; Shared sort core — one cycle/reverse pair + indicator for BOTH
 ;;;; the board and the project; per-mode the SPEC (key list + refresh fn) is
 ;;;; seeded into buffer-locals so the commands never fork.
 ;;;; ---------------------------------------------------------------------
 
 (defvar-local org-air-view--sort-key nil
-  "Active per-buffer sort KEY for this view (R22-3).
+  "Active per-buffer sort KEY for this view.
 The board seeds it from `org-air-sort-key' (date/priority/title/recency);
 the project from `org-air-project-sort-key' (name/created/updated).")
 (defvar-local org-air-view--sort-direction nil
-  "Active per-buffer sort DIRECTION (`ascending'/`descending') (R22-3).")
+  "Active per-buffer sort DIRECTION (`ascending'/`descending').")
 (defvar-local org-air-view--sort-keys nil
   "Ordered list of sort keys for THIS view (the board / the project sets it).")
 (defvar-local org-air-view--sort-refresh nil
-  "The per-mode refresh fn the sort commands call after changing key/dir (R22-3).")
+  "The per-mode refresh fn the sort commands call after changing key/dir.")
 
 (defun org-air-view-sort-cycle ()
-  "Cycle to the next sort key for this view and refresh (R22-3).
+  "Cycle to the next sort key for this view and refresh.
 Bound to `o' in BOTH the board and the project via `org-air-view-core-map'."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
@@ -5789,7 +5771,7 @@ Bound to `o' in BOTH the board and the project via `org-air-view-core-map'."
     (message "org-air: sort by %s" next)))
 
 (defun org-air-view-sort-reverse ()
-  "Toggle the sort direction for this view and refresh (R22-3).
+  "Toggle the sort direction for this view and refresh.
 Bound to `O' in BOTH views via `org-air-view-core-map'."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
@@ -5801,10 +5783,10 @@ Bound to `O' in BOTH views via `org-air-view-core-map'."
   (message "org-air: sort %s" org-air-view--sort-direction))
 
 (defun org-air-view--sort-indicator-text (key dir &optional active)
-  "Return the shared `\u2195 <key> <dir>' badge text for KEY + DIR (R22-3).
+  "Return the shared `\u2195 <key> <dir>' badge text for KEY + DIR.
 Lifted from the project's builder, parameterised on key+dir so the board
 and the project show one indicator.  Plain text (svg-free) + quiet faces.
-R27-3: when ACTIVE is non-nil (the caller's sort differs from its view's
+When ACTIVE is non-nil (the caller's sort differs from its view's
 default) the marker glyph, the key name AND the direction arrow all take
 the high-contrast bold `org-air-face-sort-active' so the state is clearly
 stated at the header level; nil keeps today's quiet faces (byte- and
@@ -5823,17 +5805,17 @@ face-identical, so the default goldens hold)."
                                       'org-air-face-faded)))))
 
 (defun org-air-view--sort-active-key ()
-  "Return the board's active sort key, seeding from the defcustom (R22-3)."
+  "Return the board's active sort key, seeding from the defcustom."
   (or org-air-view--sort-key org-air-sort-key))
 
 (defun org-air-view--sort-active-direction ()
-  "Return the board's active sort direction, seeding from the defcustom (R22-3)."
+  "Return the board's active sort direction, seeding from the defcustom."
   (or org-air-view--sort-direction org-air-sort-direction))
 
 (defun org-air-view--sort-default-p ()
-  "Return non-nil when the sort is this view's byte-identical default (R22-3).
-R79: the default key is view-aware — `time' in the single-day view
-\(chronological within each group), else the board `date'.  So the R22-3
+  "Return non-nil when the sort is this view's byte-identical default.
+The default key is view-aware — `time' in the single-day view
+\(chronological within each group), else the board `date'.  So the
 banner indicator stays hidden at each view's own default and appears the
 moment `o'/`O' deviates, with zero new render code."
   (and (eq (org-air-view--sort-active-key)
@@ -5841,29 +5823,25 @@ moment `o'/`O' deviates, with zero new render code."
        (eq (org-air-view--sort-active-direction) 'ascending)))
 
 (defun org-air-view--item-priority-rank (item)
-  "Return ITEM's numeric priority rank for sorting (R22-3).
+  "Return ITEM's numeric priority rank for sorting.
 Higher = more urgent (#A is highest); a cookie-less item gets the lowest
 rank, so it is ordered last."
   (or (org-air-item-priority item) most-negative-fixnum))
 
 (defun org-air-view--item-activity (item)
-  "Return ITEM's MEASURED recency epoch for the `recency' sort, or nil (R95).
+  "Return ITEM's MEASURED recency epoch for the `recency' sort, or nil.
 `org-air-classify-updated' — the newest inactive stamp in the heading's
 OWN body: LOGBOOK state changes and notes, clock-outs, `CLOSED:',
 `:CREATED:', any body `[stamp]'.  A fact about the heading, or nothing.
 
-R95 CHANGED WHAT THIS RETURNS.  It used to be
-`org-air-classify--last-activity' — closed ‖ scheduled ‖ deadline ‖
-first subtree stamp ‖ FILE MTIME — defended (R93) as \"what has this item
-got going on lately\", where a plan legitimately counts.  Measured
-through the real renderer by the R94 review, that defence does not
-survive contact with the board: pressing the sort key in Needs attention
-put `Renegotiate the CDN contract' FIRST because its `activity' was its
-SCHEDULED date in JULY.  A key labelled `recency' ranked a row by a date
-in the FUTURE, and the section stopped matching the `Nd quiet' numbers
-its own rows print the moment the user touched the key.  R94 abolished
-the plan/record conflation everywhere else; this was the last place it
-decided an order a user reads.
+WHY NOT `org-air-classify--last-activity' (closed ‖ scheduled ‖ deadline
+‖ first subtree stamp ‖ FILE MTIME).  That reads \"what has this item got
+going on lately\", where a plan counts — and it does not survive contact
+with the board: pressing the sort key in Needs attention put
+`Renegotiate the CDN contract' FIRST because its `activity' was its
+SCHEDULED date in JULY.  A key labelled `recency' would rank a row by a
+date in the FUTURE, and the section would stop matching the `Nd quiet'
+numbers its own rows print the moment the user touched the key.
 
 NIL IS AN ANSWER, NOT A ZERO.  A heading org-air has never measured
 returns nil and `org-air-view--sort-by-recency' ranks it LAST — org-air
@@ -5877,7 +5855,7 @@ order over headings."
   (org-air-classify-updated item))
 
 (defun org-air-view--sort-by-recency (items desc)
-  "Return ITEMS ordered by their MEASURED recency clock (R95).
+  "Return ITEMS ordered by their MEASURED recency clock.
 The `recency' sort key.  Least-recently-updated FIRST under the default
 ascending direction — the same worst-first convention every other board
 order follows, and the one that makes this key AGREE with the numbers
@@ -5907,7 +5885,7 @@ resulting order, exactly as `O' has always done for every key."
     (if desc (nreverse result) result)))
 
 (defun org-air-view--sort-by (items lessp keyfn &optional desc)
-  "Return ITEMS stably ordered by KEYFN under LESSP (R22-3).
+  "Return ITEMS stably ordered by KEYFN under LESSP.
 Equal keys tiebreak by lowercased title then incoming order (byte-stable);
 DESC reverses the whole resulting order."
   (let* ((i 0)
@@ -5930,17 +5908,17 @@ DESC reverses the whole resulting order."
     (if desc (nreverse result) result)))
 
 (defun org-air-view--sort-items (items bucket)
-  "Order ITEMS within BUCKET by the active board sort key/direction (R22-3).
+  "Order ITEMS within BUCKET by the active board sort key/direction.
 Buckets are NEVER reordered, only the items inside each.
 
 The default key `date' does NOT mean \"every section by date\" — it means
 EACH SECTION BY ITS OWN PLANNING NUMBER, WORST FIRST, i.e. by the very
-number that section's rows print in the date cell (R93 FIX-2):
+number that section's rows print in the date cell:
 
   overdue    `--sort-by-date'   earliest LATE SLOT first = MOST overdue
                                 first (\"OVERDUE 7d\" above \"OVERDUE 3d\").
                                 The alarm section leads with the worst
-                                promise.  R94: the key is
+                                promise.  The key is
                                 `--overdue-time' — the slot the row's own
                                 label chose — not (or deadline scheduled);
                                 see that function for the mixed-slot shape
@@ -5957,11 +5935,11 @@ number that section's rows print in the date cell (R93 FIX-2):
                                 again here would add nothing.
   untracked  `--sort-by-floor'  longest FILE-level bound first (\"~210d
                                 quiet\"), rows printing \"no history\" last
-                                in query order (R94).  The only place a
+                                in query order.  The only place a
                                 file mtime ranks anything, and only
                                 because there it is a sound LOWER bound,
                                 marked `~', rather than a stand-in for a
-                                heading's own clock.  R95: the collapsed
+                                heading's own clock.  The collapsed
                                 WINDOW over this order additionally caps
                                 one file at two rows
                                 \(`org-air-view--collapsed-window'), so a
@@ -5977,13 +5955,13 @@ number that section's rows print in the date cell (R93 FIX-2):
 
 `O' reverses whatever the section produced.
 
-HISTORY: before R93 the overdue rows lived INSIDE `attention', so the
-one `(attention upcoming)' date list gave the alarm rows worst-first for
-free.  R93 split them into `overdue' and left that list alone, so the
-alarm section silently fell back to query order (least-overdue first) —
-the defect this arm now fixes.  The same split turned `attention' into a
-pure AGING rule: it kept a date sort it no longer had a use for (its
-date cell now prints the REASON, never a date) and dropped its dateless
+WHY `overdue' MUST BE LISTED HERE.  When the overdue rows lived INSIDE
+`attention', one `(attention upcoming)' date list gave the alarm rows
+worst-first for free.  Splitting them out without adding `overdue' to
+this list drops the alarm section back to query order, i.e.
+least-overdue first.  The same split turned `attention' into a pure
+AGING rule: a date sort has no use there (its date cell prints the
+REASON, never a date) and it dropped its dateless
 half into SCAN order, shipping \"225d quiet\" ABOVE \"273d quiet\".  Hence
 `--sort-by-quiet'."
   (let ((key  (org-air-view--sort-active-key))
@@ -6010,25 +5988,25 @@ half into SCAN order, shipping \"225d quiet\" ABOVE \"273d quiet\".  Hence
       (_ items))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Day-view sort (R79) — the SAME sort core, a day key vocabulary, and a
+;;;; Day-view sort — the SAME sort core, a day key vocabulary, and a
 ;;;; per-group dispatcher; the day↔board boundary swaps the key list and
 ;;;; coerces the active key (`org-air-view-day' / `org-air-view-board').
 ;;;; ---------------------------------------------------------------------
 
 (defconst org-air-view--day-sort-keys '(time keyword priority title)
-  "The single-day view's sort key vocabulary (R79).
+  "The single-day view's sort key vocabulary.
 Swapped into `org-air-view--sort-keys' at the day↔board boundary; default
 `time' (chronological within each group).  `priority'/`title' are shared
 with the board list and carry across the boundary unchanged.")
 
 (defconst org-air-view--day-time-never
   (encode-time 0 0 0 1 1 9999)
-  "Far-future sentinel time for stampless day items (R79).
+  "Far-future sentinel time for stampless day items.
 A whole-day / stampless item sorts LAST under the `time' key by taking
 this sentinel; `O' reverses the whole order, so it moves first there.")
 
 (defun org-air-view--day-item-sort-time (group-label item)
-  "Return ITEM's within-group planning time for GROUP-LABEL (R79 `time' sort).
+  "Return ITEM's within-group planning time for GROUP-LABEL (`time' sort).
 The SAME signals `org-air-view--day-groups' keyed on: Deadline reads the
 deadline slot, Scheduled the scheduled slot, Logged/created the live
 marker stamp else the `subtree-ts' slot.  A whole-day / stampless item
@@ -6043,8 +6021,8 @@ over cached data; a (FILE . POS) item answers data-pure (no file open)."
       org-air-view--day-time-never))
 
 (defun org-air-view--sort-day-items (group-label items)
-  "Order a day GROUP-LABEL's ITEMS by the active day sort key/direction (R79).
-Dispatches the shared `org-air-view--sort-active-key' through the R22-3
+  "Order a day GROUP-LABEL's ITEMS by the active day sort key/direction.
+Dispatches the shared `org-air-view--sort-active-key' through the
 `org-air-view--sort-by' core — no fork:
   `time'     the group's own planning time-of-day, earliest first,
              stampless last;
@@ -6075,7 +6053,7 @@ Dispatches the shared `org-air-view--sort-active-key' through the R22-3
       (_ items))))
 
 (defun org-air-view--enter-day-sort ()
-  "Swap the sort key vocabulary to the day view's on ENTERING it (R79).
+  "Swap the sort key vocabulary to the day view's on ENTERING it.
 Sets `org-air-view--sort-keys' to `org-air-view--day-sort-keys' and
 coerces the active key: keep it when it is a day key (so the shared
 `priority'/`title' carry across the board→day boundary), else default to
@@ -6086,7 +6064,7 @@ carries unchanged.  Idempotent, so day nav (`<'/`>') re-entry is safe."
     (setq-local org-air-view--sort-key 'time)))
 
 (defun org-air-view--leave-day-sort ()
-  "Restore the board sort key vocabulary on LEAVING the day view (R79).
+  "Restore the board sort key vocabulary on LEAVING the day view.
 Sets `org-air-view--sort-keys' back to the board list and coerces the
 active key: keep it when it is a board key (shared `priority'/`title'
 survive), else `date' (day-only `time'/`keyword' hand back to the
@@ -6098,16 +6076,16 @@ chronological board default).  Direction carries unchanged."
 (defun org-air-view--insert-section (descriptor items)
   "Insert section DESCRIPTOR from ITEMS."
   (pcase-let ((`(,bucket ,title ,empty) descriptor))
-    (let* (;; S4: the badge counts exactly what the section renders
+    (let* (;; The badge counts exactly what the section renders
            ;; (`items-for-bucket', which keeps inbox items out of the
            ;; other buckets), so badge/summary/body always agree.  `length'
            ;; is order-independent, so the unsorted member list is fine here.
            (count (length (org-air-view--items-for-bucket bucket items)))
-           ;; R93: Overdue joins the attention-coloured badges — a missed
+           ;; Overdue joins the attention-coloured badges — a missed
            ;; date demands the eye at least as much as a quiet item.
            (attentionp (and (> count 0)
                             (memq bucket '(inbox overdue attention))))
-           ;; R20-6: the displayed subset (date-sorted, section-capped) is the
+           ;; The displayed subset (date-sorted, section-capped) is the
            ;; SAME memoised list the meta-width pass measured — one sort+take.
            (visible (org-air-view--displayed-items-for-bucket bucket items)))
       (insert "\n")
@@ -6117,12 +6095,12 @@ chronological board default).  Direction carries unchanged."
             (dolist (item visible)
               (org-air-view--insert-item item bucket))
             (when (and (> count (length visible))
-                       ;; R53/R90: collapsed Notes and Backlog are header-only
+                       ;; Collapsed Notes and Backlog are header-only
                        ;; and emit no fold row.  Expanded Notes may still have
                        ;; a capped preview; expanded Backlog shows all rows.
                        (or (not (memq bucket '(notes backlog)))
                            (org-air-view--section-expanded-p bucket)))
-              ;; R51-3: the fold row is itself an actionable toggle target.
+              ;; The fold row is itself an actionable toggle target.
               ;; It carries `org-air-more-row' BUCKET over its FULL extent
               ;; (the dispatch handle — the board twin of the project's
               ;; `org-air-dropped-fold') and `mouse-face' over the text-only
@@ -6134,13 +6112,12 @@ chronological board default).  Direction carries unchanged."
                     (hidden (- count (length visible))))
                 (insert (org-air-view--item-margin)
                         (propertize
-                         ;; R98: an ALREADY-expanded section that is still
+                         ;; An ALREADY-expanded section that is still
                          ;; capped by its reveal budget needs a different
                          ;; sentence — TAB on the TITLE would collapse it,
                          ;; so the row names ITSELF as the target and says
                          ;; how many rows the next press adds.  A collapsed
-                         ;; section keeps the byte-frozen R51-3 text every
-                         ;; board golden holds.
+                         ;; section keeps its byte-frozen text.
                          (if (org-air-view--section-expanded-p bucket)
                              (format "%sand %d more — press TAB here to reveal %d more"
                                      (org-air-view--glyph 'more) hidden
@@ -6164,7 +6141,7 @@ chronological board default).  Direction carries unchanged."
     (insert (propertize
              (org-air-view--pad-to
               (concat (org-air-view--margin)
-                      ;; R50-1: refresh is the SEQUENCE `g r' (`g' alone
+                      ;; Refresh is the SEQUENCE `g r' (`g' alone
                       ;; is the B4 prefix map) — the band must not teach a
                       ;; bare prefix.  Bracket-key idiom kept elsewhere.
                       (if (<= (org-air-view--render-width) 80)
@@ -6183,7 +6160,7 @@ chronological board default).  Direction carries unchanged."
               lines))))
 
 (defun org-air-view--trim-right-known (string)
-  "Return STRING right-trimmed, carrying its display width into the memo (R99).
+  "Return STRING right-trimmed, carrying its display width into the memo.
 `string-trim-right' only ever removes ASCII whitespace, and every such
 character costs exactly one display column — except TAB, whose cost depends
 on where it sits.  So when the removed run holds no TAB the trimmed width
@@ -6200,12 +6177,12 @@ is the original width minus the number of removed characters, and no
 (defun org-air-view--buffer-lines-padded (width)
   "Return the current buffer's lines, each normalised to display WIDTH.
 The drop-in replacement for `(org-air-view--string-lines (buffer-string)
-WIDTH)' on the render path (R99), and identical in result.
+WIDTH)' on the render path, and identical in result.
 
 Why it exists: `buffer-string' copies the whole composed pane — text AND
 every text-property interval — only for `split-string' to copy it again,
 and then each line is MEASURED with `string-width', which in a graphical
-frame costs ~15us and ~480 conses per row (see the R99 measurement layer).
+frame costs ~15us and ~480 conses per row (see the measurement layer).
 The buffer already knows the answer: `current-column' at end-of-line is
 the same number for ~0.7us and 2 conses.  So the width is taken from the
 buffer and SEEDED into the identity memo, and `org-air-view--pad-to' —
@@ -6232,7 +6209,7 @@ and measured the authoritative way."
         (tag-filter org-air-view--tag-filter)
         (scope org-air-view--scope)
         (expanded org-air-view--expanded-sections)
-        ;; R98: the per-section reveal budget is a render input like the
+        ;; The per-section reveal budget is a render input like the
         ;; expansion set itself — the pane temp buffer computes the
         ;; displayed rows, so without this a paged-open section would
         ;; collapse back to one batch inside the pane.
@@ -6241,38 +6218,38 @@ and measured the authoritative way."
         (marked-table org-air-view--marked-key-table)
         (cal-month org-air-view--cal-month)
         (day org-air-view--day)
-        ;; R18 D-P1c: share the board's classify cache TABLE OBJECT into the
+        ;; Share the board's classify cache TABLE OBJECT into the
         ;; temp pane so `puthash' persists back (buffer-local would reset to
         ;; nil here and lose every entry on each render).
         (classify-cache org-air-view--classify-cache)
         (classify-cache-day org-air-view--classify-cache-day)
-        ;; R20-6: carry the compute-once partition into the pane temp buffer
+        ;; Carry the compute-once partition into the pane temp buffer
         ;; so the section/summary/badge/calendar/meta-width consumers read
         ;; ONE classify pass instead of re-deriving the visible set + per-
         ;; bucket filtering O(N) times each.
         (render-partition org-air-view--render-partition)
         (render-displayed org-air-view--render-displayed)
-        ;; R99: the pure-cell memo is a render input too -- the pane temp
+        ;; The pure-cell memo is a render input too -- the pane temp
         ;; buffer is where the rows are actually built, so without carrying
         ;; the TABLE OBJECT in every cell would be recomputed there.
         (render-memo org-air-view--render-memo)
-        ;; R20-5: carry the view descriptor into the rail temp buffer so the
+        ;; Carry the view descriptor into the rail temp buffer so the
         ;; SHARED rail consults the project's providers (nil for the board).
         (rail-descriptor org-air-view--rail-descriptor)
-        ;; R26-7: carry the buffer-local SORT state — the panes compose in
+        ;; Carry the buffer-local SORT state — the panes compose in
         ;; temp buffers that otherwise fall back to the GLOBAL defaults, so
         ;; `o'/`O' cycled the key while the rendered rows never moved (and
         ;; the banner indicator stayed suppressed).
         (sort-key org-air-view--sort-key)
         (sort-direction org-air-view--sort-direction)
-        ;; R30-3: carry the buffer-local column toggles into the pane temp
+        ;; Carry the buffer-local column toggles into the pane temp
         ;; buffer so the meta-width pass composes with the SAME hidden/
         ;; shown columns the user toggled (else it falls back to the
         ;; global defaults and the toggle appears to do nothing).
         (show-origin org-air-show-origin)
         (show-dates org-air-show-dates)
         (show-tags org-air-show-tags)
-        ;; R26-8: carry the refresh-machine state (and the loading flag) so
+        ;; Carry the refresh-machine state (and the loading flag) so
         ;; the banner's count slot can show the honest stale/progress marker
         ;; from inside the composing temp buffer.
         (loading org-air-view--loading)
@@ -6310,7 +6287,7 @@ and measured the authoritative way."
         (org-air-view--buffer-lines-padded width)))))
 
 (defun org-air-view--rail-width (width)
-  "Return the rail content width tier for total WIDTH (D1).
+  "Return the rail content width tier for total WIDTH.
 Wide (>= 150) -> `org-air-rail-width-wide' (42); mid (120-149) ->
 `org-air-rail-width' (32); threshold zone (< 120) ->
 `org-air-rail-width-narrow' (28)."
@@ -6320,19 +6297,19 @@ Wide (>= 150) -> `org-air-rail-width-wide' (42); mid (120-149) ->
    (t org-air-rail-width-narrow)))
 
 (defun org-air-view--two-pane-boundary ()
-  "Return the minimum total width at which two-pane engages (D1).
+  "Return the minimum total width at which two-pane engages.
 Item-pane floor + divider + the narrow rail tier (≈ 95 cols)."
   (+ org-air-item-pane-min 3 org-air-rail-width-narrow))
 
 (defun org-air-view--board-only-p (width)
-  "Return non-nil when WIDTH is too narrow for the rail (R13 D-P3).
+  "Return non-nil when WIDTH is too narrow for the rail.
 Below `org-air-rail-min-width' the dashboard drops the rail and renders
 board-only.  Within `org-air-layout-hysteresis' columns of the threshold
 the current `org-air-view--orientation' is kept so dragging across the
 boundary does not flap."
   (let ((base (< width org-air-rail-min-width)))
     (cond
-     ;; R21-1: side-window orientation hysteresis.  Once the rail is popped
+     ;; Side-window orientation hysteresis.  Once the rail is popped
      ;; out and the board renders board-only-width, keep side-window until
      ;; the board width drops more than `org-air-rail-width-hysteresis' below
      ;; the threshold, so a 1-col redisplay/hscroll wobble never flips the
@@ -6346,7 +6323,7 @@ boundary does not flap."
      (t base))))
 
 (defun org-air-view--two-pane-p (width)
-  "Return non-nil when WIDTH should render two-pane (D1).
+  "Return non-nil when WIDTH should render two-pane.
 Engagement is derived: two-pane iff the item pane (WIDTH minus the
 tier's rail and the 3-col divider) is at least `org-air-item-pane-min'.
 Within `org-air-layout-hysteresis' columns of the breakpoint the current
@@ -6361,7 +6338,7 @@ Within `org-air-layout-hysteresis' columns of the breakpoint the current
       base)))
 
 (defun org-air-view--svg-divider-glyph (glyph)
-  "Return GLYPH carrying an svg vertical-bar `display' overlay (D-P3 `svg).
+  "Return GLYPH carrying an svg vertical-bar `display' overlay.
 The bar is sized to the cell width and to the line height PLUS the
 `org-air-line-spacing' gap so consecutive divider cells abut into a solid
 rule even when inter-row spacing is non-zero.  Returns GLYPH unchanged
@@ -6378,7 +6355,7 @@ when svg is unavailable (the glyph itself is the TTY/GUI fallback)."
                  (h (+ ch (max 0 sp)))
                  (color (or (face-foreground 'org-air-face-pane-border nil t)
                             "gray"))
-                 ;; R18 D-P1a: the divider cell repeats on every body row in
+                 ;; The divider cell repeats on every body row in
                  ;; two-pane/stacked — a pure function of (colour, cw, h); build
                  ;; it once and share the image across all rows/renders.
                  (image
@@ -6394,7 +6371,7 @@ when svg is unavailable (the glyph itself is the TTY/GUI fallback)."
 (defun org-air-view--divider ()
   "Return the pane divider string for the current layout style.
 With `org-air-divider-style' = `svg the `│' cell carries an svg bar sized
-to the line+spacing so the rule stays solid even with row spacing (D-P3)."
+to the line+spacing so the rule stays solid even with row spacing."
   (if (eq org-air-layout-style 'plain)
       "   "
     (let ((bar (propertize (org-air-view--glyph 'vrule)
@@ -6405,9 +6382,9 @@ to the line+spacing so the rule stays solid even with row spacing (D-P3)."
               " "))))
 
 (defun org-air-view--summary-buckets (items)
-  "Return the Summary section descriptors for visible ITEMS (R83, R94).
+  "Return the Summary section descriptors for visible ITEMS.
 The fixed five task/inbox sections, plus the conditional Untracked
-descriptor when any visible item has neither a plan nor a record (R94),
+descriptor when any visible item has neither a plan nor a record,
 plus the conditional Backlog descriptor when any visible item defers into
 the `backlog' bucket — so a board with neither keeps the exact five
 Summary rows (byte-identical), while a board with untracked or deferred
@@ -6426,8 +6403,8 @@ history org-air does not have."
 (defun org-air-view--section-counts (items)
   "Return bucket count alist for visible ITEMS.
 Counts use `org-air-view--items-for-bucket' so the summary mirrors the
-section badges and bodies exactly (S4) — inbox items are not also tallied
-under the other buckets.  R83: the conditional `backlog' tally rides the
+section badges and bodies exactly — inbox items are not also tallied
+under the other buckets.  The conditional `backlog' tally rides the
 `org-air-view--summary-buckets' list."
   (mapcar (lambda (descriptor)
             (pcase-let ((`(,bucket ,_title ,_empty) descriptor))
@@ -6436,15 +6413,15 @@ under the other buckets.  R83: the conditional `backlog' tally rides the
 
 (defun org-air-view--bucket-title (bucket)
   "Return display title for BUCKET.
-R83: `backlog' resolves to the conditional Backlog descriptor's title.
-R94: so does `untracked'."
+`backlog' resolves to the conditional Backlog descriptor's title.
+So does `untracked'."
   (cadr (pcase bucket
           ('backlog org-air-view--backlog-descriptor)
           ('untracked org-air-view--untracked-descriptor)
           (_ (assq bucket org-air-view--sections)))))
 
 (defun org-air-view--rail-inset (width)
-  "Return the D5b content-spine inset for a rail of content WIDTH.
+  "Return the content-spine inset for a rail of content WIDTH.
 Drops to 1 at the narrow tier (content width < 30, i.e. the 28-col rail)
 so the calendar grid and rules never overflow; `org-air-rail-content-inset'
 \(default 3) at the mid/wide tiers."
@@ -6455,11 +6432,11 @@ so the calendar grid and rules never overflow; `org-air-rail-content-inset'
   (make-string (org-air-view--rail-inset width) ?\s))
 
 (cl-defun org-air-view--rail-header (label width &key suffix suffix-face)
-  "Insert a D-P6 rail section header for LABEL fitted to WIDTH.
+  "Insert a rail section header for LABEL fitted to WIDTH.
 With `org-air-rail-header-style' = `marker' (default) emit the clean
 prefix-marked header with SUFFIX (e.g. the calendar nav, in SUFFIX-FACE)
-right-anchored — no bg/overline/rule glyphs (reverses round-10 D-P2.A).
-With `rule' restore the round-10 labelled rule."
+right-anchored — no background, overline or rule glyphs.
+With `rule' draw a labelled rule instead."
   (if (eq org-air-rail-header-style 'rule)
       (let ((start (point)))
         (insert (org-air-view--pad-to
@@ -6476,14 +6453,14 @@ With `rule' restore the round-10 labelled rule."
             "\n")))
 
 (defun org-air-view--insert-labelled-rule (label width)
-  "Insert a D5 rail rule labelled LABEL and fitted to WIDTH.
+  "Insert a rail rule labelled LABEL and fitted to WIDTH.
 The rule opens with the rounded `hrule-cap' stub echoing a pill's left
-edge (D5a); the rule glyphs are quiet `org-air-face-pane-border' and the
-label is `org-air-face-rail-title'.
-D-P2.A: the line also carries `org-air-face-rail-card-header' (a subtle bg
-tint + overline) layered UNDER the rule text via `add-face-text-property'
-\(APPEND), so the existing labelled rule is the TTY substrate (mandatory
-fallback) while a GUI frame reads it as an hl-block card header."
+edge; the rule glyphs are quiet `org-air-face-pane-border' and the label
+is `org-air-face-rail-title'.  The line also carries
+`org-air-face-rail-card-header' (a subtle bg tint plus overline) layered
+UNDER the rule text via `add-face-text-property' (APPEND), so the
+labelled rule is the TTY substrate (mandatory fallback) while a GUI
+frame reads it as an hl-block card header."
   (let ((start (point)))
     (insert (org-air-view--pad-to
              (org-air-layout-labelled-rule label width)
@@ -6493,7 +6470,7 @@ fallback) while a GUI frame reads it as an hl-block card header."
                             'org-air-face-rail-card-header t)))
 
 (defun org-air-view--rail-visible (things)
-  "Return THINGS after scope+filter via the rail descriptor (R20-5).
+  "Return THINGS after scope+filter via the rail descriptor.
 The board's `org-air-view--visible-items' runs when the descriptor's
 :visible-fn is absent; a non-board view (the project) provides its own."
   (if-let* ((f (plist-get org-air-view--rail-descriptor :visible-fn)))
@@ -6501,7 +6478,7 @@ The board's `org-air-view--visible-items' runs when the descriptor's
     (org-air-view--visible-items things)))
 
 (defun org-air-view--rail-first-thing (things)
-  "Return the thing the rail inspector seeds on, via the descriptor (R20-5).
+  "Return the thing the rail inspector seeds on, via the descriptor.
 Defaults to the board's `org-air-view--first-actionable-item' over THINGS;
 a non-board view may return nil (the inspector is then filled from point by
 `org-air-view--setup-inspector')."
@@ -6511,7 +6488,7 @@ a non-board view may return nil (the inspector is then filled from point by
 
 (defun org-air-view--insert-summary (items width)
   "Insert summary block for ITEMS fitted to WIDTH.
-R20-5: a non-board view supplies its own Summary via the rail descriptor's
+A non-board view supplies its own Summary via the rail descriptor's
 :summary-fn (e.g. the project's per-state counts); the board path runs when
 the descriptor is nil so the board summary stays byte-identical."
   (if-let* ((f (plist-get org-air-view--rail-descriptor :summary-fn)))
@@ -6529,14 +6506,14 @@ the descriptor is nil so the board summary stays byte-identical."
                              ((memq bucket '(inbox overdue attention))
                               'org-air-face-summary-number-attention)
                              (t 'org-air-face-summary-number))))
-          ;; D5b/D5d: spine inset + %3d number + 3-space gutter + label.
+          ;; Spine inset + %3d number + 3-space gutter + label.
           (insert inset
                   (propertize (format "%3d" count) 'face number-face)
                   "   "
                   (propertize (org-air-view--bucket-title bucket)
                               'face 'org-air-face-summary-label)
                   "\n")))
-      ;; D5d: a short ledger rule (over the number field) replaces the old
+      ;; A short ledger rule (over the number field) replaces the old
       ;; stray full-width hairline — the universal "sum" affordance.
       (insert inset
               (propertize (make-string 4 (string-to-char (org-air-view--glyph 'hrule)))
@@ -6548,22 +6525,22 @@ the descriptor is nil so the board summary stays byte-identical."
               "\n")))))
 
 (defun org-air-view--scope-label ()
-  "Return active Source/scope display label; a file source carries ⌂ (R22-4)."
+  "Return active Source/scope display label; a file source carries ⌂."
   (pcase org-air-view--scope
-    ;; R69-5: prefix-deduped chip label (a literal `#nix' tag reads `#nix').
+    ;; Prefix-deduped chip label (a literal `#nix' tag reads `#nix').
     (`(:tag ,tag) (org-air-view--tag-chip-label tag))
     (`(:group ,group) (concat "@" group))
     (`(:file ,file) (concat "⌂ " (file-name-nondirectory file)))
     (_ "all items")))
 
 (defun org-air-view--scope-loaded-count ()
-  "Return M = items loaded under the active Source/scope (R22-4).
+  "Return M = items loaded under the active Source/scope.
 The dataset size the Source selector returned: items passing the scope
 \(all loaded when unscoped, since `--passes-scope-p' is t for every item)."
   (seq-count #'org-air-view--passes-scope-p org-air-view--items))
 
 (defun org-air-view--insert-rail-filters (width)
-  "Insert the Filter + Source block fitted to WIDTH (R19-4b/d; R22-4).
+  "Insert the Filter + Source block fitted to WIDTH.
 Names the two roles UNMISTAKABLY (the user kept reading them as the same):
  - Filter = the LIVE tag LENS (one or more tags, AND/OR); `/' edits, `M-/'
    toggles AND<->OR, `\\' clears.  Empty reads `none' (no dataset claim);
@@ -6577,16 +6554,16 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
            (loaded (org-air-view--scope-loaded-count)))
       (org-air-view--rail-header "Filter" width)
       (if filters
-          ;; R22-4: the post-filter `N of M shown' count is a BOARD figure
+          ;; The post-filter `N of M shown' count is a BOARD figure
           ;; (`--visible-items' reads item tags); the project filters its
           ;; docs upstream, so skip the narrowing count there (shown=loaded).
           (let ((shown (if (derived-mode-p 'org-air-view-mode)
                            (length (org-air-view--visible-items org-air-view--items))
                          loaded)))
-            ;; R18 D-P2.3: join the chips with the combinator word when
+            ;; Join the chips with the combinator word when
             ;; >=2 are active, then teach the toggle AND the clear key.
             (insert inset
-                    ;; R69-2: the trailing ✕ clear glyph is DROPPED — it
+                    ;; The trailing ✕ clear glyph is DROPPED — it
                     ;; carried no keymap/button action (a promise the rail
                     ;; could not honour); the `M-/ toggles ∙ \ clears' hint
                     ;; line below is the teaching surface and names BOTH
@@ -6603,20 +6580,20 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
                      (concat (format "Match: %s   M-/ toggles %s \\ clears"
                                      (org-air-view--filter-combinator-word)
                                      org-air-chrome-separator)
-                             ;; R22-4: when the lens removed rows, report it.
+                             ;; When the lens removed rows, report it.
                              (when (< shown loaded)
                                (format "   %d of %d shown" shown loaded)))
                      'face 'org-air-face-faded)
                     "\n"))
-        ;; R22-4: empty filter reads `none' — the dataset is the Source's job.
+        ;; Empty filter reads `none' — the dataset is the Source's job.
         (insert inset (propertize "none" 'face 'org-air-face-faded) "\n"))
-      ;; R69-1: one blank line between the Filter and Source sections —
+      ;; One blank line between the Filter and Source sections —
       ;; the SAME inter-section spacer `--insert-rail-1' emits between
       ;; every other rail section pair (Calendar/Filter/Summary/…); the
       ;; foot arithmetic absorbs the extra line (the breathing tail
-      ;; shrinks by one, R26-3 clamp rules unchanged).
+      ;; shrinks by one; the clamp rules are unchanged).
       (insert "\n")
-      ;; R22-4: the SOURCE/DATASET selector, named + counted, on its own
+      ;; The SOURCE/DATASET selector, named + counted, on its own
       ;; labelled line; the dataset name rides the readable origin face so
       ;; it reads as a dataset chip, NOT a faded second filter.
       (org-air-view--rail-header "Source" width)
@@ -6634,7 +6611,7 @@ Names the two roles UNMISTAKABLY (the user kept reading them as the same):
   "Return a rail Actions verb cell: KEY (keycap face) DESC (faded), padded.
 KEY renders in `org-air-face-rail-key' so keys read as keys; DESC stays
 `org-air-face-faded'.  The cell is right-padded to display WIDTH for
-column alignment (D5f); a WIDTH of 0 (the trailing column) is as-is."
+column alignment; a WIDTH of 0 (the trailing column) is as-is."
   (let ((cell (concat (propertize key 'face 'org-air-face-rail-key)
                       " "
                       (propertize desc 'face 'org-air-face-faded))))
@@ -6643,14 +6620,14 @@ column alignment (D5f); a WIDTH of 0 (the trailing column) is as-is."
       cell)))
 
 (defun org-air-view--insert-verb-rows (cells width)
-  "Insert Actions verb CELLS as column-aligned rows fitted to WIDTH (R69-4).
+  "Insert Actions verb CELLS as column-aligned rows fitted to WIDTH.
 CELLS is the flat ordered list of (KEY . DESC) conses in reading order.
 The ONE shared row emitter for every rail Actions block (board, project,
 review, revisit).  It picks the LARGEST column count n in {3, 2, 1} whose
 grid FITS WIDTH: cells chunk in order into rows of n, each column is
 sized to its widest DERIVED cell (`string-width' over \"KEY DESC\" — the
-R50-1 rule: a leader/evil rebind changes the arithmetic, and when needed
-the column COUNT, automatically), and the fit charges the spine inset,
+so a leader or evil rebind changes the arithmetic, and when needed the
+column COUNT, automatically), and the fit charges the spine inset,
 the tier gap (4 columns at WIDTH >= 38, else 1) and EVERY column
 including the unpadded last one (the fit is judged on the widest possible
 row).  When 3 columns fit the output is byte-identical to the historical
@@ -6706,10 +6683,10 @@ fallback cell is 11 cols, safe at every rail tier)."
           (insert (org-air-view--pad-to line width) "\n"))))))
 
 (defun org-air-view--insert-actions (width)
-  "Insert the named D5f Actions block fitted to rail content WIDTH.
+  "Insert the named Actions block fitted to rail content WIDTH.
 Two column-aligned verb rows, inset to the spine, the leading key token in
 the quiet keycap face; the columns do the separating (no dotted prose).
-R20-5: a non-board view supplies its own verb rows via the rail
+A non-board view supplies its own verb rows via the rail
 descriptor's :actions-fn; the board path runs when the descriptor is nil."
   (if-let* ((f (plist-get org-air-view--rail-descriptor :actions-fn)))
       (funcall f width)
@@ -6717,7 +6694,7 @@ descriptor's :actions-fn; the board path runs when the descriptor is nil."
 
 (defun org-air-view--insert-actions-default (width)
   "Insert the BOARD Actions block fitted to rail content WIDTH.
-R50-1: every cell's KEY text is DERIVED from the LIVE binding in the
+Every cell's KEY text is DERIVED from the LIVE binding in the
 BOARD buffer through the one shared seam `org-air-view--legend-key'
 \(`where-is' in the buffer where these keys actually fire — the legend may
 render in the rail side window, whose own map does not carry the board
@@ -6726,11 +6703,11 @@ TRUE sequence `g r' (`g' alone is the B4 prefix map — pressed alone it
 only waits for a second key), and the legend follows
 `org-air-use-default-keybindings' (knob off -> the fallbacks keep the
 legend readable), a user `define-key' rebinding, an `org-air-leader-key'
-move, and evil (the R29-2 overriding map makes `where-is' return the
+move, and evil (the overriding map makes `where-is' return the
 sequences evil actually dispatches).  Column widths are computed from the
 DERIVED cell strings, so the layout follows automatically at every rail
-tier (wide/mid/narrow gap rules unchanged).  R69-4: the rows emit through
-the shared fit-driven `org-air-view--insert-verb-rows' (3→2→1 columns),
+tier (wide/mid/narrow gap rules).  The rows emit through the shared
+fit-driven `org-air-view--insert-verb-rows' (3→2→1 columns),
 so a narrow rail REFLOWS instead of truncating a verb."
   (org-air-view--rail-header
    "Actions" width
@@ -6739,14 +6716,14 @@ so a narrow rail REFLOWS instead of truncating a verb."
   (let* ((board (get-buffer org-air-view-buffer-name))
          (key (lambda (command fallback)
                 (org-air-view--legend-key command board fallback)))
-         ;; Round-9 Q1: when a scope is active the second row's middle verb
+         ;; When a scope is active the second row's middle verb
          ;; surfaces the scope reset (the literal "S reset" cue the design
          ;; and grind ask for) right where the user acts.
          (mid2 (if org-air-view--scope
                    (cons (funcall key #'org-air-scope-clear "S") "reset")
                  (cons (funcall key #'org-air-toggle-section "TAB")
                        "expand")))
-         ;; R22-4: `source' (was `scope') — the dataset selector.
+         ;; `source' (was `scope') — the dataset selector.
          (row1 (list (cons (funcall key #'org-air-capture "c") "capture")
                      (cons (funcall key #'org-air-filter "/") "filter")
                      (cons (funcall key #'org-air-scope "s") "source")))
@@ -6762,19 +6739,19 @@ so a narrow rail REFLOWS instead of truncating a verb."
                                 "tag all")
                           (cons (funcall key #'org-air-clear-marks "M")
                                 "clear marks")))))
-    ;; R69-4: the shared fit-driven emitter (column widths from the
+    ;; The shared fit-driven emitter (column widths from the
     ;; DERIVED cells via `string-width'; 3-col byte-identical when it
     ;; fits, else reflow to 2 then 1 columns — never truncate a verb).
     (org-air-view--insert-verb-rows (append row1 row2 bulk) width)))
 
 ;;;; ---------------------------------------------------------------------
-;;;; D-P7 — item inspector (lower-rail metadata for the line at point)
+;;;; Item inspector — lower-rail metadata for the line at point
 ;;;; ---------------------------------------------------------------------
 
 (defcustom org-air-show-inspector t
-  "When non-nil, show the rail item inspector (D-P7/D-P1).
+  "When non-nil, show the rail item inspector.
 The inspector occupies a FIXED reserved mid-rail region between Summary
-and Filters (D-P1): it shows metadata for the board line at point,
+and Filters: it shows metadata for the board line at point,
 updating (debounced) as point moves.  The region height is fixed per full
 render so Filters/Actions stay pinned to the rail foot and the rail never
 desyncs from the item pane; live updates replace ONLY the rail columns,
@@ -6783,84 +6760,84 @@ preserving the item rows beside the region."
   :group 'org-air)
 
 (defcustom org-air-inspector-key-w 8
-  "Width in columns of the inspector's fixed key column (D-P7)."
+  "Width in columns of the inspector's fixed key column."
   :type 'integer
   :group 'org-air)
 
 (defcustom org-air-inspector-max-title-lines nil
-  "Cap on wrapped title lines in the inspector, or nil = wrap fully (R30-1).
-nil (the DEFAULT, R30-1) wraps the WHOLE title with NO truncation — the
+  "Cap on wrapped title lines in the inspector, or nil = wrap fully.
+nil (the DEFAULT) wraps the WHOLE title with NO truncation — the
 title line never carries a mid-word more glyph; the reserved mid-rail
 region still bounds the total inspector height, so a pathological title
 simply consumes more of the region (the breathing tail shrinks first).
 A positive integer caps the title at that many wrapped lines with a
-trailing more glyph (the back-compat knob; D-P1 default was 4)."
+trailing more glyph."
   :type '(choice (const :tag "wrap fully" nil) integer)
   :group 'org-air)
 
 (defcustom org-air-inspector-debounce 0.1
-  "Idle seconds before the inspector re-renders after point moves (D-P7).
+  "Idle seconds before the inspector re-renders after point moves.
 Coalesces rapid n/p motion so holding a key costs nothing."
   :type 'number
   :group 'org-air)
 
 (defcustom org-air-inspector-empty-hint "Move to an item to inspect."
-  "Inspector hint shown when point is not on an item row (D-P7)."
+  "Inspector hint shown when point is not on an item row."
   :type 'string
   :group 'org-air)
 
 (defvar-local org-air-view--inspector-beg nil
-  "Marker at the start of the inspector foot band, or nil (D-P7).")
+  "Marker at the start of the inspector foot band, or nil.")
 (defvar-local org-air-view--inspector-end nil
-  "Marker just past the inspector foot band, or nil (D-P7).")
+  "Marker just past the inspector foot band, or nil.")
 (defvar-local org-air-view--inspector-item nil
-  "The `org-air-item' currently shown in the inspector, or nil (D-P7).")
+  "The `org-air-item' currently shown in the inspector, or nil.")
 (defvar-local org-air-view--inspector-geom nil
-  "Plist (:item-width :divider :rail-width :region-height) (D-P7/D-P1).
+  "Plist (:item-width :divider :rail-width :region-height).
 :region-height is the FIXED line-count of the reserved mid-rail region;
 live updates pad/truncate the inspector to exactly this many lines and
 replace ONLY the rail columns (>= :item-width + the divider).")
 
 (defvar-local org-air-view--inspector-target-buffer nil
-  "Buffer whose inspector region this buffer's point drives, or nil (R15 D-P2).
+  "Buffer whose inspector region this buffer's point drives, or nil.
 Under `org-air-rail-style' = `side-window' the BOARD buffer sets this to the
 `*org-air-rail*' buffer: the board's point selects the item but the
 inspector region lives + redraws in the rail buffer.  nil means the
 inspector region lives in this same buffer (the inline default).")
 
 (defvar org-air-view--inspector-region-height nil
-  "Reserved mid-rail inspector region height for the current render (D-P1).
+  "Reserved mid-rail inspector region height for the current render.
 Set by `org-air-view--insert-rail' (in the rail temp buffer) and read back
 by `org-air-view--two-pane-body' to stash into `org-air-view--inspector-geom'.")
 (defvar org-air-view--inspector-timer nil
-  "Pending debounce timer for the inspector update (D-P7).")
+  "Pending debounce timer for the inspector update.")
 
-;; R14 D-P1.B: the inspector core is content-agnostic; these buffer-local
+;; The inspector core is content-agnostic; these buffer-local
 ;; hooks let a non-board view (the project tree) host the SAME mid-rail
 ;; inspector.  Their defaults reproduce the board exactly, so the board's
 ;; inspector output is byte-identical after the generalisation.
 (defvar-local org-air-view--inspector-active nil
-  "Non-nil in a buffer that hosts the mid-rail inspector (R14 D-P1.B).
-Replaces the board-only derived-mode-p guard so the project view's
+  "Non-nil in a buffer that hosts the mid-rail inspector.
+A flag rather than a `derived-mode-p' guard, so the project view's
 inspector hook fires in its own mode too.")
 (defvar-local org-air-view--inspector-property 'org-air-item
-  "Text property identifying the thing at point for the inspector (R14 D-P1.B).
+  "Text property identifying the thing at point for the inspector.
 The board uses `org-air-item'; the project view sets `org-air-doc'.")
 (defvar-local org-air-view--inspector-fields-function nil
-  "Function (THING INSET CONTENT-W NOW) -> inspector body lines (R14 D-P1.B).
+  "Function (THING INSET CONTENT-W NOW) -> inspector body lines.
 Returns the lines AFTER the `Inspector' header (the header + empty-hint
 stay in the core).  nil means the board default
 `org-air-view--inspector-item-fields'.")
 (defvar-local org-air-view--inspector-initial-fn nil
-  "Function (THINGS) -> the initial thing to show at render time (R14 D-P1.B).
+  "Function (THINGS) -> the initial thing to show at render time.
 nil means the board default `org-air-view--first-actionable-item'.")
 
 (defun org-air-view--first-actionable-item (items)
   "Return the first of ITEMS the cursor lands on (section order), or nil.
 Mirrors `org-air-view--goto-first-item': the first item of the first
-non-empty section (D-P7)."
+non-empty section."
   (catch 'found
-    ;; R94: Untracked is appended LAST, so this only ever reaches it when
+    ;; Untracked is appended LAST, so this only ever reaches it when
     ;; every fixed section is empty — a board that is nothing but
     ;; untracked work still lands the inspector on a real row.
     (dolist (descriptor (append org-air-view--sections
@@ -6882,7 +6859,7 @@ non-empty section (D-P7)."
     (or (nreverse lines) (list ""))))
 
 (defun org-air-view--inspector-title-lines (title width maxlines)
-  "Return TITLE word-wrapped to WIDTH (R30-1).
+  "Return TITLE word-wrapped to WIDTH.
 MAXLINES nil = NO cap: the full wrapped title, so the title never carries
 a mid-word more glyph.  A positive integer caps at MAXLINES with a
 trailing more glyph (the back-compat knob)."
@@ -6906,7 +6883,7 @@ trailing more glyph (the back-compat knob)."
 
 (defun org-air-view--inspector-relative (time now)
   "Return a relative term for TIME vs NOW: `today' / `in Nd' / `Nd ago'.
-R95: the day count goes through `org-air-view--days-text', so an absurd
+The day count goes through `org-air-view--days-text', so an absurd
 date degrades to `in 10y+' / `10y+ ago' instead of printing a
 seven-figure integer in the rail.  Presentation only — the time itself is
 unchanged and still prints in full on the same line."
@@ -6932,11 +6909,12 @@ appends the deadline mark."
      inset)))
 
 (defun org-air-view--item-created (item)
-  "Return ITEM's CREATED property as an Emacs time, or nil (D-P7).
-R26-8: hydrates a cache-cold (FILE . POS) cons marker slot on demand, so
-the inspector reads the same CREATED for a cache-painted item.  R53: the
+  "Return ITEM's CREATED property as an Emacs time, or nil.
+Hydrates a cache-cold (FILE . POS) cons marker slot on demand, so
+the inspector reads the same CREATED for a cache-painted item.  The
 hydration lives HERE (one file, for the single inspected item — bounded
-and user-driven), not in the per-item classify path, which is data-pure."
+and user-driven), not in the per-item classify path, which is
+data-pure."
   (let* ((m (org-air-item-marker item))
          (src (cond ((and (markerp m) (marker-buffer m))
                      (cons (marker-buffer m) (marker-position m)))
@@ -6958,8 +6936,8 @@ and user-driven), not in the per-item classify path, which is data-pure."
                (org-timestamp-from-string v)))))))))
 
 (defun org-air-view--item-updated (item)
-  "Return ITEM's last activity as (EPOCH . SOURCE), or nil (R74-1).
-Pure and I/O-free — three cached R61 slot reads, no file access, no
+  "Return ITEM's last activity as (EPOCH . SOURCE), or nil.
+Pure and I/O-free — three cached slot reads, no file access, no
 marker hydration.  Candidates: the newest LOGBOOK stamp (`logs' head;
 SOURCE from its KIND — nil -> `note', `done' -> `done', `todo' ->
 `state' — the CLASS the scan cached, never a guessed keyword), the
@@ -6971,13 +6949,13 @@ strictly greater), so an equal-second note outranks a clock-out with
 the more descriptive label.  Cap-invariant: `org-air-log-cap'
 truncation keeps the NEWEST entries, so a `rtrunc' item's heads are
 exactly the untruncated heads.
-R93: the scan's `updated' slot joins as a FOURTH candidate (SOURCE
+The scan's `updated' slot joins as a FOURTH candidate (SOURCE
 `stamp' — a bare inactive `[timestamp]' in the body), last and still
 strictly-greater, so it only ever wins when something genuinely NEWER
 than every classified stamp sits in the entry.  That makes this line the
 honest witness of the Needs-attention clock: `org-air-classify-updated'
 reads the same slot, and the labelled candidates above are all stamps
-that slot already contains.  All four empty -> nil (the Decision 3 file
+that slot already contains.  All four empty -> nil (the file
 fallback takes over in `org-air-view--item-updated-line', where it is
 marked `~file' — the same coarse floor classify uses)."
   (let* ((log (car (org-air-item-logs item)))
@@ -6999,7 +6977,7 @@ marked `~file' — the same coarse floor classify uses)."
     best))
 
 (defun org-air-view--item-updated-line (item inset now)
-  "Return the inspector Updated KV line for ITEM at INSET, or nil (R74).
+  "Return the inspector Updated KV line for ITEM at INSET, or nil.
 Slot path first: `org-air-view--item-updated' (pure, zero I/O) supplies
 the epoch and the class label.  When ALL the slots are empty (no LOGBOOK,
 no closed clock, no `:CREATED:', no body stamp — including items built
@@ -7007,24 +6985,23 @@ outside the scan), a last-modified time labelled \"~file\" takes over
 \(file-level, not heading-precise — one uniform rule, `kind' `file' items
 included).
 
-R94 — THE SCAN'S mtime, NOT A LIVE STAT.  That fallback now reads
+THE SCAN'S mtime, NOT A LIVE STAT.  That fallback reads
 `org-air-classify-updated-floor' (the scan-time `:mtime' in
 `org-air-query-file-meta') and only falls back to ONE bounded
 `file-attributes' call when the item has no entry there at all — an item
-built outside the scan.  Before R94 this line stat'ed the file live while
-classify read the SCAN mtime, so after an on-disk edit with no rescan the
-rail said \"1d ago\" about the same heading the board had bucketed at
-165d.  Decision 13 says the number the inspector shows and the number the
-bucket used cannot drift; it now holds for the file path too, not just
-the slot path.  Both numbers move together on the next rescan, which is
-the only moment either of them learns anything.
+built outside the scan.  Stat'ing the file live here while classify
+reads the SCAN mtime makes the two disagree: after an on-disk edit with
+no rescan the rail says \"1d ago\" about the same heading the board has
+bucketed at 165d.  The number the inspector shows and the number the
+bucket used must not drift — both move together on the next rescan,
+which is the only moment either of them learns anything.
 Always-on and FUTURE-CLAMPED: a fallback mtime AFTER the render clock
 NOW renders NOTHING (clock skew, NFS drift, a restored backup — an
 untrustworthy signal; the clamp is also exactly what keeps the
 frozen-clock goldens byte-clean, their fixture mtimes post-dating the
 frozen NOW).  The SLOT path is NOT clamped — a forged future LOGBOOK
 stamp renders honestly as \"(in Nd · note)\".  A nil, missing or
-unreadable file degrades to nil — no line, no signal (R53).  The stat
+unreadable file degrades to nil — no line, no signal.  The stat
 is reachable only from HERE (the inspector line render): one item, once
 per debounced render, never in the classify/paint loop."
   (let* ((slot (org-air-view--item-updated item))
@@ -7034,7 +7011,7 @@ per debounced render, never in the classify/paint loop."
                   ('clock "clock") ('created "created")
                   ('stamp "stamp"))))
     (unless slot
-      ;; Decision 3 + R94: the SCAN's mtime first (the same hash lookup
+      ;; The SCAN's mtime first (the same hash lookup
       ;; classify makes), then ONE bounded live stat for an item the scan
       ;; never saw.  Marked `~file', future-clamped, either way.
       (let* ((file (org-air-item-file item))
@@ -7061,7 +7038,7 @@ per debounced render, never in the classify/paint loop."
        inset))))
 
 (defun org-air-view--inspector-bucket-name (bucket)
-  "Return a compact display name for classify BUCKET (D-P7)."
+  "Return a compact display name for classify BUCKET."
   (pcase bucket
     ('inbox "Inbox") ('attention "Attention") ('upcoming "Upcoming")
     ('high-priority "High-priority") ('overdue "Overdue")
@@ -7070,17 +7047,17 @@ per debounced render, never in the classify/paint loop."
 
 (defun org-air-view--inspector-bucket-line (item inset now)
   "Return the inspector derived-bucket line for ITEM at INSET, or nil.
-The classification is computed against NOW (D-P7)."
+The classification is computed against NOW."
   (let ((buckets (org-air-view--classify-cached item now)))
     (when buckets
       (let* ((names (mapconcat #'org-air-view--inspector-bucket-name
                                buckets " · "))
-             ;; R93: the attention REASON, spelled out where there is room
+             ;; The attention REASON, spelled out where there is room
              ;; for words — the age it reached and the threshold it
              ;; reached, so the row's terse "12d quiet" is explainable
              ;; without opening the manual.  Reads the SAME two public
              ;; classify helpers the row label uses, so they cannot drift.
-             ;; FIX-3: the threshold-0 arm below is kept (a user may set a
+             ;; The threshold-0 arm below is kept (a user may set a
              ;; 0 threshold deliberately) but no DEFAULT reaches it any
              ;; more, so the line normally reads "quiet 12d / 7d".
              (reason
@@ -7092,7 +7069,7 @@ The classification is computed against NOW (D-P7)."
                     (format "quiet %s / %dd"
                             (if age (org-air-view--days-text age) "?")
                             threshold)))))
-             ;; R94: the Untracked reason in words — what org-air does not
+             ;; The Untracked reason in words — what org-air does not
              ;; have, and the file-level bound it does, marked `~' exactly
              ;; as the row cell marks it.  Same public helper as the row,
              ;; so the two cannot drift.
@@ -7111,8 +7088,8 @@ The classification is computed against NOW (D-P7)."
            "Bucket" (propertize text 'face 'org-air-face-faded) inset))))))
 
 (defun org-air-view--inspector-item-fields (item inset content-w now)
-  "Return the board ITEM's inspector body lines (forward order) (R14 D-P1.B).
-The lines AFTER the `Inspector' header, R30-1 identity block first:
+  "Return the board ITEM's inspector body lines (forward order).
+The lines AFTER the `Inspector' header, identity block first:
 title / state+priority / tags / breathing / origin / dates / repeat /
 bucket.  INSET is the spine prefix,
 CONTENT-W the wrappable width, NOW the frozen render clock.  Extracted from
@@ -7135,11 +7112,11 @@ fields function while the core stays content-agnostic."
                               (when prio
                                 (org-air-view--priority-token prio))))))
       (when parts (push (concat inset (string-join parts "  ")) lines)))
-    ;; R30-1 identity block: tags move UP to sit directly under
+    ;; Identity block: tags sit directly under
     ;; title+state — the row's IDENTITY — ABOVE the breathing blank and
     ;; the metadata KV rows (origin/dates).  tags (all, accent, wrapped).
     (let ((tagstr (mapconcat
-                   ;; R69-5: prefix-deduped chip label; the face keeps
+                   ;; Prefix-deduped chip label; the face keeps
                    ;; hashing the RAW tag name (`#Nix' and `Nix' ARE
                    ;; different tags and may carry different accents).
                    (lambda (tg) (propertize (org-air-view--tag-chip-label tg)
@@ -7148,10 +7125,10 @@ fields function while the core stays content-agnostic."
       (unless (string-empty-p tagstr)
         (dolist (tl (org-air-view--word-wrap tagstr content-w))
           (push (concat inset tl) lines))))
-    ;; R30-1 breathing: a blank line separates the title/state/tags
+    ;; Breathing space: a blank line separates the title/state/tags
     ;; identity block from the metadata KV rows (origin/dates).
     (push "" lines)
-    ;; origin (group/file) -- R17 D-P2: the leaf is the SAME de-slugged
+    ;; origin (group/file): the leaf is the SAME de-slugged
     ;; Denote title the board shows (`org-air-view--origin'), not the raw
     ;; identifier--slug__tags.org, so the board and inspector agree.  Bind
     ;; `org-air-show-group' nil so this resolves the FILE leaf.  The group
@@ -7199,7 +7176,7 @@ fields function while the core stays content-agnostic."
                                              (org-air-view--inspector-relative c now))
                                      'face 'org-air-face-faded))
                             inset))
-                         ;; R74: last activity from the cached R61 slot
+                         ;; Last activity from the cached harvest slot
                          ;; heads (else the bounded ~file fallback),
                          ;; directly AFTER Created — and rendered whether
                          ;; or not Created did (the fallback case is
@@ -7209,10 +7186,10 @@ fields function while the core stays content-agnostic."
                           "Closed" (org-air-item-closed item)
                           'org-air-face-faded inset now))))
         (push ln lines)))
-    ;; D-P2 repeat line (when the effective date carries an Org repeater)
+    ;; repeat line (when the effective date carries an Org repeater)
     (let ((rep (org-air-view--inspector-repeat-line item inset)))
       (when rep (push rep lines)))
-    ;; derived bucket (D-P1 breathing: a blank line before it)
+    ;; derived bucket (with a blank line before it)
     (let ((b (org-air-view--inspector-bucket-line item inset now)))
       (when b (push "" lines) (push b lines)))
     (nreverse lines)))
@@ -7222,9 +7199,9 @@ fields function while the core stays content-agnostic."
 THING nil yields the header + the empty hint.  The body comes from
 `org-air-view--inspector-fields-function' (buffer-local; default the board
 `org-air-view--inspector-item-fields'), so a non-board view supplies its
-own fields while the header/empty-hint/padding stay in the core (R14
-D-P1.B).  Every line is tagged with the `org-air-inspector' text property
-so the region can be re-found (D-P7)."
+own fields while the header/empty-hint/padding stay in the core.
+Every line is tagged with the `org-air-inspector' text property
+so the region can be re-found."
   (let* ((inset (org-air-view--rail-inset-str width))
          (content-w (max 1 (- width (string-width inset))))
          (now (current-time))
@@ -7240,7 +7217,7 @@ so the region can be re-found (D-P7)."
             (cons header body))))
 
 (defun org-air-view--inspector-rail-lines (item width height)
-  "Return exactly HEIGHT rail-cell lines (each WIDTH wide) for ITEM (D-P1).
+  "Return exactly HEIGHT rail-cell lines (each WIDTH wide) for ITEM.
 The inspector content (header + fields) is top-aligned; the remainder is
 padded with blank `org-air-inspector'-tagged rail lines (the blank tail IS
 the breathing the spec asks for); content is truncated to HEIGHT if it
@@ -7254,9 +7231,9 @@ fixed reserved region can be re-found."
       (append content (make-list (- height (length content)) blank)))))
 
 (defun org-air-view--render-inspector-region (item &optional target)
-  "Redraw the inspector region for ITEM in TARGET (default current) (D-P1/R15).
+  "Redraw the inspector region for ITEM in TARGET (default current).
 Two paths, chosen by the target buffer's `org-air-view--inspector-geom':
-- `:style' = `whole-region' (R15 D-P2 `side-window'): the rail buffer has
+- `:style' = `whole-region' (the `side-window' rail): the rail buffer has
   no item columns beside the inspector, so the whole reserved region is
   deleted and the fresh inspector lines (padded/truncated to
   :region-height) are re-inserted.
@@ -7274,7 +7251,7 @@ Two paths, chosen by the target buffer's `org-air-view--inspector-geom':
              (rail-cells (org-air-view--inspector-rail-lines item rw rh))
              (inhibit-read-only t))
         (if (eq (plist-get geom :style) 'whole-region)
-            ;; R15 D-P2: rail buffer — delete the reserved region and
+            ;; Rail buffer — delete the reserved region and
             ;; re-insert the fresh inspector lines (no item columns to
             ;; dodge).  Markers bracket exactly :region-height lines.
             (save-excursion
@@ -7296,7 +7273,7 @@ Two paths, chosen by the target buffer's `org-air-view--inspector-geom':
                          (cur (buffer-substring beg end))
                          ;; preserve the item-row text in the first IW
                          ;; columns, re-pad to IW, then the divider + the
-                         ;; new rail cell.  R38-2: the composed width comes
+                         ;; new rail cell.  The composed width comes
                          ;; from the CACHED geom; if the window narrowed
                          ;; inside the resize debounce that width overhangs
                          ;; the live text area as pure trailing whitespace +
@@ -7316,7 +7293,7 @@ Two paths, chosen by the target buffer's `org-air-view--inspector-geom':
                   (forward-line 1))))))))))
 
 (defun org-air-view--setup-inspector ()
-  "Bracket the fixed reserved inspector region, sync it to point (D-P1).
+  "Bracket the fixed reserved inspector region, sync it to point.
 Uses the first `org-air-inspector'-tagged line as the region start and the
 stashed :region-height as the fixed line-count so the region brackets the
 WHOLE reserved block even after the blank tail's trailing spaces are
@@ -7326,7 +7303,7 @@ trimmed."
         org-air-view--inspector-item nil
         ;; Inline default: the inspector region lives in THIS buffer.  The
         ;; `side-window' path re-points this to the rail buffer afterwards
-        ;; via `org-air-rail--setup-inspector' (R15 D-P2).
+        ;; via `org-air-rail--setup-inspector'.
         org-air-view--inspector-target-buffer nil)
   (when (and org-air-view--inspector-active
              org-air-view--inspector-geom
@@ -7350,7 +7327,7 @@ trimmed."
         (org-air-view--maybe-update-inspector t)))))
 
 (defun org-air-view--maybe-update-inspector (&optional force)
-  "Redraw the inspector when the thing at point changed (or FORCE) (D-P7/D-P1.B).
+  "Redraw the inspector when the thing at point changed, or on FORCE.
 The thing is read via the buffer-local `org-air-view--inspector-property'
 \(board `org-air-item', project `org-air-doc'); the guard is the
 buffer-local `org-air-view--inspector-active' flag so this fires in either
@@ -7372,14 +7349,14 @@ host mode."
           (org-air-view--render-inspector-region thing target))))))
 
 (defun org-air-view--inspector-update-now (buf)
-  "Run the inspector update in BUF (debounce-timer callback) (D-P7)."
+  "Run the inspector update in BUF (debounce-timer callback)."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (org-air-view--maybe-update-inspector))))
 
 (defun org-air-view--inspector-post-command ()
-  "Buffer-local `post-command-hook': schedule a debounced update (D-P7/D-P1.B).
-P0: a hard noninteractive guard — never arm an idle timer under batch.
+  "Buffer-local `post-command-hook': schedule a debounced update.
+A hard noninteractive guard — never arm an idle timer under batch.
 Guarded by the buffer-local `org-air-view--inspector-active' flag so it
 serves both the board and the project view."
   (when (and (not noninteractive)
@@ -7392,7 +7369,7 @@ serves both the board and the project view."
                                (current-buffer)))))
 
 (defun org-air-view--insert-rail (items width)
-  "Insert the context rail for ITEMS at WIDTH (R19-4c reordered sidebar).
+  "Insert the context rail for ITEMS at WIDTH.
 Top→bottom: Calendar, Filter, Summary, Inspector, Actions.  The Filter
 block moves UP (between Calendar and Summary) so the active narrowing is
 seen BEFORE the Summary counts it explains; the Inspector occupies a FIXED
@@ -7403,7 +7380,7 @@ Calendar/Filter/Summary/Actions."
   (let ((org-air-view--line-width width))
     (if-let* ((outline-fn (plist-get org-air-view--rail-descriptor
                                      :outline-fn)))
-        ;; R26-5: the DOC-CONTEXT rail (a project doc session) — the
+        ;; The DOC-CONTEXT rail (a project doc session) — the
         ;; provider inserts the doc meta + outline; only the Actions
         ;; legend follows (same descriptor seam, not a fork).
         (progn
@@ -7414,9 +7391,9 @@ Calendar/Filter/Summary/Actions."
       (org-air-view--insert-rail-1 items width))))
 
 (defun org-air-view--insert-rail-1 (items width)
-  "Insert the five-block context rail for ITEMS at WIDTH (R19-4c body).
+  "Insert the five-block context rail for ITEMS at WIDTH.
 The standard Calendar/Filter/Summary/Inspector/Actions flow, split out of
-`org-air-view--insert-rail' so the R26-5 doc-context descriptor can swap
+`org-air-view--insert-rail' so the doc-context descriptor can swap
 the body without duplicating the foot-pinning arithmetic."
   (progn
     (if-let* ((f (plist-get org-air-view--rail-descriptor :calendar-fn)))
@@ -7426,13 +7403,13 @@ the body without duplicating the foot-pinning arithmetic."
                                      (org-air-view--visible-items items)
                                      width (org-air-view--rail-inset width)))
     (insert "\n")
-    ;; R19-4c: Filter UP, above Summary.
+    ;; Filter UP, above Summary.
     (org-air-view--insert-rail-filters width)
     (insert "\n")
     (org-air-view--insert-summary items width)
     (insert "\n")
     (if org-air-show-inspector
-        ;; R19-4c: Inspector in the fixed reserved middle; ACTIONS alone
+        ;; Inspector in the fixed reserved middle; ACTIONS alone
         ;; pinned to the foot (Filter left the foot).  `insert-rail' is only
         ;; ever called for the two-pane rail, so the orientation is
         ;; implicitly two-pane here (the rail renders in a temp buffer where
@@ -7444,13 +7421,13 @@ the body without duplicating the foot-pinning arithmetic."
                             (lambda ()
                               (org-air-view--insert-actions width))))
                (foot-h (1+ (length foot-lines)))
-               ;; R20-5: a non-board view sizes the rail to its own pane
+               ;; A non-board view sizes the rail to its own pane
                ;; height (the project's doc pane), not the window height.
                (target (or (plist-get org-air-view--rail-descriptor
                                       :rail-target-height)
                            (max 1 (- (org-air-view--render-height)
                                      3 (if org-air-show-footer 2 0)))))
-               ;; R26-3: a height-CLAMPED side-window rail lets the
+               ;; A height-CLAMPED side-window rail lets the
                ;; reserved region shrink to NOTHING (the inspector gives
                ;; way first) so the Actions foot stays on-screen; the
                ;; inline rail keeps its >=1 floor (goldens frozen).
@@ -7468,12 +7445,12 @@ the body without duplicating the foot-pinning arithmetic."
                 (insert "\n")
                 (org-air-view--insert-actions width))
             ;; No room: drop the inspector region AND its separator blank
-            ;; — Actions follows the Summary directly (R26-3 fit rule).
+            ;; — Actions follows the Summary directly.
             (setq org-air-view--inspector-region-height nil)
             (org-air-view--insert-actions width)))
       ;; No inspector: the four-block flow (Filter already emitted above).
       (setq org-air-view--inspector-region-height nil)
-      ;; D5f: optionally pin Actions to the rail foot.
+      ;; Optionally pin Actions to the rail foot.
       (when org-air-rail-anchor-actions
         (let* ((have (count-lines (point-min) (point)))
                (target (max 0 (- (org-air-view--render-height) 3 have 3))))
@@ -7482,7 +7459,7 @@ the body without duplicating the foot-pinning arithmetic."
       (org-air-view--insert-actions width))))
 
 (defun org-air-view--insert-top-rail (items width)
-  "Insert the stacked top-band rail for ITEMS at total WIDTH (D3).
+  "Insert the stacked top-band rail for ITEMS at total WIDTH.
 Three fixed columns (calendar / summary / filters), left-packed with a
 2-col gutter; each labelled rule is exactly its column width so no rule
 balloons to the window edge, and the calendar month-nav never truncates.
@@ -7503,7 +7480,7 @@ vertically, calendar first — always on-screen."
         (let ((cal-lines (org-air-view--render-lines col calendar-fn))
               (sum-lines (org-air-view--render-lines col summary-fn))
               (fil-lines (org-air-view--render-lines col filters-fn)))
-          ;; R19-4c: column order calendar / filter / summary (consistency).
+          ;; Column order calendar / filter / summary (consistency).
           (dolist (line (org-air-view--compose-columns
                          (list (cons cal-lines col)
                                (cons fil-lines col)
@@ -7521,19 +7498,19 @@ vertically, calendar first — always on-screen."
   (format-time-string "%Y-%m-%d" time))
 
 (defun org-air-view--day-groups (items day)
-  "Return ((LABEL . ITEMS)...) grouping ITEMS by relation to DAY (R6).
-R53fix B1: the Logged/created key is the live-marker subtree probe when
+  "Return ((LABEL . ITEMS)...) grouping ITEMS by relation to DAY.
+The Logged/created key is the live-marker subtree probe when
 the item still carries a live marker, else the scan-time `subtree-ts'
 slot — a (FILE . POS) cons item answers data-pure.  NEVER the `activity'
 slot: its mtime fallback would wrongly file every undated heading of a
 today-touched file under Logged/created.
-R59: pure CONTAINER headings are skipped (`org-air-query-container-
+Pure CONTAINER headings are skipped (`org-air-query-container-
 item-p') — the child that actually carries the stamp still files under
 Logged/created; the structural parent no longer duplicates it."
   (let ((key (org-air-view--day-key day))
         (deadline nil) (scheduled nil) (created nil))
     (dolist (item (org-air-view--visible-items items))
-      ;; R59: a pure CONTAINER heading is structure, not an item — it
+      ;; A pure CONTAINER heading is structure, not an item — it
       ;; INHERITS its children's `:CREATED:' stamps through the
       ;; subtree-wide `subtree-ts' probe and would duplicate the child
       ;; under Logged/created.  One uniform filter (Deadline/Scheduled
@@ -7553,10 +7530,10 @@ Logged/created; the structural parent no longer duplicates it."
           (cons "Logged / created" (nreverse created)))))
 
 (defun org-air-view--day-meta-widths (groups width)
-  "Return (TODO-W TAGS-W ORIGIN-W) for the day pane over GROUPS at WIDTH (R79).
+  "Return (TODO-W TAGS-W ORIGIN-W) for the day pane over GROUPS at WIDTH.
 The widest SHOWN keyword / tags / origin across ALL day groups' items —
 the board's `org-air-view--compute-meta-widths' rule applied to the day
-list, minus the date column (R6).  The origin is capped at
+list, minus the date column.  The origin is capped at
 `org-air-origin-max-width' and a title-min fit pass shrinks origin then
 tags toward their floors so the flex title keeps `org-air-title-min-width'
 columns, exactly like the board.  Order-independent (measures the SET),
@@ -7575,7 +7552,7 @@ so it may be called before the per-group sort."
           (when org-air-show-origin
             (setq ow (max ow (string-width
                               (org-air-view--item-origin-raw item))))))))
-    ;; R80: mirror the board keyword-column floor so a short keyword
+    ;; Mirror the board keyword-column floor so a short keyword
     ;; (OUT/OFF) day badge is DRAFT-sized, not a tiny pill.
     (when (and (eq org-air-keyword-style 'badge) (> tw-todo 0))
       (setq tw-todo (max tw-todo org-air-keyword-badge-min-cols)))
@@ -7600,23 +7577,23 @@ so it may be called before the per-group sort."
     (list tw-todo tw ow)))
 
 (defun org-air-view--insert-day-pane (items width)
-  "Insert the single-day focus view (R6) of ITEMS, fitted to WIDTH.
+  "Insert the single-day focus view of ITEMS, fitted to WIDTH.
 The day is `org-air-view--day'; its items are grouped Deadline >
-Scheduled > Logged/created and rendered with the R10 item line minus its
+Scheduled > Logged/created and rendered with the item line minus its
 now-redundant date.
-R79: the meta-badge/tags/origin COLUMNS are sized to the widest SHOWN
+The meta-badge/tags/origin COLUMNS are sized to the widest SHOWN
 value across the whole day (`org-air-view--day-meta-widths', the board
 rule) so mixed-width keywords like COMP/DROPPED align their titles / dots
 \/ tags / origin like board rows; and each group's items are ordered by
 the shared sort core (`org-air-view--sort-day-items') so `o'/`O' act."
   (let* ((org-air-view--line-width width)
-         ;; Day view omits the date column (R6).
+         ;; Day view omits the date column.
          (org-air-view--meta-date-w nil)
          (day org-air-view--day)
          (groups (org-air-view--day-groups items day))
-         ;; R79 D2: fix the badge/tags/origin columns to the day's widest
-         ;; SHOWN value so titles align across mixed-width keywords — drop
-         ;; the stale R15 single-row nil assumption (49 rows is not one).
+         ;; Fix the badge/tags/origin columns to the day's widest SHOWN
+         ;; value so titles align across mixed-width keywords.  The day
+         ;; view is NOT a single-row pane: 49 rows is not one.
          (dw (org-air-view--day-meta-widths groups width))
          (org-air-view--meta-todo-w (nth 0 dw))
          (org-air-view--meta-tags-w (nth 1 dw))
@@ -7636,7 +7613,7 @@ the shared sort core (`org-air-view--sort-day-items') so `o'/`O' act."
       (when (cdr g)
         (insert (org-air-view--margin)
                 (propertize (car g) 'face 'org-air-face-section) "\n")
-        ;; R79 D4: order each group through the shared sort core before the
+        ;; Order each group through the shared sort core before the
         ;; row loop (never reorder the Deadline > Scheduled > Logged order).
         (dolist (item (org-air-view--sort-day-items (car g) (cdr g)))
           (org-air-view--insert-item item 'upcoming t))
@@ -7672,7 +7649,7 @@ the shared sort core (`org-air-view--sort-day-items') so `o'/`O' act."
   (let* ((margin (org-air-view--margin))
          (margin-w (length margin)))
     (mapcar (lambda (line)
-              ;; R99: the pane line's width is already known (the pane temp
+              ;; The pane line's width is already known (the pane temp
               ;; buffer seeded it), the trim only drops single-column
               ;; whitespace and MARGIN is pure spaces, so the indented
               ;; line's width is arithmetic all the way down.
@@ -7704,7 +7681,7 @@ the shared sort core (`org-air-view--sort-day-items') so `o'/`O' act."
 
 (defun org-air-view--normalize-buffer-lines (width)
   "Normalize every buffer line to display WIDTH.
-R99: the line's display width is read from the BUFFER (`current-column' at
+The line's display width is read from the BUFFER (`current-column' at
 end-of-line: ~0.7us, 2 conses) instead of measured with `string-width' on
 a propertized copy (~15us, ~480 conses in a frame), and a line that is
 ALREADY exactly WIDTH is left alone rather than deleted and re-inserted
@@ -7752,7 +7729,7 @@ divider), so those orientations keep the plain trim path."
   "Return the STRING index of the faced pane-divider vrule at display COL in LINE.
 Mirrors `org-air-view--pane-divider-line-p' but returns the index of the
 `org-air-face-pane-border'-faced vrule glyph (nil when absent), so the
-divider can be pinned relative to it (R44-2, Fix A)."
+divider can be pinned relative to it."
   (and col
        (let ((glyph (string-to-char (org-air-view--glyph 'vrule)))
              (i 0) (w 0) (len (length line)) (found nil))
@@ -7769,7 +7746,7 @@ divider can be pinned relative to it (R44-2, Fix A)."
          found)))
 
 (defun org-air-view--pin-pane-divider (line col)
-  "Pin the pane divider at display COL to an exact pixel-stop (R44-2 Fix A).
+  "Pin the pane divider at display COL to an exact pixel-stop.
 Attaches `display (space :align-to (COL . width))' to the SINGLE leading
 space immediately BEFORE the faced vrule so the `│' glyph lands at the
 same font-relative pixel-X on every board row — straightening the rule even
@@ -7792,26 +7769,26 @@ otherwise or when the leading divider space is not found."
         line))))
 
 (defun org-air-view--finalize-buffer-lines (width &optional divider-col)
-  "Cap each line at WIDTH and strip trailing whitespace (D7/D6, live mode).
+  "Cap each line at WIDTH and strip trailing whitespace (live mode).
 No line may exceed the window actually displaying the dashboard so the
-rail/calendar are never pushed off-screen (D7); full-width and stacked
-rows carry no trailing whitespace (D6).
+rail/calendar are never pushed off-screen; full-width and stacked
+rows carry no trailing whitespace.
 
-R43-2: when DIVIDER-COL is non-nil (two-pane) any line carrying the pane
+When DIVIDER-COL is non-nil (two-pane) any line carrying the pane
 divider at that column is PADDED to WIDTH instead of trimmed, so the
 blank rail tail is preserved and the divider stays an INTERIOR cell on
 every board row — byte-identical to the normalize/golden shape.  Trimming
 that tail would demote the divider to the row's TERMINAL glyph and break
 the rule into segments on every blank-rail row (board ≫ rail).  Header
-banner, header rule and footer carry no divider, so they keep the R36-1 /
-R37 no-trailing-pad contract; board-only / stacked / side-window pass
+banner, header rule and footer carry no divider, so they keep the
+no-trailing-pad contract; board-only / stacked / side-window pass
 DIVIDER-COL nil and are untouched."
   (save-excursion
     (goto-char (point-min))
     (while (not (eobp))
       (let* ((beg (line-beginning-position))
              (end (line-end-position))
-             ;; R99: take the display width from the BUFFER and seed the
+             ;; Take the display width from the BUFFER and seed the
              ;; identity memo, so the cap test below is a hash read rather
              ;; than a ~480-cons `string-width' per row in a frame.
              (cols (progn (goto-char end) (current-column)))
@@ -7823,14 +7800,14 @@ DIVIDER-COL nil and are untouched."
                                                    (org-air-view--glyph 'more))
                        line))
              (result (if (org-air-view--pane-divider-line-p capped divider-col)
-                         ;; R44-2 Fix A: pad the blank rail tail (R43-2
-                         ;; interior divider) THEN pin the divider column to
+                         ;; Pad the blank rail tail (the interior
+                         ;; divider) THEN pin the divider column to
                          ;; an exact pixel-stop with `:align-to' so it lands
                          ;; at ONE pixel-X on every board row.
                          (org-air-view--pin-pane-divider
                           (org-air-view--pad-to capped width) divider-col)
                        (string-trim-right capped))))
-        ;; R44-2: compare INCLUDING text properties so a divider row whose
+        ;; Compare INCLUDING text properties so a divider row whose
         ;; chars are already full width but now carries the `:align-to' pin
         ;; is still rewritten (a plain `string='/`equal' ignores the added
         ;; display property and would drop the pin).
@@ -7840,7 +7817,7 @@ DIVIDER-COL nil and are untouched."
       (forward-line 1))))
 
 (defun org-air-view--collapse-blank-lines ()
-  "Collapse two or more consecutive blank lines to a single blank line (D6).
+  "Collapse two or more consecutive blank lines to a single blank line.
 Keep exactly one blank line of rhythm between sections and rail blocks."
   (save-excursion
     (goto-char (point-min))
@@ -7849,14 +7826,14 @@ Keep exactly one blank line of rhythm between sections and rail blocks."
       (goto-char (match-beginning 0)))))
 
 (defun org-air-view--beginning-of-visible ()
-  "Move point to the first visible (non-whitespace) char of the line (S5a).
+  "Move point to the first visible (non-whitespace) char of the line.
 An unfocused frame draws a hollow-box cursor; on leading indent
 whitespace it reads as tofu, so park point on the first real glyph."
   (beginning-of-line)
   (skip-chars-forward " \t" (line-end-position)))
 
 (defun org-air-view--row-title-pos ()
-  "Return the position of the TITLE start on the current row (R21-2).
+  "Return the position of the TITLE start on the current row.
 Finds the `org-air-row-title' mark `org-air-view--insert-row' put on the
 title's first glyph; falls back to the row's first visible glyph (section
 headings / rows with no title), so headings keep their current landing."
@@ -7869,14 +7846,14 @@ headings / rows with no title), so headings keep their current landing."
         (progn (org-air-view--beginning-of-visible) (point))))))
 
 (defun org-air-view--goto-row-title ()
-  "Move point to the TITLE column of the current row (R21-2).
+  "Move point to the TITLE column of the current row.
 Lands on the title (the row's identity) rather than the leading keyword /
 priority cell on motion and open; falls back to first-visible for rows
 with no title mark (section headings, the empty board)."
   (goto-char (org-air-view--row-title-pos)))
 
 (defun org-air-view--goto-first-item ()
-  "Place point on the first actionable item row (D4 / S5a).
+  "Place point on the first actionable item row.
 Lands on the first `org-air-item' (first non-empty section), then the
 first section heading, then `point-min' for a truly empty board — so
 n/p, RET and r work on the first keystroke instead of the banner — and on
@@ -7884,11 +7861,11 @@ the first VISIBLE character of that row, never the indent whitespace."
   (goto-char (or (text-property-not-all (point-min) (point-max) 'org-air-item nil)
                  (text-property-not-all (point-min) (point-max) 'org-air-section nil)
                  (point-min)))
-  ;; R21-2: open lands on the first item's TITLE, not its keyword/priority.
+  ;; Open lands on the first item's TITLE, not its keyword/priority.
   (org-air-view--goto-row-title))
 
 (defun org-air-view--row-property (prop)
-  "Return PROP found ANYWHERE on the current row (line), or nil (R22-2).
+  "Return PROP found ANYWHERE on the current row (line), or nil.
 A row's `org-air-item'/`org-air-doc'/`org-air-marker' covers only the board
 content between the leading margin and the rail; the margin, the rail columns
 and the trailing pad carry no row property, so a point-ONLY lookup fails there.
@@ -7901,24 +7878,24 @@ Scan the whole line so an action resolves the row regardless of point's column."
               (and pos (get-text-property pos prop)))))))
 
 (defvar-local org-air-view--pre-command-line nil
-  "Line number recorded by `org-air-view--pre-command-snapshot' (R29-2).
-The R29-2 line-motion snap gate: `org-air-view--normalize-point' snaps
+  "Line number recorded by `org-air-view--pre-command-snapshot'.
+The line-motion snap gate: `org-air-view--normalize-point' snaps
 only when the command moved point to a DIFFERENT line than this snapshot
 \(or when no snapshot exists — the command ENTERED this buffer).  Consumed
 \(cleared) every post-command.")
 
 (defun org-air-view--pre-command-snapshot ()
-  "Record the pre-command line for the R29-2 line-motion snap gate.
+  "Record the pre-command line for the line-motion snap gate.
 Buffer-local `pre-command-hook' in the board and project views."
   (setq org-air-view--pre-command-line (line-number-at-pos)))
 
 (defun org-air-view--row-pane-limit (bol eol)
-  "Return the exclusive END of the current row's BOARD segment (R46-2).
+  "Return the exclusive END of the current row's BOARD segment.
 On a two-pane line (`org-air-view--pane-divider-col' set) the board
 segment ends at the `org-air-face-pane-border'-faced vrule glyph the
 composer put on the line; every other orientation (board-only, stacked,
 side-window) — and any line not carrying the faced vrule (banner, rule,
-footer) — uses EOL.  BOL/EOL bound the scan.  Keeps the R46-2 title band
+footer) — uses EOL.  BOL/EOL bound the scan.  Keeps the title band
 on the BOARD side of the divider, so a two-pane fill row (blank board,
 live rail) reads as genuinely blank."
   (or (and org-air-view--pane-divider-col
@@ -7933,17 +7910,17 @@ live rail) reads as genuinely blank."
       eol))
 
 (defun org-air-view--row-band ()
-  "Return the current row's TITLE BAND as (START . END), or nil (R46-2).
+  "Return the current row's TITLE BAND as (START . END), or nil.
 START/END are buffer positions on the current line; point anywhere in
 [START..END] is a legitimate landing for a line-crossing motion.
-Supersedes the R29-2 `dead-zone' predicate, which fired only on item/doc
+Supersedes the `dead-zone' predicate, which fired only on item/doc
 rows and guarded only the LEFT edge — so every non-item row (section
 headers, the `…and N more' / empty-section notes, banner) and the RIGHT
 edge of item rows were unguarded and vertical motion dropped point to
-column 0 or EOL (the R46 cursor jump).
+column 0 or EOL (the cursor jump).
 
 - Item / doc rows (`org-air-item'/`org-air-doc' anywhere on the line,
-  via `org-air-view--row-property'): START is the R21-2 title
+  via `org-air-view--row-property'): START is the title
   (`org-air-view--row-title-pos'); END is the row's LAST visible
   (non-space) glyph within the row's own property run — the board
   content, before the trailing pad / two-pane rail.
@@ -7961,7 +7938,7 @@ column 0 or EOL (the R46 cursor jump).
         (let* ((start (org-air-view--row-title-pos))
                ;; End of the row's own item/doc property run: the trailing
                ;; pad may still carry the property (it covers the whole
-               ;; board run), but the rail columns never do (R22-2).
+               ;; board run), but the rail columns never do.
                (run-end (let ((pos eol))
                           (while (and (> pos bol)
                                       (not (get-text-property
@@ -7985,17 +7962,17 @@ column 0 or EOL (the R46 cursor jump).
           (cons first first))))))
 
 (defun org-air-view--normalize-point-now ()
-  "Clamp point into the current row's TITLE BAND (R46-2).
+  "Clamp point into the current row's TITLE BAND.
 The gate-free clamp: entry/restore tails call this DIRECTLY after placing
-point (the R21-1 restore tail, the pane return, the doc-session return)
+point (the restore tail, the pane return, the doc-session return)
 so a stray column is corrected immediately, not on the next keystroke.
 Universal (EVERY board row) and two-edged: a col-0/gutter landing snaps
-forward to the band start (subsuming the R21-2/R29-2 title snap — the
-band start IS the title), a trailing-pad/EOL landing snaps BACK to the
+forward to the band start (the band start IS the title — the
+title snap is subsumed), a trailing-pad/EOL landing snaps BACK to the
 band end, and a point already INSIDE the band is KEPT, so the goal
 column of `next-line'/`evil-next-line' is respected.  Blank rows have no
 band and are never touched (col 0 is their only legitimate landing).
-Idempotent on/inside the band, so it composes with R21-1's restored
+Idempotent on and inside the band, so it composes with the restored
 column."
   (when (and (not (window-minibuffer-p))
              (memq major-mode '(org-air-view-mode org-air-project-mode)))
@@ -8006,7 +7983,7 @@ column."
 
 (defun org-air-view--normalize-point ()
   "Clamp point into the row's title band after a LINE-crossing command.
-Runs in `post-command-hook' (R29-2 gate, R46-2 clamp).  Command-agnostic
+Runs in `post-command-hook'.  Command-agnostic
 by construction (there is no command whitelist): the buffer-local
 snapshot recorded by
 `org-air-view--pre-command-snapshot' gates the clamp on LINE MOTION — it
@@ -8025,7 +8002,7 @@ The snapshot is consumed every post-command."
       (org-air-view--normalize-point-now))))
 
 (defun org-air-view--collapse-line-list (lines)
-  "Collapse two or more consecutive blank LINES to a single blank line (D6)."
+  "Collapse two or more consecutive blank LINES to a single blank line."
   (let (out (prev-blank nil))
     (dolist (l lines (nreverse out))
       (let ((blank (and (string-match-p "\\`[ \t]*\\'" l) t)))
@@ -8034,13 +8011,13 @@ The snapshot is consumed every post-command."
         (setq prev-blank blank)))))
 
 (defun org-air-view--pad-line-list (lines target fill-row)
-  "Return LINES extended to TARGET rows by appending FILL-ROW (S6)."
+  "Return LINES extended to TARGET rows by appending FILL-ROW."
   (if (>= (length lines) target)
       lines
     (append lines (make-list (- target (length lines)) fill-row))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Side-window rail (R15 D-P2 `side-window' rail-style)
+;;;; Side-window rail (the `side-window' rail style)
 ;;;;
 ;;;; With `org-air-rail-style' = `side-window' the rail renders into a
 ;;;; dedicated `*org-air-rail*' buffer shown in a right side window; the
@@ -8053,19 +8030,19 @@ The snapshot is consumed every post-command."
 ;;;; ---------------------------------------------------------------------
 
 (defconst org-air-rail-buffer-name "*org-air-rail*"
-  "Name of the `side-window' rail buffer (R15 D-P2).")
+  "Name of the `side-window' rail buffer.")
 
 (defvar-local org-air-view--rail-buffer nil
-  "The live `*org-air-rail*' buffer for this board buffer, or nil (R15 D-P2).")
+  "The live `*org-air-rail*' buffer for this board buffer, or nil.")
 (defvar-local org-air-rail--board-buffer nil
   "Back-pointer to the `*org-air*' board buffer, set in the rail buffer.
 The rail reads the board's items/scope/filter/cal-month through this
-pointer (R15 D-P2).")
+pointer.")
 (defvar-local org-air-rail--window nil
-  "Cached side window showing the rail buffer, validated before use (R15 D-P2).")
+  "Cached side window showing the rail buffer, validated before use.")
 
 ;;;; =====================================================================
-;;;; R30-4 — org-air-outline-mode: a generic, opt-in outline rail for ANY
+;;;; org-air-outline-mode: a generic, opt-in outline rail for ANY
 ;;;; org buffer, reusing the SAME rail descriptor seam + current-heading
 ;;;; highlight the doc session uses, with NO org-air-project dependency.
 ;;;; The two primitives below are the extracted generic core (the project
@@ -8073,7 +8050,7 @@ pointer (R15 D-P2).")
 ;;;; =====================================================================
 
 (defun org-air-outline--headings (buffer)
-  "Return BUFFER's Org outline as a list of (LEVEL TITLE POS) (R30-4).
+  "Return BUFFER's Org outline as a list of (LEVEL TITLE POS).
 A pure `^\\*+[ \\t]+' heading scan — no Air struct, no project, no airctl.
 Relocated from `org-air-project--doc-outline' (which keeps a thin alias)."
   (with-current-buffer buffer
@@ -8090,20 +8067,20 @@ Relocated from `org-air-project--doc-outline' (which keeps a thin alias)."
           (nreverse rows))))))
 
 (defvar org-air-rail--outline-overlay nil
-  "The ONE current-heading overlay in the rail outline (R28-4/R30-4).
+  "The ONE current-heading overlay in the rail outline.
 Overlay-only: overlays are not buffer text, so the rail byte goldens
 \(`buffer-substring' reads) never move.  Deleted (no highlight) on any
 error — graceful degrade, never flicker.  Shared by the doc session and
 the generic `org-air-outline-mode' (only one rail exists at a time).")
 
 (defun org-air-rail--outline-highlight-clear ()
-  "Delete the rail-outline overlay (the no-highlight degrade) (R28-4)."
+  "Delete the rail-outline overlay (the no-highlight degrade)."
   (when (overlayp org-air-rail--outline-overlay)
     (delete-overlay org-air-rail--outline-overlay)))
 
 (defun org-air-outline--highlight-update (source-buf rail-buf)
   "Move the single current-heading overlay in RAIL-BUF for point in SOURCE-BUF.
-The generic R28-4 core (Air-free): the current heading is the LAST rail
+The generic, Air-free core: the current heading is the LAST rail
 outline row whose `org-air-doc-heading-pos' is <= point in SOURCE-BUF (a
 linear scan over the rail's few rows — no Org re-parse).  Paints by
 `move-overlay' of the single overlay — NO re-render, NO buffer text
@@ -8139,7 +8116,7 @@ change.  Wrapped in `condition-case': on ANY error the overlay is deleted
     (error (org-air-rail--outline-highlight-clear))))
 
 (defcustom org-air-outline-rail-placement nil
-  "Where `org-air-outline-mode' hosts its outline rail (R30-4/R49-2).
+  "Where `org-air-outline-mode' hosts its outline rail.
 OUTLINE override for `org-air-rail-placement': nil (the default) inherits
 the shared knob; `side-window' pops the rail into a native side window
 regardless of it.  Resolved through `org-air-rail--placement'."
@@ -8149,7 +8126,7 @@ regardless of it.  Resolved through `org-air-rail--placement'."
   :group 'org-air)
 
 (defun org-air-outline--buffer-title (buffer)
-  "Return BUFFER's `#+title:' value, or its buffer name (R30-4)."
+  "Return BUFFER's `#+title:' value, or its buffer name."
   (with-current-buffer buffer
     (or (save-excursion
           (save-restriction
@@ -8161,7 +8138,7 @@ regardless of it.  Resolved through `org-air-rail--placement'."
         (buffer-name buffer))))
 
 (defun org-air-outline--insert-context (source-buf width)
-  "Insert the generic outline rail body for SOURCE-BUF at WIDTH (R30-4).
+  "Insert the generic outline rail body for SOURCE-BUF at WIDTH.
 The buffer `#+title:' (or name) as the meta line — NO state badge — then
 the Outline: one row per heading, indented by level, each carrying
 `org-air-doc-heading-pos' so RET in the rail jumps the main window there."
@@ -8190,8 +8167,8 @@ the Outline: one row per heading, indented by level, each carrying
                   "\n"))))))
 
 (defun org-air-outline--insert-actions (width _source-buf)
-  "Insert the generic outline rail Actions legend at WIDTH (R30-4).
-The reachable rail keys, derived (R30-2 `org-air-view--legend-key') from
+  "Insert the generic outline rail Actions legend at WIDTH.
+The reachable rail keys, derived (`org-air-view--legend-key') from
 the rail buffer where the legend lives: `RET jump' and `| rail'."
   (org-air-view--rail-header "Actions" width)
   (let* ((inset (org-air-view--rail-inset-str width))
@@ -8218,7 +8195,7 @@ the rail buffer where the legend lives: `RET jump' and `| rail'."
       (insert (org-air-view--pad-to line width) "\n"))))
 
 (defun org-air-outline--rail-descriptor (source-buf)
-  "Return the generic outline rail descriptor for SOURCE-BUF (R30-4).
+  "Return the generic outline rail descriptor for SOURCE-BUF.
 The SAME `:outline-fn' + `:actions-fn' seam the doc session uses — one
 renderer, parameterised, never forked."
   (list :outline-fn (lambda (w)
@@ -8227,8 +8204,8 @@ renderer, parameterised, never forked."
                       (org-air-outline--insert-actions w source-buf))))
 
 (defun org-air-outline--rail-show (buffer)
-  "Show/re-render the outline side rail owned by BUFFER (R30-4).
-Measures the window's USABLE columns (R29-1) so a fringe-less GUI never
+  "Show/re-render the outline side rail owned by BUFFER.
+Measures the window's USABLE columns so a fringe-less GUI never
 composes past the displayable area."
   (let ((win (get-buffer-window buffer)))
     (org-air-rail--show buffer (if (window-live-p win)
@@ -8241,16 +8218,16 @@ composes past the displayable area."
 (defvar org-air-outline-mode nil)
 
 (defvar org-air-outline--timer nil
-  "Single debounce slot for the `org-air-outline-mode' highlight tick (R30-4).")
+  "Single debounce slot for the `org-air-outline-mode' highlight tick.")
 
 (defun org-air-outline--highlight-tick (buffer)
-  "Timer body: re-place the outline highlight for BUFFER (R30-4)."
+  "Timer body: re-place the outline highlight for BUFFER."
   (setq org-air-outline--timer nil)
   (org-air-outline--highlight-update buffer
                                      (get-buffer org-air-rail-buffer-name)))
 
 (defun org-air-outline--post-command ()
-  "Buffer-local hook: schedule the DEBOUNCED outline highlight (R30-4).
+  "Buffer-local hook: schedule the DEBOUNCED outline highlight.
 Interactive-only; ONE idle timer slot, rescheduled — never stacked."
   (when (and (not noninteractive) org-air-outline-mode)
     (when (timerp org-air-outline--timer)
@@ -8261,7 +8238,7 @@ Interactive-only; ONE idle timer slot, rescheduled — never stacked."
                                (current-buffer)))))
 
 (defun org-air-outline--teardown (buffer)
-  "Tear down BUFFER's outline rail: timer, overlay, and the rail (R30-4)."
+  "Tear down BUFFER's outline rail: timer, overlay, and the rail."
   (when (timerp org-air-outline--timer)
     (cancel-timer org-air-outline--timer))
   (setq org-air-outline--timer nil)
@@ -8274,15 +8251,15 @@ Interactive-only; ONE idle timer slot, rescheduled — never stacked."
 
 ;;;###autoload
 (define-minor-mode org-air-outline-mode
-  "Opt-in outline rail for ANY Org buffer (R30-4).
+  "Opt-in outline rail for ANY Org buffer.
 Enabling in an `org-mode' buffer pops the org-air context rail showing
 this buffer's headings (via the SAME rail descriptor seam the doc session
-uses) and follows point with the R28-4 current-heading highlight.  NO
+uses) and follows point with the current-heading highlight.  NO
 dependency on `org-air-project' / org-ql / airctl — a light, generic
 scaffold.  Off by default; a no-op outside `org-mode'."
   :lighter " ◦outline"
   :group 'org-air
-  ;; R35-1: reconcile the shared rail map to the knob before the rail is
+  ;; Reconcile the shared rail map to the knob before the rail is
   ;; shown (honours use-package `:custom' / a runtime `setq').
   (org-air--sync-default-keybindings)
   (if org-air-outline-mode
@@ -8291,7 +8268,7 @@ scaffold.  Off by default; a no-op outside `org-mode'."
           (setq org-air-outline-mode nil)
         (setq-local org-air-view--rail-descriptor
                     (org-air-outline--rail-descriptor (current-buffer)))
-        ;; R49-2: the outline placement resolves through the SAME shared
+        ;; The outline placement resolves through the SAME shared
         ;; resolver as the board/project (override slot:
         ;; `org-air-outline-rail-placement', nil = inherit).
         (setq-local org-air-view--rail-popped-out
@@ -8310,13 +8287,13 @@ scaffold.  Off by default; a no-op outside `org-mode'."
   (let ((map (make-sparse-keymap)))
     ;; PARENT stays at defvar time — always, even with the knob nil, so a
     ;; key-less rail (outline mode / defaults off) still quits/scrolls via
-    ;; `special-mode' (R35-1).
+    ;; `special-mode'.
     (set-keymap-parent map special-mode-map)
     map)
-  "Keymap for `org-air-rail-mode' (R16 D-P1 / R26-5).
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+  "Keymap for `org-air-rail-mode'.
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the rail default keys (installer-owned).  R16 D-P1: `q' pops the
+;; The rail default keys (installer-owned).  `q' pops the
 ;; rail back inline (or, in a DOC session, returns to the tree); RET jumps
 ;; the main window to the outline heading at point; `|' pops the rail in.
 (org-air--register-default-keys 'org-air-rail-mode-map
@@ -8326,9 +8303,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 (defun org-air-rail-quit ()
   "Quit the rail: back to the tree in a DOC session, else pop inline.
-R26-5: when the rail's owner is a doc-session file buffer, `q' is the
+When the rail's owner is a doc-session file buffer, `q' is the
 session's back verb (the read-only side window is where a plain `q' is
-legal — the doc FILE buffer stays editable); otherwise the R16 cooperative
+legal — the doc FILE buffer stays editable); otherwise the cooperative
 pop-in."
   (interactive nil org-air-rail-mode)
   (org-air-view--require-rail)
@@ -8342,7 +8319,7 @@ pop-in."
 
 (defun org-air-rail-return ()
   "RET inside the rail: jump the MAIN window to the outline row's heading.
-R26-5: doc-context outline rows carry `org-air-doc-heading-pos'; RET moves
+Doc-context outline rows carry `org-air-doc-heading-pos'; RET moves
 the session doc's window there and selects it.  A no-op elsewhere."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode org-air-rail-mode
@@ -8357,12 +8334,12 @@ the session doc's window there and selects it.  A no-op elsewhere."
           (select-window win))))))
 
 (define-derived-mode org-air-rail-mode special-mode "org-air-rail"
-  "Major mode for the popped-out org-air context rail (R16 D-P1).
+  "Major mode for the popped-out org-air context rail.
 A read-only buffer the user owns: it is `other-window'-reachable for
 reading/scrolling, and `q' pops the rail back inline on the board."
   (setq-local truncate-lines t)
   (setq-local header-line-format nil)
-  ;; R19-4a: the calm, faded nano-style mode-line in the rail too (mirrors
+  ;; The calm, faded nano-style mode-line in the rail too (mirrors
   ;; the board + pane).  `org-air-view--install-modeline' uses `setq-local',
   ;; so this is BUFFER-LOCAL to `*org-air-rail*' — it cannot bleed to other
   ;; side windows; the (separate) window-divider concern is untouched.
@@ -8372,19 +8349,19 @@ reading/scrolling, and `q' pops the rail back inline on the board."
   (setq-local line-spacing org-air-line-spacing)
   (setq-local cursor-type nil)
   (setq-local buffer-read-only t)
-  ;; R58: the rail is a dependent buffer — its bookmark record DELEGATES
+  ;; The rail is a dependent buffer — its bookmark record DELEGATES
   ;; to the host view (board/project/revisit) so an activities.el layout
   ;; holding the rail restores it beside its host, order-independently.
   (setq-local bookmark-make-record-function
               #'org-air-rail--bookmark-make-record)
-  ;; R27-4: the board's evil parity for the rail too — under evil, `q'/`RET'
+  ;; The board's evil parity for the rail too — under evil, `q'/`RET'
   ;; /`|' were shadowed (evil-record-macro / evil-ret / evil-goto-column).
-  ;; R35-1: gated on the knob (skipped with the defaults off).
+  ;; Gated on the knob (skipped with the defaults off).
   (when org-air-use-default-keybindings
     (org-air-view--setup-evil 'org-air-rail-mode org-air-rail-mode-map)))
 
 (defun org-air-rail--get-buffer ()
-  "Get or create the `*org-air-rail*' buffer in `org-air-rail-mode' (R15 D-P2)."
+  "Get or create the `*org-air-rail*' buffer in `org-air-rail-mode'."
   (let ((buf (get-buffer-create org-air-rail-buffer-name)))
     (with-current-buffer buf
       (unless (derived-mode-p 'org-air-rail-mode)
@@ -8392,10 +8369,10 @@ reading/scrolling, and `q' pops the rail back inline on the board."
     buf))
 
 (defun org-air-rail--undisplayed-host-p (buffer)
-  "Non-nil when host BUFFER renders windowless in an interactive session (R58).
+  "Non-nil when host BUFFER renders windowless in an interactive session.
 A bookmark/activities restore rebuilds views UNDISPLAYED — the restorer
 owns the window layout, so a render for a host no window shows must not
-create, resize or sweep side windows (the R9/C1 resize-refresh re-fits —
+create, resize or sweep side windows (the resize-refresh re-fits —
 and the rail lifecycle re-runs — the moment the restorer displays it).
 Inert in batch: `noninteractive' keeps every golden's rail lifecycle
 exactly as before."
@@ -8403,7 +8380,7 @@ exactly as before."
        (not (get-buffer-window buffer t))))
 
 (defun org-air-rail--window-cols (&optional total-width)
-  "Return the rail side-window column width (R15 D-P2 / R27-1 S1).
+  "Return the rail side-window column width.
 `org-air-rail-window-width' wins when set; else derive from the rail
 width tier (`org-air-view--rail-width') fed the FRAME's total column
 width — an input the rail's own existence cannot change — so every call
@@ -8420,7 +8397,7 @@ measures the selected frame."
 (defun org-air-rail--window-params (cols)
   "Return the `display-buffer-in-side-window' alist for a rail of COLS wide.
 The side window sits on `org-air-rail-side' and is not deleted by
-`delete-other-windows'.  R16 D-P1: NO `no-other-window' — the rail is the
+`delete-other-windows'.  Deliberately NO `no-other-window' — the rail is the
 user's own window and stays `other-window'-reachable."
   `((side . ,org-air-rail-side)
     (slot . 0)
@@ -8428,7 +8405,7 @@ user's own window and stays `other-window'-reachable."
     (window-parameters . ((no-delete-other-windows . t)))))
 
 (defun org-air-rail--setup-divider ()
-  "Enable `window-divider-mode' with the org-air right divider on GUI (R15 D-P2).
+  "Enable `window-divider-mode' with the org-air right divider on GUI.
 No-op in batch / on TTY, where the inter-window `vertical-border' is a
 single continuous column by construction."
   (when (and (not noninteractive) (display-graphic-p))
@@ -8437,7 +8414,7 @@ single continuous column by construction."
     (window-divider-mode 1)))
 
 (defun org-air-rail--render (board-buffer width &optional height)
-  "Render the rail buffer for BOARD-BUFFER at content WIDTH columns (R15 D-P2).
+  "Render the rail buffer for BOARD-BUFFER at content WIDTH columns.
 Reads the board's items/scope/filter/cal-month through the back-pointer
 and emits the same blocks as the inline rail (calendar, Summary,
 Inspector, Filters, Actions) full-width into `*org-air-rail*'.  HEIGHT
@@ -8458,7 +8435,7 @@ inspector update re-finds + re-fills the region (Phase 2)."
                         :marked-table org-air-view--marked-key-table
                         :cal-month org-air-view--cal-month
                         :day org-air-view--day
-                        ;; R22-5: carry the host's rail descriptor +
+                        ;; Carry the host's rail descriptor +
                         ;; inspector config so a POPPED-OUT PROJECT rail
                         ;; renders the project blocks (not the board's),
                         ;; reusing the same side-window primitives.
@@ -8489,7 +8466,7 @@ inspector update re-finds + re-fills the region (Phase 2)."
             (org-air-view--cal-month (plist-get state :cal-month))
             (org-air-view--day (plist-get state :day))
             (org-air-view--rail-descriptor
-             ;; R26-3: a LIVE side window (HEIGHT non-nil) clamps the rail
+             ;; A LIVE side window (HEIGHT non-nil) clamps the rail
              ;; to its own body height so the Actions foot is on-screen in
              ;; the side window, not pinned to the host's render height.
              ;; The batch seam path (HEIGHT nil) keeps the host height.
@@ -8521,7 +8498,7 @@ inspector update re-finds + re-fills the region (Phase 2)."
     rail-buf))
 
 (defun org-air-rail--setup-inspector (board-buffer)
-  "Bracket the rail inspector region + point the board's hook at it (R15 D-P2).
+  "Bracket the rail inspector region + point the board's hook at it.
 Finds the reserved `org-air-inspector' region in the rail buffer, sets the
 rail buffer's markers, then sets the BOARD-BUFFER's inspector target to
 the rail buffer and syncs once to the board's item-at-point.  Thereafter the
@@ -8529,7 +8506,7 @@ board's debounced `post-command-hook' redraws the rail inspector."
   (let ((rail-buf (or (buffer-local-value 'org-air-view--rail-buffer
                                           board-buffer)
                       (org-air-rail--get-buffer)))
-        ;; R22-5: carry the host's inspector property + fields fn so a
+        ;; Carry the host's inspector property + fields fn so a
         ;; popped-out PROJECT rail inspects DOCS (`org-air-doc' +
         ;; `org-air-project--inspector-doc-fields'), not board items.
         (host-prop (or (buffer-local-value 'org-air-view--inspector-property
@@ -8571,13 +8548,13 @@ board's debounced `post-command-hook' redraws the rail inspector."
 
 
 (defun org-air-rail--ensure-window (board-buffer &optional _width)
-  "Ensure the rail side window exists for BOARD-BUFFER (R15 D-P2 / R27-1 S2).
+  "Ensure the rail side window exists for BOARD-BUFFER.
 CONVERGENT create-once: when a live rail side window already exists on
 the frame it is REUSED — no `display-buffer-in-side-window' call at all —
 and only a desired/actual column mismatch applies ONE `window-resize'
-delta (with the frame-derived cols of R27-1 S1 the steady state is zero
-resizes).  On creation the window is pinned with `window-preserve-size'
-plus the dedicated/no-delete parameters, so redisplay and sibling churn
+delta (with frame-derived cols the steady state is zero resizes).  On
+creation the window is pinned with `window-preserve-size' plus the
+dedicated/no-delete parameters, so redisplay and sibling churn
 cannot drift its width between renders.  The show path never
 deletes+recreates; only `org-air-rail--hide' (a real pop-in teardown)
 deletes the window.  Renders NO content.  Returns the side window (or
@@ -8601,10 +8578,10 @@ nil)."
       (let ((win (display-buffer-in-side-window
                   rail-buf (org-air-rail--window-params cols))))
         (when (window-live-p win)
-          ;; R16 D-P1: do NOT set `no-other-window' — keep the rail reachable.
+          ;; Do NOT set `no-other-window' — keep the rail reachable.
           (set-window-parameter win 'no-delete-other-windows t)
           (set-window-dedicated-p win t)
-          ;; R27-1 S2: pin the width so redisplay and sibling churn cannot
+          ;; Pin the width so redisplay and sibling churn cannot
           ;; drift it — the window is resized only through the convergent
           ;; branch above.
           (window-preserve-size win t t))
@@ -8614,27 +8591,27 @@ nil)."
         win))))
 
 (defun org-air-rail--host-width (host-buffer width)
-  "Return HOST-BUFFER's REAL compose width under the side-window rail (R27-2).
+  "Return HOST-BUFFER's REAL compose width under the side-window rail.
 Ensures the (pinned, frame-derived) rail side window FIRST via the
-convergent `org-air-rail--ensure-window' (R27-1 S2), then measures the
+convergent `org-air-rail--ensure-window', then measures the
 host window's USABLE columns (`org-air-layout--usable-columns') — the
-width content must be composed at.  R29-1: usable columns, NOT raw
+width content must be composed at.  Usable columns, NOT raw
 `window-body-width' — in a fringe-less GUI the continuation-glyph column
 is reserved (`window-max-chars-per-line' = body - 1), so composing at the
 raw body width overflowed every line by one; in a TTY/batch frame the two
 are equal, so every batch value is unchanged.  With the frame-derived
-cols (S1) \"settle\" is one step and convergent: the render tail's
+cols \"settle\" is one step and convergent: the render tail's
 `org-air-rail--show' derives the SAME cols, so no post-composition resize
 can move the goalposts.  WIDTH is the fallback when HOST-BUFFER has no
 live window (and the floor input: the result never drops below
 `org-air-item-pane-min').  Shared by the board and the project (one
 primitive, no fork); the batch width seams bypass this helper entirely."
-  ;; R63-1a: never ensure (create/resize) the side window from a tail
+  ;; Never ensure (create/resize) the side window from a tail
   ;; that does not hold the rail claim — the width measure below falls
   ;; through to the live-window/fallback branches unchanged (the host
   ;; window's usable columns are already rail-adjusted, since the rail
   ;; lives on the frame under its real owner).
-  ;; R58: never ensure the side window for an undisplayed host (bookmark
+  ;; Never ensure the side window for an undisplayed host (bookmark
   ;; restore) — the measure below then falls back to WIDTH as always.
   (unless (or (not (org-air-rail--tail-owner-p host-buffer))
               (org-air-rail--undisplayed-host-p host-buffer))
@@ -8646,9 +8623,9 @@ primitive, no fork); the batch width seams bypass this helper entirely."
 
 (defun org-air-rail--input-stamp (board-buffer width height)
   "Return the rail content input stamp for BOARD-BUFFER at WIDTH x HEIGHT.
-R27-1 S4: every input the rail paint reads through the back-pointer —
-owner buffer, `org-air-view--items' identity, items key, filter, the
-AND/OR combinator (R69-3: `org-air-filter-match' feeds the chip join
+Every input the rail paint reads through the back-pointer — owner
+buffer, `org-air-view--items' identity, items key, filter, the AND/OR
+combinator (`org-air-filter-match' feeds the chip join
 word, the `Match:' line and the `N of M shown' count, so M-/ must bust
 the stamp exactly like `/' and `\\' do), scope, expanded sections,
 calendar month, cols, height, descriptor identity, plus the calendar's
@@ -8659,14 +8636,14 @@ byte-identical and may be skipped."
           org-air-view--items
           org-air-view--items-key
           org-air-view--tag-filter
-          ;; R69-3: the AND/OR combinator IS a paint input (the chip join
+          ;; The AND/OR combinator IS a paint input (the chip join
           ;; word, the `Match: %s' line, and the `N of M shown' count all
           ;; read it) — without it the stamp guard proves an M-/ repaint
           ;; "byte-identical" and wrongly skips it.
           org-air-filter-match
           org-air-view--scope
           org-air-view--expanded-sections
-          ;; R98: the reveal budget is a paint input too (the fold row's
+          ;; The reveal budget is a paint input too (the fold row's
           ;; own sentence and count move with it), so it joins the stamp.
           org-air-view--section-reveal
           org-air-view--marked-keys
@@ -8676,16 +8653,16 @@ byte-identical and may be skipped."
           (format-time-string "%F"))))
 
 (defun org-air-rail--show (board-buffer width)
-  "Show + render the rail side window for BOARD-BUFFER at board WIDTH (R15 D-P2).
+  "Show + render the rail side window for BOARD-BUFFER at board WIDTH.
 WIDTH is the board's total window width (the batch seam input; the side
-window's own column width is the frame-derived R27-1 S1 tier).  Ensures
+window's own column width is the frame-derived tier).  Ensures
 the window (convergent — reuses the window `org-air-view--render' may
 already have created), then renders the rail content + inspector.
-R27-1 S4: the content paint is STAMP-GUARDED — when every paint input
+The content paint is STAMP-GUARDED — when every paint input
 of `org-air-rail--input-stamp' matches the previous paint the erase+
 re-insert is skipped (the output would be byte-identical), so the steady
-state is zero rail repaints and exactly one at the R26-8 swap.
-R63-1: the ONE render tail every rail-showing surface routes through,
+state is zero rail repaints and exactly one at the swap.
+The ONE render tail every rail-showing surface routes through,
 now governed by the deterministic two-belt single-owner rule — the
 `org-air-rail--tail-owner-p' gate (a non-owner tail is a FULL no-op:
 no window ensure, no content render, returns nil, and SELF
@@ -8694,15 +8671,15 @@ by the flag alone) plus the ownership-transfer suspension (a passing
 tail whose host differs from the live rail's owner suspends the
 PREVIOUS owner synchronously, in the same call that takes the rail —
 mirroring the reconciler's re-own branch, so belt 2's hook-selection
-blind spot is closed BEFORE any C1 resize render can fire).  The gate
-takes precedence over the R58 undisplayed-host content carve (R63-1c):
+blind spot is closed BEFORE any resize render can fire).  The gate
+takes precedence over the undisplayed-host content carve:
 in the bookmark-restore flow no other org-air host is active (active =
-nil, gate passes) so R58 behaviour is unchanged there; in the mid-fill
-flow the carve was the content-flip vector and must lose."
+nil, gate passes) so the bookmark path is unaffected; in the mid-fill
+flow the carve is the content-flip vector and must lose."
   (if (not (org-air-rail--tail-owner-p board-buffer))
-      ;; R63-1a: gate failed — full no-op + self-suspend.  The suspended
-      ;; flag's falling edge belongs to the reconciler alone (R63-1d /
-      ;; R25-6): a suspended view re-pops ONLY via the reconciler's
+      ;; Gate failed — full no-op + self-suspend.  The suspended
+      ;; flag's falling edge belongs to the reconciler alone: a
+      ;; suspended view re-pops ONLY via the reconciler's
       ;; suspended branch (settled active view, 0s timer) or an explicit
       ;; user toggle, both of which clear the flag first.
       (progn
@@ -8710,7 +8687,7 @@ flow the carve was the content-flip vector and must lose."
           (with-current-buffer board-buffer
             (setq-local org-air-view--rail-suspended t)))
         nil)
-    ;; R63-1b: ownership-transfer suspension — taking the rail from a
+    ;; Ownership-transfer suspension — taking the rail from a
     ;; live previous owner suspends that owner SYNCHRONOUSLY, exactly
     ;; what the reconciler's re-own branch does, so the transfer is
     ;; deterministic and never inferred from transient window selection.
@@ -8722,10 +8699,10 @@ flow the carve was the content-flip vector and must lose."
 
 (defun org-air-rail--show-1 (board-buffer width)
   "The ungoverned `org-air-rail--show' body for BOARD-BUFFER at WIDTH.
-R63-1 split: only `org-air-rail--show' (which owns the tail-owner gate
-and the ownership-transfer suspension) may call this."
+Only `org-air-rail--show' (which owns the tail-owner gate and the
+ownership-transfer suspension) may call this."
   (let* ((cols (org-air-rail--window-cols (and org-air-view-width width)))
-         ;; R58: a host no window shows (a bookmark/activities restore
+         ;; A host no window shows (a bookmark/activities restore
          ;; rebuilding views undisplayed) must not create the side window
          ;; — the restorer owns the layout.  Rail CONTENT still renders
          ;; below, so the buffer is fresh when the restorer shows it.
@@ -8735,8 +8712,8 @@ and the ownership-transfer suspension) may call this."
     ;; for deterministic batch goldens) drive the rail dimensions when set;
     ;; otherwise the live side window's body metrics do.  This keeps the
     ;; per-buffer text goldens reproducible in batch where side-window
-    ;; geometry is unreliable (R15 D-P2 testability plan).
-    ;; R29-1: the rail's OWN lines are composed at the side window's
+    ;; geometry is unreliable.
+    ;; The rail's OWN lines are composed at the side window's
     ;; USABLE columns (not raw body width) so they too fit a fringe-less
     ;; GUI window; TTY/batch values are identical.
     (let* ((rwidth (cond ((and noninteractive org-air-view-width) cols)
@@ -8759,7 +8736,7 @@ and the ownership-transfer suspension) may call this."
     win))
 
 (defun org-air-rail--hide (board-buffer)
-  "Delete the rail side window and clear caches for BOARD-BUFFER (R16 D-P1).
+  "Delete the rail side window and clear caches for BOARD-BUFFER.
 The `*org-air-rail*' buffer survives when `org-air-rail-keep-buffer' is
 non-nil (cheaper re-popout); otherwise it is killed."
   (setq org-air-rail--side-was-live nil)
@@ -8778,7 +8755,7 @@ non-nil (cheaper re-popout); otherwise it is killed."
                   org-air-view--inspector-target-buffer nil))))
 
 (defun org-air-rail--teardown ()
-  "Tear down the rail window + buffer for the current board buffer (R15 D-P2).
+  "Tear down the rail window + buffer for the current board buffer.
 Used by `org-air-view-quit' and the board's `kill-buffer-hook'."
   (let ((org-air-rail-keep-buffer nil))
     (org-air-rail--hide (current-buffer)))
@@ -8788,7 +8765,7 @@ Used by `org-air-view-quit' and the board's `kill-buffer-hook'."
 
 (defun org-air-rail--popped-p (&optional buffer)
   "Non-nil when BUFFER's (default current) rail is GENUINELY popped out.
-R26-5: only the explicit t counts — the `unset' first-render sentinel is
+Only the explicit t counts — the `unset' first-render sentinel is
 TRUTHY, and reading it raw is exactly how the re-entry wipe got a double
 rail blessed.  The renderers, the toggle and BOTH reconciler branches
 route through this one predicate."
@@ -8800,23 +8777,23 @@ route through this one predicate."
 (defun org-air-rail--window-live-p ()
   "Return non-nil when the `*org-air-rail*' buffer is shown on this frame.
 Checks the board frame so a stray rail buffer in another frame does not
-count (R16 D-P1)."
+count."
   (let ((rail-buf (get-buffer org-air-rail-buffer-name)))
     (and (buffer-live-p rail-buf)
          (get-buffer-window rail-buf (selected-frame))
          t)))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R92: the uniform LANDING rule — a repaint keeps the ROW the user is
+;;;; The uniform LANDING rule — a repaint keeps the ROW the user is
 ;;;; standing on, in EVERY org-air view.
 ;;;;
 ;;;; The board has had the `org-air-view--save-position' /
-;;;; `--restore-position' pair since D5.  The project, revisit and review
+;;;; `--restore-position' pair.  The project, revisit and review
 ;;;; renders instead ended with an unconditional `goto-char (point-min)'
 ;;;; + first-row jump, so `g', sort, group-by, rollup, surface, period
 ;;;; nav and the SHARED `b' backlog verb threw the cursor to row 1 — a
 ;;;; mutation verb losing the very row it acted on.  That is strictly
-;;;; worse than the R91 board defect: there POINT survived and only the
+;;;; worse than the board defect: there POINT survived and only the
 ;;;; viewport moved; here the user's place is gone outright.
 ;;;;
 ;;;; One rule, four views: PRESERVE the row unless its identity has
@@ -8827,18 +8804,18 @@ count (R16 D-P1)."
 ;;;; ---------------------------------------------------------------------
 
 (defvar-local org-air-view--landing-jumped nil
-  "Non-nil when the last repaint could NOT preserve the user's row (R92).
+  "Non-nil when the last repaint could NOT preserve the user's row.
 Set by `org-air-view--landing-restore' when the saved identity vanished
 and the view fell back to its own FIRST ROW.  A first-row fallback is a
-deliberate NEW landing, so the R91 scroll seam must stand down for the
+deliberate NEW landing, so the scroll seam must stand down for the
 acting window rather than pin the previous row's screen-line offset onto
 it — doing exactly that is what scrolled the project view's banner and
-state-summary line off the top of the window in R91.  Reset by
+state-summary line off the top of the window.  Reset by
 `org-air-view--with-scroll-stable' before each repaint and cleared by
 `org-air-view--landing-claimed'.")
 
 (defvar org-air-view--landing-entry nil
-  "Non-nil while a view ENTRY render runs (R92).
+  "Non-nil while a view ENTRY render runs.
 `org-air-project', `org-air-revisit', `org-air-review' and their bookmark
 handlers are explicit JUMPS: they own their landing exactly as board OPEN
 does, so the render takes NO identity token and lands on the view's first
@@ -8846,7 +8823,7 @@ row.  A refresh, a sort, a fold or a rail toggle is not an entry and must
 preserve.")
 
 (defun org-air-view--landing-properties ()
-  "Return the row-IDENTITY text properties of the current view, or nil (R92).
+  "Return the row-IDENTITY text properties of the current view, or nil.
 Tried in order; the first that still resolves after the repaint wins.
 Every one is a value the render puts on the row that SURVIVES a re-scan:
 the project's `org-air-marker' is the doc's FILE, the revisit view's is
@@ -8862,10 +8839,10 @@ every refresh look like a vanished row."
     '(org-air-marker org-air-section))))
 
 (defun org-air-view--landing-save ()
-  "Return a LANDING token naming the row point is on, or nil (R92).
+  "Return a LANDING token naming the row point is on, or nil.
 The token is (:ids ((PROP . VALUE) …) :line LINE :column COLUMN) — the
 row's identity properties in preference order, plus the line number a
-NON-acting window falls back to and the column R21-1 preserves.
+NON-acting window falls back to, plus the preserved column.
 
 Returns nil — so the render lands on its own first row — when the buffer
 is empty (first paint) or when point is not on a row at all (the banner,
@@ -8881,7 +8858,7 @@ ONE line: no scan, no query, no file read, flat in buffer size."
                    :column (current-column)))))
 
 (defun org-air-view--landing-position (token)
-  "Return the position of TOKEN's row in the current buffer, or nil (R92).
+  "Return the position of TOKEN's row in the current buffer, or nil.
 Pure: resolves the first identity that still exists and never moves
 point, so the scroll seam can re-place a NON-acting window's row with it."
   (and token
@@ -8890,17 +8867,17 @@ point, so the scroll seam can re-place a NON-acting window's row with it."
                  (plist-get token :ids))))
 
 (defun org-air-view--landing-restore (token fallback)
-  "Put point back on TOKEN's row, else land via FALLBACK (R92).
+  "Put point back on TOKEN's row, else land via FALLBACK.
 Returns non-nil when the row was PRESERVED.
 
-Point lands on that row's TITLE (R21-2) and then advances to the saved
-column when the column is to the RIGHT of the title (R21-1) — never into
+Point lands on that row's TITLE and then advances to the saved
+column when the column is to the RIGHT of the title — never into
 the gutter, never past the row's last visible glyph.
 
 When no identity resolves the row has genuinely vanished (a filter
 emptied it, a surface cycle dropped it, the doc was deleted): FALLBACK
 places the view's own first-row landing and `org-air-view--landing-jumped'
-records that this repaint JUMPED, so the R91 seam leaves the acting
+records that this repaint JUMPED, so the seam leaves the acting
 window's `window-start' to redisplay instead of anchoring a stale screen
 line onto a brand-new landing."
   (let ((pos (org-air-view--landing-position token)))
@@ -8922,7 +8899,7 @@ line onto a brand-new landing."
       nil))))
 
 (defun org-air-view--landing-claimed ()
-  "Declare that the CALLER placed point deliberately after a repaint (R92).
+  "Declare that the CALLER placed point deliberately after a repaint.
 The project's and the review's TAB re-land point on a row they compute
 themselves AFTER the render (the revealed group's first row, the group's
 fold row, the toggled section header).  That landing IS the user's row,
@@ -8931,19 +8908,18 @@ mark."
   (setq org-air-view--landing-jumped nil))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R91: scroll stability — a repaint never moves the cursor's ROW on
+;;;; Scroll stability — a repaint never moves the cursor's ROW on
 ;;;; screen.  Every org-air repaint is an erase + re-render, which drops
 ;;;; each displaying window's `window-start' marker to `point-min'; the
 ;;;; next redisplay then re-anchors the viewport (typically recentring),
-;;;; so the row the user is standing on visibly JUMPS.  R90 made `m' a
-;;;; real selection with a repaint, which turned that latent defect into
-;;;; a jump on a high-frequency keystroke ("pressing m scrolls the buffer
+;;;; so the row the user is standing on visibly JUMPS — including on a
+;;;; high-frequency keystroke like `m' ("pressing m scrolls the buffer
 ;;;; to a weird position").  The rule below fixes it once, for every
 ;;;; repaint, in every window.
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-view--scroll-anchors ()
-  "Return the viewport anchor of every live window showing this buffer (R91).
+  "Return the viewport anchor of every live window showing this buffer.
 Each anchor is (WINDOW OFFSET OWNP TOKEN):
 
 - OFFSET is the point row's 0-based SCREEN line inside the window
@@ -8958,7 +8934,7 @@ Each anchor is (WINDOW OFFSET OWNP TOKEN):
   `org-air-view--restore-position' will re-place (the acting window);
 - TOKEN is the identity token of a NON-acting window's own point, so a
   view shown in several windows restores each window's row independently:
-  the board's `org-air-view--save-position' token in the board, the R92
+  the board's `org-air-view--save-position' token in the board, the
   `org-air-view--landing-save' token in the project / revisit / review
   views, and a bare line number when neither resolves an identity.
 
@@ -8973,12 +8949,12 @@ Returns nil — a total no-op — when the buffer is displayed in NO window
 \(batch/headless, an off-screen refresh), and never signals: a viewport
 is a display nicety and must not be able to break a repaint.
 
-R58/R92 EXCEPTION, now PER WINDOW: with a bookmark locator armed the
+BOOKMARK EXCEPTION, PER WINDOW: with a bookmark locator armed the
 JUMPING window owns its landing AND its viewport (the saved viewport
 belongs to the pre-restore skeleton), so no anchor is taken for it.  Every
 BYSTANDER window showing the same buffer is anchored as usual — a jump in
 one window is not a reason to drop another window to `point-min', which
-is what the all-or-nothing R58 exclusion did."
+is what an all-or-nothing exclusion would do."
   (condition-case nil
       (let* ((buffer (current-buffer))
              (pt (point))
@@ -9015,13 +8991,13 @@ is what the all-or-nothing R58 exclusion did."
     (error nil)))
 
 (defun org-air-view--scroll-restore (anchors)
-  "Re-anchor every window in ANCHORS onto its own saved screen line (R91).
+  "Re-anchor every window in ANCHORS onto its own saved screen line.
 The repaint has finished and point is FINAL (restored to the same item,
 or to the replacement landing when the row was refiled/done/filtered
 away).  For each still-live window this recomputes `window-start' as the
 position OFFSET screen lines ABOVE that window's point and installs it,
 so the row the user is on is redrawn on the SAME screen line it occupied
-before — the column behaviour R21-1 already guarantees is untouched.
+before — the column behaviour is untouched.
 
 Every hostile case degrades instead of jumping:
 
@@ -9038,7 +9014,7 @@ Every hostile case degrades instead of jumping:
 - errors are swallowed for the same reason as in
   `org-air-view--scroll-anchors'.
 
-Two R92 stand-downs leave `window-start' to redisplay instead of pinning
+Two stand-downs leave `window-start' to redisplay instead of pinning
 a screen line — the window's POINT is still repaired in both, since the
 erase clobbered that marker too:
 
@@ -9048,7 +9024,7 @@ erase clobbered that marker too:
   render could not preserve the row and deliberately re-landed on the
   view's FIRST row.  Anchoring a stale offset there pins that new first
   row mid-window and scrolls the view's own banner, state-summary line
-  and column header off the top — the R91 regression."
+  and column header off the top — the regression."
   (condition-case nil
       (when anchors
         (let ((buffer (current-buffer))
@@ -9099,7 +9075,7 @@ erase clobbered that marker too:
 
 (defvar org-air-view--scroll-stable-active nil
   "The BUFFER whose `org-air-view--with-scroll-stable' seam is open, or nil.
-R92: the seam nests (`org-air-view--refresh-current' calls
+The seam nests (`org-air-view--refresh-current' calls
 `--render-current', which calls `--refresh-repaint'), and every nesting
 level used to take its own anchor/restore pair — two per `m'.  Only the
 OUTERMOST pair matters: it is the one taken before the erase and closed
@@ -9109,17 +9085,17 @@ repaint that renders a DIFFERENT org-air buffer inside the seam still
 anchors that buffer's own windows.")
 
 (defmacro org-air-view--with-scroll-stable (&rest body)
-  "Run BODY — a repaint — keeping every displaying window's row steady (R91).
+  "Run BODY — a repaint — keeping every displaying window's row steady.
 Anchors are taken BEFORE the erase and applied AFTER BODY has placed its
 final landing, so wrapping a whole command (not just the render call) is
 both allowed and preferred where the command moves point after rendering.
 
-R92: exactly ONE anchor/restore pair runs per keystroke — a nested seam
+Exactly ONE anchor/restore pair runs per keystroke — a nested seam
 is a pass-through (`org-air-view--scroll-stable-active'), because the
 outer pair is by construction the one that spans the erase and the final
 landing.
 
-R92: the restore is UNWIND-protected, not `prog1'.  A repaint that
+The restore is UNWIND-protected, not `prog1'.  A repaint that
 signals mid-render used to skip the restore entirely and leave every
 displaying window's `window-start' at `point-min' — the erase had already
 clobbered it — so the one case where the user most needs their place kept
@@ -9138,27 +9114,27 @@ the restore can never turn a render failure into a second failure."
            (org-air-view--scroll-restore ,anchors))))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R16 D-P1: cooperative, command-driven popout + reconciler.
+;;;; Cooperative, command-driven popout + reconciler.
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-view--refresh-current ()
-  "Re-render the current org-air buffer, dispatching on mode (R22-5).
+  "Re-render the current org-air buffer, dispatching on mode.
 The shared rail-toggle uses this so it never hard-codes the board renderer:
 the board re-renders via `org-air-view--render-current'; the project via
 `org-air-project--render-current'; the revisit view via
-`org-air-revisit--render-current' (R54-3).
-R91: the shared dispatch is also the shared SCROLL seam — every mode
+`org-air-revisit--render-current'.
+The shared dispatch is also the shared SCROLL seam — every mode
 reached from here (and every command that repaints through it: mark,
 unmark, clear-marks, the triage verbs, undo/redo, the rail toggle) keeps
 the cursor's row on its screen line.
-R92: the seam stays UNIFORM across the four modes because the three
+The seam stays UNIFORM across the four modes because the three
 non-board renders now PRESERVE point too (`org-air-view--landing-save' /
 `--landing-restore').  When a render genuinely cannot — the row vanished,
 so it re-lands on its own first row — it says so via
 `org-air-view--landing-jumped' and the seam stands down for the acting
 window, which is what keeps the project banner and state-summary line on
-screen (R91 pinned the stale offset onto that new landing and scrolled
-them away).  One rule, no per-view special case."
+screen: pinning the stale offset onto that new landing scrolls them
+away.  One rule, no per-view special case."
   (org-air-view--with-scroll-stable
    (cond
     ((derived-mode-p 'org-air-view-mode) (org-air-view--render-current))
@@ -9166,11 +9142,11 @@ them away).  One rule, no per-view special case."
     ((and (derived-mode-p 'org-air-revisit-mode)
           (fboundp 'org-air-revisit--render-current))
      (org-air-revisit--render-current))
-    ;; R61-4: the review view re-renders in place (data untouched).
+    ;; The review view re-renders in place (data untouched).
     ((and (derived-mode-p 'org-air-review-mode)
           (fboundp 'org-air-review--render-current))
      (org-air-review--render-current))
-    ;; R26-5: a doc-session buffer "refreshes" by re-showing/hiding its
+    ;; A doc-session buffer "refreshes" by re-showing/hiding its
     ;; DOC-context side rail per the popped flag (the buffer text is the
     ;; user's file — never re-rendered by org-air).
     ((and (bound-and-true-p org-air-project--session-tree)
@@ -9178,21 +9154,21 @@ them away).  One rule, no per-view special case."
      (org-air-project--doc-rail-refresh (current-buffer))))))
 
 (defun org-air-rail-toggle ()
-  "Toggle the context rail between inline and a side window (R16 D-P1; R22-5).
+  "Toggle the context rail between inline and a side window.
 Command-driven and cooperative in the board OR the project: popping out
 renders the host pane-only and shows the `*org-air-rail*' side window;
 popping in restores the inline two-pane rail.  Native window management
 always wins — closing the side window with any native command falls back to
 inline via the reconciler.  The refresh is dispatched per-mode via
 `org-air-view--refresh-current' so the toggle never forks."
-  ;; R97 D6: mode-scoped for `M-x'; the refusal below is this command's
+  ;; Mode-scoped for `M-x'; the refusal below is this command's
   ;; OWN, older and stricter precondition (a doc buffer must carry a live
   ;; session tree), so no second guard is layered on top of it.
   (interactive nil org-air-view-mode org-air-project-mode org-air-review-mode
                org-air-revisit-mode org-air-doc-session-mode)
   (unless (or (derived-mode-p 'org-air-view-mode 'org-air-project-mode
                               'org-air-revisit-mode 'org-air-review-mode)
-              ;; R26-5: the toggle also works from a doc-session buffer
+              ;; The toggle also works from a doc-session buffer
               ;; (its side rail is the DOC context).
               (bound-and-true-p org-air-project--session-tree))
     (user-error "Not in an org-air board or project buffer"))
@@ -9218,7 +9194,7 @@ inline via the reconciler.  The refresh is dispatched per-mode via
           (select-window win))))))
 
 (defun org-air-rail-popout ()
-  "Pop the context rail OUT into the side window if it is inline (R16 D-P1)."
+  "Pop the context rail OUT into the side window if it is inline."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (when (and (derived-mode-p 'org-air-view-mode)
@@ -9226,9 +9202,9 @@ inline via the reconciler.  The refresh is dispatched per-mode via
     (org-air-rail-toggle)))
 
 (defun org-air-rail-popin ()
-  "Pop the context rail back INLINE if it is a side window (R16 D-P1).
+  "Pop the context rail back INLINE if it is a side window.
 Works from the board OR the project OR from inside the rail buffer (`q').
-R24-5: dispatch the re-render per host mode via `org-air-view--refresh-
+Dispatch the re-render per host mode via `org-air-view--refresh-
 current' (the rail back-pointer points at the PROJECT buffer when the
 project popped it) so a project rail falls back to inline like the board's."
   (interactive nil org-air-rail-mode)
@@ -9256,13 +9232,13 @@ project popped it) so a project rail falls back to inline like the board's."
 A genuine user close = the board window is live and wide enough to show
 the rail, yet the rail buffer shows in no window.  A responsive board-only
 teardown (narrow) is NOT a user close — the flag is kept so widening
-re-pops the side window (R16 D-P1, design transition table)."
+re-pops the side window."
   (and (get-buffer-window board (selected-frame))
        (not (org-air-rail--window-live-p))
        (not (org-air-view--board-only-p (org-air-view--render-width)))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R25-6: CLEAN rail dual-mode — single-owner invariant, reconciled to
+;;;; CLEAN rail dual-mode — single-owner invariant, reconciled to
 ;;;; the ACTIVE view.  At most ONE *org-air-rail* side window exists on the
 ;;;; frame; it belongs to exactly the active org-air main view and exists
 ;;;; IFF that view's `org-air-view--rail-popped-out' is t (and it is wide
@@ -9272,13 +9248,13 @@ re-pops the side window (R16 D-P1, design transition table)."
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-rail--host-buffer-p (buf)
-  "Non-nil when BUF is an org-air rail HOST buffer (R25-6; R62-1a).
+  "Non-nil when BUF is an org-air rail HOST buffer.
 The hosts are the board, the project, the revisit AND the review views
 \(every main view that pops the shared `*org-air-rail*' side window —
-omitting one here is exactly the R62-1 bug: the reconciler treated the
+omitting one here is exactly the bug: the reconciler treated the
 review view as a foreign window and evicted its rail).
-R26-5: a DOC-SESSION file buffer (one carrying the back-pointer
-`org-air-project--session-tree') counts as a host too, so the R25-6
+A DOC-SESSION file buffer (one carrying the back-pointer
+`org-air-project--session-tree') counts as a host too, so the
 suspension/re-pop sweep treats the doc half of a project session exactly
 like a board<->project switch."
   (and (buffer-live-p buf)
@@ -9294,7 +9270,7 @@ like a board<->project switch."
 Prefers the selected window; else the first non-side window hosting an
 org-air view.  The `*org-air-rail*' and `*org-air-view*' panes are side
 windows, so they are skipped — only the BOARD/PROJECT main view counts the
-rail belongs to (R25-6)."
+rail belongs to."
   (setq frame (or frame (selected-frame)))
   (let* ((sel-win (frame-selected-window frame))
          (sel (window-buffer sel-win)))
@@ -9309,20 +9285,20 @@ rail belongs to (R25-6)."
         nil))))
 
 (defun org-air-rail--side-window (&optional frame)
-  "Return the live `*org-air-rail*' side window on FRAME, or nil (R25-6)."
+  "Return the live `*org-air-rail*' side window on FRAME, or nil."
   (let ((rb (get-buffer org-air-rail-buffer-name)))
     (and rb (get-buffer-window rb (or frame (selected-frame))))))
 
 (defun org-air-rail--side-owner (&optional frame)
   "Return the OWNER (back-pointer) buffer of the side rail on FRAME, or nil.
 The owner is the board/project buffer the rail currently mirrors, read
-from the rail buffer's `org-air-rail--board-buffer' (R25-6)."
+from the rail buffer's `org-air-rail--board-buffer'."
   (let ((win (org-air-rail--side-window frame)))
     (and win (buffer-local-value 'org-air-rail--board-buffer
                                  (window-buffer win)))))
 
 (defun org-air-rail--tail-owner-p (self &optional frame)
-  "Non-nil when SELF's render tail may mutate the shared rail (R63-1a).
+  "Non-nil when SELF's render tail may mutate the shared rail.
 The deterministic single-owner rule's GATE, consulted at the three rail
 choke points (`org-air-rail--show', `org-air-rail--host-width''s window
 ensure, `org-air-rail--evict-foreign-rail'): the shared `*org-air-rail*'
@@ -9335,12 +9311,12 @@ currently holds the rail claim.  Two conjuncts, both load-bearing
 
   non-suspended?  SELF's buffer-local `org-air-view--rail-suspended' is
     nil.  Belt 1: ownership transfer marks the previous owner suspended
-    SYNCHRONOUSLY (`org-air-rail--show', R63-1b), so a background render
-    of the dispossessed view is blocked here even inside the C1
-    resize-hook window where the view's window is HOOK-SELECTED and any
+    SYNCHRONOUSLY (`org-air-rail--show'), so a background render of the
+    dispossessed view is blocked here even inside the resize-hook
+    window where the view's window is HOOK-SELECTED and any
     instantaneous active check misreads (the measured +0.01s steal).
   active?  `org-air-rail--active-view' on FRAME is nil or SELF.  Belt 2:
-    blocks the timer-driven R56 progressive/finish repaints of a view
+    blocks the timer-driven progressive/finish repaints of a view
     that never owned the rail (selection settled by then).
 
 A dead SELF never holds a claim.  Pure reads — no window mutation."
@@ -9350,7 +9326,7 @@ A dead SELF never holds a claim.  Pure reads — no window mutation."
          (or (null active) (eq active self)))))
 
 (defun org-air-rail--evict-foreign-rail (self)
-  "Hide a `*org-air-rail*' side window that does NOT belong to SELF (R25-6).
+  "Hide a `*org-air-rail*' side window that does NOT belong to SELF.
 Suspends its owner (flag kept) so returning to that owner re-pops cleanly.
 Called from a render tail: when SELF is popped, `org-air-rail--show' has
 already re-owned the window, so the owner == SELF and this no-ops; when
@@ -9359,13 +9335,13 @@ SELF is inline it drops a lingering foreign rail (the cross-view sweep)."
          (side  (org-air-rail--side-window frame))
          (owner (org-air-rail--side-owner frame)))
     (when (and (window-live-p side) (not (eq owner self))
-               ;; R63-1a: sweeping a foreign rail is an owner/active
+               ;; Sweeping a foreign rail is an owner/active
                ;; privilege — without this gate the GATED board tail
                ;; (owner /= self, no `--show' re-own) would fall through
                ;; here and DELETE the active view's rail: the same bug
                ;; with the opposite sign.
                (org-air-rail--tail-owner-p self frame)
-               ;; R58: an undisplayed self-render (a bookmark restore) has
+               ;; An undisplayed self-render (a bookmark restore) has
                ;; no layout claim — never sweep the displayed view's rail.
                (not (org-air-rail--undisplayed-host-p self)))
       (when (buffer-live-p owner)
@@ -9374,7 +9350,7 @@ SELF is inline it drops a lingering foreign rail (the cross-view sweep)."
       (org-air-rail--hide (or owner self)))))
 
 (defun org-air-rail--reconcile-run (frame)
-  "Run the deferred reconcile for FRAME; the single timer slot's body (R27-1).
+  "Run the deferred reconcile for FRAME; the single timer slot's body.
 Named (not a closure) so tests can count pending reconcile timers
 deterministically; clears `org-air-rail--reconcile-timer' before running."
   (setq org-air-rail--reconcile-timer nil)
@@ -9382,11 +9358,11 @@ deterministically; clears `org-air-rail--reconcile-timer' before running."
     (org-air-rail--reconcile-frame frame)))
 
 (defun org-air-rail--reconcile ()
-  "Enforce the single-owner rail invariant for the ACTIVE view (R25-6).
+  "Enforce the single-owner rail invariant for the ACTIVE view.
 Buffer-local on each board/project `window-configuration-change-hook'.
 Defers the (window-mutating) reconcile to a 0s timer so it runs AFTER the
 window config settles (window mutation never runs INSIDE the hook).
-R27-1 S3: ONE pending timer slot — a hook fire while a reconcile is
+ONE pending timer slot — a hook fire while a reconcile is
 already pending RESCHEDULES it instead of stacking one new timer per fire."
   (unless noninteractive
     (when (timerp org-air-rail--reconcile-timer)
@@ -9396,11 +9372,11 @@ already pending RESCHEDULES it instead of stacking one new timer per fire."
                           (selected-frame)))))
 
 (defun org-air-rail--reconcile-frame (frame)
-  "Reconcile the singleton side rail to the ACTIVE org-air view on FRAME (R25-6).
+  "Reconcile the singleton side rail to the ACTIVE org-air view on FRAME.
 Enforces the single-owner invariant: the side rail exists IFF the active
 main view is popped (and wide enough); a view popped but not active is
 suspended; a genuinely user-closed rail falls back inline.
-R27-1 S3: render-latched and edge-triggered — while
+Render-latched and edge-triggered — while
 `org-air-rail--reconciling' is bound (the full extent of a board/project
 render) the body NO-OPS and re-arms the single timer slot for after the
 render, so a timer nesting inside an in-flight render can never misread
@@ -9409,8 +9385,8 @@ fire ONLY on an observed live->dead transition of
 `org-air-rail--side-was-live', never on mere absence (absence + flag t
 + was-live nil = a popout in flight or a suspended view: leave the state
 alone — the render tail owns it).
-R63-1d: the reconciler OWNS the suspension flag's falling edge (the
-R25-6 contract, now stated and pinned): a view suspended by the tail
+The reconciler OWNS the suspension flag's falling edge: a view
+suspended by the tail
 gate or the transfer belt re-pops ONLY through the suspended branch
 below — settled active view, 0s timer — or an explicit user toggle;
 no render tail may clear the flag for itself."
@@ -9439,7 +9415,7 @@ no render tail may clear the flag for itself."
           (with-current-buffer active
             (let ((width (org-air-view--render-width)))
               (cond
-               ;; (A) active WANTS the side rail.  R26-5: through the ONE
+               ;; (A) active WANTS the side rail, through the ONE
                ;; popped predicate — `unset' can never read as "wants it".
                ((org-air-rail--popped-p)
                 (cond
@@ -9457,7 +9433,7 @@ no render tail may clear the flag for itself."
                   (org-air-rail--show active width))
                  (was-live
                   ;; Observed live->dead with the host still wide enough:
-                  ;; the user CLOSED it natively -> go inline (R16 contract).
+                  ;; the user CLOSED it natively -> go inline.
                   (setq-local org-air-view--rail-popped-out nil
                               org-air-view--rail-suspended nil)
                   (when (get-buffer-window active frame)
@@ -9465,7 +9441,7 @@ no render tail may clear the flag for itself."
                  (t
                   ;; Absence WITHOUT a live->dead edge: a popout still in
                   ;; flight (mid-render) — leave the state alone; the render
-                  ;; tail owns it (R27-1 S3 edge-triggered user-close).
+                  ;; tail owns it (edge-triggered user-close).
                   nil)))
                ;; (B) active is INLINE: no side rail may show.
                (t
@@ -9480,7 +9456,7 @@ no render tail may clear the flag for itself."
               (and (window-live-p (org-air-rail--side-window frame)) t))))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R16 D-P3: mu4e-style bottom source/entry view pane (*org-air-view*).
+;;;; Mu4e-style bottom source/entry view pane (*org-air-view*).
 ;;;;
 ;;;; An optional bottom side window showing the SOURCE of the selected item
 ;;;; — the org entry (heading + body + drawers) at the item's marker — a
@@ -9490,24 +9466,24 @@ no render tail may clear the flag for itself."
 ;;;; ---------------------------------------------------------------------
 
 (defconst org-air-view-pane-buffer-name "*org-air-view*"
-  "Name of the bottom source/entry view pane buffer (R16 D-P3/D-P2).")
+  "Name of the bottom source/entry view pane buffer.")
 
 (defconst org-air-view-pane--file-head-chars 4000
   "Character cap for the file-head snapshot when no heading is at point.
 Used for heading-less files / before-first-heading positions, where there
 is no subtree to bound the copy; `org-air-view-pane-max-lines' caps the
-shown lines on top of this (R16 D-P3).")
+shown lines on top of this.")
 
 (defcustom org-air-view-pane-height 14
-  "Height of the bottom `*org-air-view*' source pane (R16 D-P3).
+  "Height of the bottom `*org-air-view*' source pane.
 An integer >= 1 is read as a line count; a value < 1 (a float like 0.33)
 is read as a fraction of the frame height."
   :type 'number
   :group 'org-air)
 
 (defcustom org-air-view-pane-follow t
-  "When non-nil, the bottom view pane tracks point on the board (R16 D-P3).
-R18 D-P4: the default is now t so that ONCE the pane is open (RET), moving
+  "When non-nil, the bottom view pane tracks point on the board.
+The default is now t so that ONCE the pane is open (RET), moving
 point auto-updates it to the item at point (debounced, inert under batch)
 — an auto-inspecting pane like the rail inspector.  This does NOT auto-open
 the pane: the follow hook guards on a live pane window, so nothing appears
@@ -9516,7 +9492,7 @@ until you press RET (or `v').  nil restores explicit-open-only updates."
   :group 'org-air)
 
 (defcustom org-air-view-pane-on-return nil
-  "Obsolete (R18 D-P4): RET now owns the pane via `org-air-view-pane-return'.
+  "Obsolete: RET now owns the pane via `org-air-view-pane-return'.
 Formerly, when non-nil, RET = `org-air-visit-item' ALSO opened the pane;
 that behaviour is moot now RET opens the pane directly.  No longer
 consulted."
@@ -9525,25 +9501,25 @@ consulted."
 (make-obsolete-variable 'org-air-view-pane-on-return nil "org-air 0.5")
 
 (defcustom org-air-view-pane-focus nil
-  "When non-nil, opening the bottom view pane selects its window (R16 D-P3).
+  "When non-nil, opening the bottom view pane selects its window.
 Default nil keeps point on the board; the pane is `other-window'-reachable."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-view-pane-keep-buffer t
-  "When non-nil the `*org-air-view*' buffer survives a pane close (R16 D-P3)."
+  "When non-nil the `*org-air-view*' buffer survives a pane close."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-view-pane-max-lines nil
-  "Maximum entry lines shown in the bottom view pane, or nil (R16 D-P3).
+  "Maximum entry lines shown in the bottom view pane, or nil.
 When an integer, very large entries are capped with a `…' continuation
 marker; nil shows the full subtree."
   :type '(choice (const :tag "Full subtree" nil) integer)
   :group 'org-air)
 
 (defcustom org-air-view-pane-line-spacing 0.15
-  "Buffer-local `line-spacing' for the bottom `*org-air-view*' pane (R18 D-P5.2).
+  "Buffer-local `line-spacing' for the bottom `*org-air-view*' pane.
 The pane has NO `│' divider (unlike the two-pane board), so a small
 positive leading is free and gives the entry snapshot a calmer, mu4e
 message-view rhythm.  Display-only — the pane is a side window, never part
@@ -9552,18 +9528,18 @@ of the board fixture bytes.  nil leaves the frame default; 0 packs tight."
   :group 'org-air)
 
 (defcustom org-air-view-pane-follow-debounce 0.2
-  "Idle seconds before follow redraws the bottom view pane (R16 D-P3 / R20-3b).
+  "Idle seconds before follow redraws the bottom view pane.
 Mirrors `org-air-inspector-debounce': a short idle delay coalesces rapid
 point motion into a single re-narrow so scrubbing a large file with
-hundreds of items across dozens of files stays responsive.  R20-3b raised
-the default 0.1 -> 0.2 so a scrub coalesces to ONE update at rest (the
-follow itself is now cheap: same-file changes re-narrow the existing
-indirect instead of rebuilding it)."
+hundreds of items across dozens of files stays responsive.  At 0.2 a
+scrub coalesces to ONE update at rest; the follow itself is cheap, since
+same-file changes re-narrow the existing indirect instead of rebuilding
+it."
   :type 'number
   :group 'org-air)
 
 (defcustom org-air-view-pane-editable t
-  "When non-nil, the bottom view pane is a LIVE, editable Org buffer (R19-3).
+  "When non-nil, the bottom view pane is a LIVE, editable Org buffer.
 The pane becomes an `org-mode' INDIRECT buffer narrowed to the source
 heading, so edits write through to the file's buffer and saving persists
 them to disk (the after-save hook then refreshes the board).  When nil, OR
@@ -9574,8 +9550,8 @@ use the snapshot path and stay byte-identical."
   :group 'org-air)
 
 (defcustom org-air-view-pane-variable-pitch nil
-  "When non-nil, enable `variable-pitch-mode' in the editable view pane (R19-3).
-The pane is NOT pixel-locked (the V6 invariant governs the BOARD, where the
+  "When non-nil, enable `variable-pitch-mode' in the editable view pane.
+The pane is NOT pixel-locked (the column invariant governs the BOARD, where the
 svg pills + `│' divider must occupy exact text cells), so a prose-like
 proportional message view is allowed here.  Default off (opt-in); the round
 only requires that it be ALLOWED."
@@ -9585,28 +9561,28 @@ only requires that it be ALLOWED."
 (defvar-local org-air-view--view-pane-item nil
   "Item last shown in the bottom view pane; the follow change-guard.")
 (defvar-local org-air-view--view-pane-last-pos nil
-  "Point position at the last follow fire; the cheap motion early-out (R20-3b).")
+  "Point position at the last follow fire; the cheap motion early-out.")
 (defvar-local org-air-view--view-pane-timer nil
-  "Pending debounce timer for the follow view-pane update (R16 D-P3).")
+  "Pending debounce timer for the follow view-pane update.")
 (defvar-local org-air-view--pane-indirect nil
-  "The current editable-pane indirect buffer for this host buffer (R19-3).
+  "The current editable-pane indirect buffer for this host buffer.
 One at a time: replaced (old killed) on follow / re-open and killed on pane
 close.  Killing an indirect buffer never loses text — unsaved edits live in
 the base file buffer and stay savable.")
 
 (defvar-local org-air-view-pane--bookmark-ctx nil
-  "Printable (FILE POS TITLE HOST) of the snapshot this pane shows (R58).
+  "Printable (FILE POS TITLE HOST) of the snapshot this pane shows.
 Local to the `*org-air-view*' snapshot buffer; written by the one
 snapshot writer (`org-air-view-pane--render-snapshot') so the pane's
 bookmark record producer is a pure buffer-local read.  Every element is
 plain readable data — never a marker or buffer.")
 
 (defun org-air-view-pane--bookmark-stash (ctx)
-  "Return the printable (FILE POS TITLE HOST) bookmark stash for CTX (R58).
+  "Return the printable (FILE POS TITLE HOST) bookmark stash for CTX.
 Called in the HOST buffer (the snapshot render's caller context) so HOST
 names the view that drove the pane.  A live marker degrades to its
-position at stash time (R58 rule 5: a marker must never enter a bookmark
-record); never signals — an odd CTX yields nil."
+position at stash time — a marker must NEVER enter a bookmark record.
+Never signals: an odd CTX yields nil."
   (condition-case nil
       (let* ((m (plist-get ctx :marker))
              (file (or (plist-get ctx :file)
@@ -9622,8 +9598,8 @@ record); never signals — an odd CTX yields nil."
               (and (stringp title) (substring-no-properties title))
               (cond ((derived-mode-p 'org-air-project-mode) 'project)
                     ((derived-mode-p 'org-air-revisit-mode) 'revisit)
-                    ;; R62-1c: the review-driven pane stamps its real
-                    ;; host (a sibling of the R62-1a roster omission).
+                    ;; The review-driven pane stamps its real
+                    ;; host (a sibling of the roster omission).
                     ((derived-mode-p 'org-air-review-mode) 'review)
                     (t 'board))))
     (error nil)))
@@ -9632,37 +9608,37 @@ record); never signals — an odd CTX yields nil."
   (let ((map (make-sparse-keymap)))
     ;; PARENT stays at defvar time — always, even with the knob nil, so a
     ;; key-less snapshot pane still buries/scrolls via `special-mode'
-    ;; (R35.1).
+    ;;.
     (set-keymap-parent map special-mode-map)
     map)
   "Keymap for `org-air-entry-view-mode' (the read-only snapshot pane).
-Keys installed by `org-air--install-default-keybindings' (R35-1 / R35.1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35.1: the snapshot-pane close key (installer-owned).  R20-3a: the pane
-;; is read-only, so `q' closes it (overrides `special-mode's bury so the
+;; The snapshot-pane close key (installer-owned).  The pane is
+;; read-only, so `q' closes it (overrides `special-mode's bury so the
 ;; pane is actually torn down) instead of merely burying the buffer.
 (org-air--register-default-keys 'org-air-entry-view-mode-map
   "q" #'org-air-view-pane-quit)
 
 (define-derived-mode org-air-entry-view-mode special-mode "org-air-view"
-  "Major mode for the bottom `*org-air-view*' source/entry pane (R16 D-P3).
+  "Major mode for the bottom `*org-air-view*' source/entry pane.
 A read-only snapshot of the selected item's Org entry with Org font-lock,
 `other-window'-reachable for reading/scrolling."
   (setq-local truncate-lines nil)
-  ;; R18 D-P5.2: the pane has no `│' divider, so a small positive leading is
+  ;; The pane has no `│' divider, so a small positive leading is
   ;; free and gives a calmer mu4e message-view rhythm.
   (setq-local line-spacing org-air-view-pane-line-spacing)
-  ;; R18 D-P5.1: the calm nano-style mode-line here too.
+  ;; The calm nano-style mode-line here too.
   (org-air-view--install-modeline)
   (setq-local cursor-type t)
   (setq-local buffer-read-only t)
-  ;; R58: the snapshot pane delegates to its host + the entry's (FILE .
+  ;; The snapshot pane delegates to its host + the entry's (FILE .
   ;; POS) source, so a saved layout holding the pane restores cleanly.
   (setq-local bookmark-make-record-function
               #'org-air-view-pane--bookmark-make-record)
-  ;; R27-4: evil parity for the read-only pane — under evil, `q' resolved
+  ;; Evil parity for the read-only pane — under evil, `q' resolved
   ;; to evil-record-macro instead of closing the pane.
-  ;; R35-1: gated on the knob (skipped with the defaults off).
+  ;; Gated on the knob (skipped with the defaults off).
   (when org-air-use-default-keybindings
     (org-air-view--setup-evil 'org-air-entry-view-mode
                               org-air-entry-view-mode-map)))
@@ -9676,7 +9652,7 @@ A read-only snapshot of the selected item's Org entry with Org font-lock,
     buf))
 
 (defun org-air-view-pane--window-params ()
-  "Return the `display-buffer' action alist for the bottom view pane (R19-3).
+  "Return the `display-buffer' action alist for the bottom view pane.
 The pane SPLITS the board window (`display-buffer-below-selected'), not a
 frame-level bottom side window — so the rail's RIGHT side window keeps its
 full frame-body height (side windows are placed around the whole main
@@ -9691,7 +9667,7 @@ window' — the pane is `other-window'-reachable and survives
                           (org-air-pane . t)))))
 
 (defun org-air-view-pane--find-window ()
-  "Return the live org-air bottom pane window on this frame, or nil (R19-3).
+  "Return the live org-air bottom pane window on this frame, or nil.
 Identified by the `org-air-pane' window parameter, so it works whether the
 pane shows the read-only snapshot buffer or a per-heading indirect buffer."
   (seq-find (lambda (w) (window-parameter w 'org-air-pane))
@@ -9702,23 +9678,23 @@ pane shows the read-only snapshot buffer or a per-heading indirect buffer."
   (window-live-p (org-air-view-pane--find-window)))
 
 (defun org-air-view--pane-host-p ()
-  "Non-nil in a buffer that hosts the bottom view pane (R18 D-P3).
+  "Non-nil in a buffer that hosts the bottom view pane.
 The board (`org-air-view-mode') AND the project (`org-air-project-mode')
 both drive the same pane, so the follow hook fires in either."
   (or (derived-mode-p 'org-air-view-mode)
       (derived-mode-p 'org-air-project-mode)))
 
 (defun org-air-view--view-pane-thing-at-point ()
-  "Return the follow change-guard key for the row at point (R18 D-P3).
+  "Return the follow change-guard key for the row at point.
 The board item, else the project doc, else the shared `org-air-marker' —
 so the pane re-follows when the SELECTED ROW changes in either view.
-R22-2: line-based so a native/mouse landing on a dead column still follows."
+Line-based so a native/mouse landing on a dead column still follows."
   (or (org-air-view--row-property 'org-air-item)
       (org-air-view--row-property 'org-air-doc)
       (org-air-view--row-property 'org-air-marker)))
 
 (defun org-air-view-pane--row-thing-near-point ()
-  "Return (PROP . VALUE) for the doc/item at or after point, else nil (R24-4).
+  "Return (PROP . VALUE) for the doc/item at or after point, else nil.
 Resolves the doc/item on THIS row, else on the NEAREST following row.  Lets
 RET/click on a dir-header or blank row open the first doc beneath it instead
 of erroring."
@@ -9737,10 +9713,10 @@ of erroring."
   "Return a plist describing the source to show for the item/doc at point.
 Keys: :marker (a marker or filepath string), :file, :title, :state.
 Works on the board (`org-air-item') and the project view (`org-air-doc')
-via the shared `org-air-marker' text property (R16 D-P3).
-R22-2: resolve each row property anywhere on the line (point-independent),
+via the shared `org-air-marker' text property.
+Resolve each row property anywhere on the line (point-independent),
 so a native/mouse landing on the leading margin/rail/pad still resolves.
-R24-4: when the row has NO item/doc/marker (a dir-header or blank row),
+When the row has NO item/doc/marker (a dir-header or blank row),
 fall forward to the NEAREST following doc/item so RET/click still opens a
 pane instead of erroring (shared resolver; the board section headings benefit
 identically)."
@@ -9768,8 +9744,8 @@ identically)."
 (defun org-air-view-pane--source-buffer-pos (marker)
   "Resolve MARKER (a live marker, filepath, or cons) to (BUFFER . POS).
 Visits a file in the background (never pops it).  Returns nil when the
-source is unavailable (R16 D-P3).  R26-8: a cache-hydrated (FILE . POS)
-cons hydrates on demand — the pane visits FILE and lands on POS."
+source is unavailable.  A cache-hydrated (FILE . POS) cons hydrates on
+demand — the pane visits FILE and lands on POS."
   (cond
    ((and (markerp marker) (marker-buffer marker)
          (buffer-live-p (marker-buffer marker)))
@@ -9784,7 +9760,7 @@ cons hydrates on demand — the pane visits FILE and lands on POS."
 (defun org-air-view-pane--entry-text (buffer pos)
   "Return the Org entry text at POS in BUFFER (heading + body + drawers).
 When POS is nil, return the file head (heading-less files → the buffer
-head).  Org font-lock is applied on a copy (R16 D-P3)."
+head).  Org font-lock is applied on a copy."
   (with-current-buffer buffer
     (save-excursion
       (save-restriction
@@ -9804,7 +9780,7 @@ head).  Org font-lock is applied on a copy (R16 D-P3)."
            (buffer-substring beg end)))))))
 
 (defun org-air-view-pane--fontify (text)
-  "Return TEXT fontified as Org (R16 D-P3).
+  "Return TEXT fontified as Org.
 Uses a temp Org buffer; degrades to the raw text when Org font-lock is
 unavailable (e.g. batch)."
   (condition-case nil
@@ -9818,10 +9794,10 @@ unavailable (e.g. batch)."
     (error text)))
 
 (defun org-air-view-pane--header-line (ctx &optional close-key)
-  "Return the `*org-air-view*' header-line string for context CTX (R16 D-P3).
-Text contract: `▤ <file>  ·  <title>  ·  <state>'.  R18 D-P5.2 gives it
-mu4e-style chrome: the TITLE is the one salient segment, the file/state
-and the `·' separators ride the faded face.  R20-3a surfaces the active
+  "Return the `*org-air-view*' header-line string for context CTX.
+Text contract: `▤ <file>  ·  <title>  ·  <state>' in mu4e-style chrome:
+the TITLE is the one salient segment, the file/state and the `·'
+separators ride the faded face.  Surfaces the active
 CLOSE-KEY as a trailing `· <key> close' hint when given (so the in-pane
 close verb is discoverable).  The header is not buffer text (the pane byte
 golden strips it), so this is byte-invisible."
@@ -9830,7 +9806,7 @@ golden strips it), so this is byte-invisible."
                       (propertize (org-air-view--glyph 'sep-dot)
                                   'face 'org-air-face-inspector-label)
                       "  "))
-         ;; R22-7: face the filename + state (+ the separators / icon /
+         ;; Face the filename + state (+ the separators / icon /
          ;; close-key) with the readable mid-tier `org-air-face-inspector-
          ;; label' (6.02:1 light / 8.32:1 dark) instead of `org-air-face-
          ;; faded' (2.15:1 / 2.45:1, sub-AA) so the FIRST-read filename is
@@ -9851,7 +9827,7 @@ golden strips it), so this is byte-invisible."
               ""))))
 
 (defun org-air-view-pane--reveal (&optional wide)
-  "Reveal the pane's content, then re-fold its drawers (R65-1).
+  "Reveal the pane's content, then re-fold its drawers.
 Runs in the current (PANE) buffer only: `org-fold-show-subtree' reveals
 the narrowed heading's ENTIRE subtree — body, sub-headings and their
 bodies (WIDE non-nil — the heading-less / pos-nil file-head case — uses
@@ -9865,7 +9841,7 @@ fold state at creation (text-properties style), and overlay folds are
 private itree clone copies — so nothing here can mutate the SOURCE
 buffer's folds.  Each call rides an `fboundp' ladder (the
 `org-show-context' precedent) so an exotic pre-org-fold Org degrades
-sanely.  Never errors (R53): any failure degrades to today's folded
+sanely.  Never errors: any failure degrades to today's folded
 pane, never a broken `v'."
   (condition-case nil
       (progn
@@ -9883,18 +9859,18 @@ pane, never a broken `v'."
 
 (defun org-air-view-pane--indirect (base pos title)
   "Return an `org-mode' indirect buffer on BASE narrowed to the subtree at POS.
-Edits write through to BASE; `save-buffer' persists to disk (R19-3).  TITLE
+Edits write through to BASE; `save-buffer' persists to disk.  TITLE
 names the (hidden) indirect buffer.  When POS is before the first heading —
 a heading-less file head — the buffer is left WIDE so the file shows.
 Narrowing is per-indirect-buffer — it never leaks to BASE or to the board's
-own markers/classify scans of that file.  R65-1: the pane's content is
+own markers/classify scans of that file.  The pane's content is
 REVEALED (body + sub-headings visible) with the drawers re-folded —
 pane-locally, the source buffer's fold state is never touched."
-  ;; R28-1(a) naming contract: every buffer org-air creates and shows in
+  ;; Naming contract: every buffer org-air creates and shows in
   ;; a window carries the `*org-air' prefix — NO leading `hidden buffer'
   ;; space, or the shipped/manual dimmer exclusions can never match the
   ;; pane.  Trade-off accepted: the transient indirect shows up in buffer
-  ;; lists (killed by the R20-3 teardown / rebuilt by follow).
+  ;; lists (killed by the teardown / rebuilt by follow).
   (let ((ind (make-indirect-buffer
               base (generate-new-buffer-name
                     (concat "*org-air-pane:" (or title "") "*"))
@@ -9911,17 +9887,17 @@ pane-locally, the source buffer's fold state is never touched."
             (org-narrow-to-subtree)
             (setq wide nil)))
         (goto-char (point-min))
-        ;; R65-1: reveal the item's body/sub-headings, re-fold drawers —
+        ;; Reveal the item's body/sub-headings, re-fold drawers —
         ;; pane-local (the clone inherited the base's FOLDED state; the
         ;; base's own folds are decoupled and stay untouched).
         (org-air-view-pane--reveal wide)))
     ind))
 
 (defvar-local org-air-view-pane--header-ruled nil
-  "Non-nil once the pane `header-line' boundary rule has been remapped (R20-2).")
+  "Non-nil once the pane `header-line' boundary rule has been remapped.")
 
 (defun org-air-view-pane--install-header-rule ()
-  "Remap the pane `header-line' to the boundary-rule face once (R20-2 #2).
+  "Remap the pane `header-line' to the boundary-rule face once.
 Gives the pane's TOP edge a quiet overline/background so the pane visibly
 starts at its header; display-only (the header TEXT is untouched), so it is
 byte-invisible.  Guarded so repeated chrome installs never stack remaps."
@@ -9930,9 +9906,9 @@ byte-invisible.  Guarded so repeated chrome installs never stack remaps."
     (face-remap-add-relative 'header-line 'org-air-face-pane-header)))
 
 (defun org-air-view-pane--install-chrome (ctx)
-  "Install the pane header-line + leading on the current buffer for CTX (R19-3).
+  "Install the pane header-line + leading on the current buffer for CTX.
 Keeps the existing `▤ file · title · state' header-line contract and the
-R18 D-P5.2 `line-spacing'; enables `variable-pitch-mode' when
+pane `line-spacing'; enables `variable-pitch-mode' when
 `org-air-view-pane-variable-pitch' is on (allowed — the pane is not pixel-
 locked)."
   (setq-local header-line-format
@@ -9945,13 +9921,13 @@ locked)."
     (variable-pitch-mode 1)))
 
 (defun org-air-view-pane--install-close-map ()
-  "Install a buffer-local close map on the EDITABLE indirect pane (R20-3a).
+  "Install a buffer-local close map on the EDITABLE indirect pane.
 `q' must stay self-insert in an editable Org buffer, so the close verb is a
 dedicated `org-air-view-pane-quit' key (surfaced in the header-line hint);
 `quit-window' is remapped so the standard quit key tears the indirect down
 cleanly too.  Built on the current local map (the parent), so every binding
 from `org-mode' still works underneath.
-R35.1: gated on `org-air-use-default-keybindings' — with the knob nil
+Gated on `org-air-use-default-keybindings' — with the knob nil
 org-air installs NO close map in this editable indirect pane (which is the
 user's OWN file content); the dedicated close key + the `quit-window'
 remap are then absent and the buffer keeps its plain `org-mode' local map."
@@ -9963,14 +9939,14 @@ remap are then absent and the buffer keeps its plain `org-mode' local map."
       (use-local-map map))))
 
 (defun org-air-view-pane--snapshot-fold-drawers ()
-  "Fold `:PROPERTIES:' drawers in the snapshot pane, DISPLAY-ONLY (R65-2).
+  "Fold `:PROPERTIES:' drawers in the snapshot pane, DISPLAY-ONLY.
 Walks the current (pane) buffer for property drawers and puts the
 `org-air-pane-drawer' `invisible' text property from the end of each
 `:PROPERTIES:' line through the end of its matching `:END:' line, with
 the invisibility-spec entry registered for an ellipsis — the folded
-look, with buffer BYTES untouched (every pane golden and the R58
-bookmark stash stay byte-identical; string `equal' ignores text
-properties).  Unterminated drawers are skipped; never errors (R53)."
+look, with buffer BYTES untouched (every pane golden and the bookmark
+stash stay byte-identical; string `equal' ignores text
+properties).  Unterminated drawers are skipped; never errors."
   (condition-case nil
       (progn
         (unless (and (listp buffer-invisibility-spec)
@@ -9988,14 +9964,14 @@ properties).  Unterminated drawers are skipped; never errors (R53)."
 
 (defun org-air-view-pane--render-snapshot (ctx src)
   "Render the READ-ONLY entry snapshot for CTX/SRC into `*org-air-view*'.
-The unchanged R16 path: a fontified COPY of the subtree, dead sources show
+A fontified COPY of the subtree; dead sources show
 a calm hint.  Used under `noninteractive', when `org-air-view-pane-editable'
 is nil, or when the source is unresolvable — so every fixture stays
-byte-identical (R19-3).  R65-2: the body stays visible (a copy carries no
+byte-identical.  The body stays visible (a copy carries no
 live folds) and the `:PROPERTIES:' drawer(s) are folded DISPLAY-ONLY —
 buffer bytes unchanged.  Returns the pane buffer."
   (let ((buf (org-air-view-pane--buffer))
-        ;; R58: capture the printable bookmark stash HERE, in the caller's
+        ;; Capture the printable bookmark stash HERE, in the caller's
         ;; (host) buffer — the one writer of the snapshot — so the pane's
         ;; record producer never re-derives sources.
         (bm (org-air-view-pane--bookmark-stash ctx)))
@@ -10013,7 +9989,7 @@ buffer bytes unchanged.  Returns the pane buffer."
           (let ((text (org-air-view-pane--entry-text (car src) (cdr src))))
             (insert text)
             (org-air-view-pane--apply-max-lines)
-            ;; R65-2: display-only fold of the raw `:PROPERTIES:' dump —
+            ;; Display-only fold of the raw `:PROPERTIES:' dump —
             ;; applied AFTER the truncation, bytes unchanged (goldens
             ;; stay byte-identical).
             (org-air-view-pane--snapshot-fold-drawers)))
@@ -10024,7 +10000,7 @@ buffer bytes unchanged.  Returns the pane buffer."
     buf))
 
 (defun org-air-view-pane--render-editable (ctx src)
-  "Build the LIVE, editable Org indirect pane for CTX/SRC (R19-3).
+  "Build the LIVE, editable Org indirect pane for CTX/SRC.
 Returns a fresh indirect buffer on the source file narrowed to the heading;
 stashes it on the host as `org-air-view--pane-indirect' (the caller kills
 the previously-shown indirect AFTER the window swaps to this one, so the
@@ -10044,7 +10020,7 @@ The dominant per-change follow cost is REBUILDING the indirect (a fresh
 lives in the SAME base file we instead widen + `org-narrow-to-subtree' at
 the new heading and refresh the CTX header-line, skipping that cost
 entirely.  Returns IND on success, nil on any error so the caller falls
-back to a rebuild (R20-3b).  R65-1: the reuse path re-reveals per item
+back to a rebuild.  The reuse path re-reveals per item
 \(body visible, drawers re-folded) — pane-local, like the build path;
 stale reveal state outside the new narrow is invisible + pane-private."
   (condition-case nil
@@ -10060,7 +10036,7 @@ stale reveal state outside the new narrow is invisible + pane-private."
               (org-narrow-to-subtree)
               (setq wide nil)))
           (goto-char (point-min))
-          ;; R65-1: same reveal as the build path (the second call site).
+          ;; Same reveal as the build path (the second call site).
           (org-air-view-pane--reveal wide))
         (setq-local header-line-format
                     (org-air-view-pane--header-line ctx "C-c C-q"))
@@ -10071,9 +10047,9 @@ stale reveal state outside the new narrow is invisible + pane-private."
   "Show the entry described by CTX in the bottom pane; return its buffer.
 With `org-air-view-pane-editable' (default t) and a resolvable source, the
 pane is a LIVE, narrowed Org indirect buffer whose edits write through to
-the file (R19-3); otherwise (toggle off, batch, or a dead source) it is the
+the file; otherwise (toggle off, batch, or a dead source) it is the
 unchanged read-only snapshot — so every byte fixture is byte-identical.
-R20-3b: when the live indirect already shows the SAME base file, REUSE it
+When the live indirect already shows the SAME base file, REUSE it
 and re-narrow rather than rebuild."
   (let* ((marker (plist-get ctx :marker))
          (src (and marker (org-air-view-pane--source-buffer-pos marker))))
@@ -10088,7 +10064,7 @@ and re-narrow rather than rebuild."
       (org-air-view-pane--render-snapshot ctx src))))
 
 (defun org-air-view-pane--apply-max-lines ()
-  "Cap the current pane buffer at `org-air-view-pane-max-lines' (R16 D-P3).
+  "Cap the current pane buffer at `org-air-view-pane-max-lines'.
 Appends a `…' continuation marker when truncated.  No-op when nil."
   (when (integerp org-air-view-pane-max-lines)
     (save-excursion
@@ -10105,7 +10081,7 @@ The pane splits the board window (`display-buffer-below-selected'), so the
 rail side window keeps its full frame-body height; a live pane window is
 REUSED (`set-window-buffer') so follow/re-open never re-splits, and the
 previously-shown indirect buffer is killed only AFTER the swap (no flicker)
-\(R16 D-P3 / R19-3).  Respects `org-air-view-pane-focus'."
+Respects `org-air-view-pane-focus'."
   (let* ((old (and (org-air-view--pane-host-p) org-air-view--pane-indirect))
          (host (and (org-air-view--pane-host-p) (current-buffer)))
          (buf (org-air-view-pane--render ctx)))
@@ -10131,7 +10107,7 @@ previously-shown indirect buffer is killed only AFTER the swap (no flicker)
               (set-window-dedicated-p win t)
               (when org-air-view-pane-focus
                 (select-window win)))
-          ;; R26-3b: `display-buffer' refused the pane (a user
+          ;; `display-buffer' refused the pane (a user
           ;; `display-buffer-alist', an unsplittable/too-short host, a
           ;; dedicated window...) — say so.  Never a silent no-op.
           (message "org-air: could not display the view pane"))))
@@ -10141,7 +10117,7 @@ previously-shown indirect buffer is killed only AFTER the swap (no flicker)
     buf))
 
 (defun org-air-view-pane--kill-indirect ()
-  "Kill the tracked pane indirect buffer; the base file buffer survives (R19-3).
+  "Kill the tracked pane indirect buffer; the base file buffer survives.
 Killing an indirect buffer never loses text — unsaved edits live in the
 base and stay savable."
   (when (org-air-view--pane-host-p)
@@ -10150,7 +10126,7 @@ base and stay savable."
     (setq-local org-air-view--pane-indirect nil)))
 
 (defun org-air-view-pane--hide ()
-  "Close the bottom pane window + kill its indirect buffer (R16 D-P3 / R19-3).
+  "Close the bottom pane window + kill its indirect buffer.
 The base file buffer persists (and any unsaved edits with it); the snapshot
 buffer is killed only when `org-air-view-pane-keep-buffer' is nil."
   (let ((win (org-air-view-pane--find-window)))
@@ -10162,14 +10138,14 @@ buffer is killed only when `org-air-view-pane-keep-buffer' is nil."
       (kill-buffer buf))))
 
 (defun org-air-view-pane--teardown ()
-  "Delete the bottom pane window + kill its buffer (R16 D-P3)."
+  "Delete the bottom pane window + kill its buffer."
   (let ((org-air-view-pane-keep-buffer nil))
     (org-air-view-pane--hide)))
 
 (defun org-air-view-pane ()
   "Open OR refresh the bottom `*org-air-view*' source pane for the item at point.
 If the pane is open it is refreshed to the current item; if closed it is
-opened (R16 D-P3).  Key `v'."
+opened.  Key `v'."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
   (org-air-view--require-view)
@@ -10183,36 +10159,36 @@ opened (R16 D-P3).  Key `v'."
 
 (defun org-air-view-pane-return ()
   "RET: open the bottom view pane for the item at point; focus it if open.
-R18 D-P4: the first RET opens/refreshes the pane and KEEPS point on the
+The first RET opens/refreshes the pane and KEEPS point on the
 board; a second RET (RET while the pane is already open) selects the pane
 window for reading/scrolling.  With `org-air-view-pane-follow' (default t)
 the pane then tracks point as you move.  `q' / `other-window' return to the
 board.  Visiting the file in the other window is `S-RET'
 \(`org-air-visit-item') or, on a TTY that cannot send S-RET, `O'.
-R51-3: on the `…and N more' fold row RET (and <mouse-1> — this same
+On the `…and N more' fold row RET (and <mouse-1> — this same
 command) dispatches to `org-air-toggle-section' and does ONLY that —
-nothing opens, no pane (the exact shape of the R48-3 fold branch in
+nothing opens, no pane (the exact shape of the fold branch in
 `org-air-project-open').
-R54-3 (fork F4): on the NOTES section heading — the count row that
+On the NOTES section heading — the count row that
 advertises the knowledge corpus — RET opens the Revisit view instead:
 the count row is the doorway to the full resurfacing surface (TAB still
 expands the bounded preview in place)."
-  ;; R97 D6: RET is the shared row-opening verb of all four views (the
-  ;; project tree's doc rows route through it too, R24-4).
+  ;; RET is the shared row-opening verb of all four views; the project
+  ;; tree's doc rows route through it too.
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
   (org-air-view--require-view)
   (cond
    ((org-air-view--row-property 'org-air-more-row)
     (org-air-toggle-section))
-   ;; R54-3 F4: the Notes section HEADING (never an item row — those
+   ;; The Notes section HEADING (never an item row — those
    ;; carry `org-air-item' and keep the pane) answers RET with Revisit.
    ((and (eq (org-air-view--line-section) 'notes)
          (not (org-air-view--row-property 'org-air-item))
          (fboundp 'org-air-revisit))
     (org-air-revisit))
    (t
-    ;; R54-3: an org-air-initiated open — feed the opt-in visit ledger
+    ;; An org-air-initiated open — feed the opt-in visit ledger
     ;; (a no-op at the default; never a global hook).
     (when-let* ((item (org-air-view--row-property 'org-air-item)))
       (org-air--note-visited (org-air-item-file item)))
@@ -10223,7 +10199,7 @@ expands the bounded preview in place)."
       (org-air-view-pane)))))
 
 (defun org-air-view-pane-close ()
-  "Close the bottom `*org-air-view*' source pane (R16 D-P3).  Key `V'."
+  "Close the bottom `*org-air-view*' source pane.  Key `V'."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
   (org-air-view--require-view)
@@ -10239,7 +10215,7 @@ expands the bounded preview in place)."
     nil))
 
 (defun org-air-view-pane-quit ()
-  "Close the bottom view pane from WITHIN it and return to the board (R20-3a).
+  "Close the bottom view pane from WITHIN it and return to the board.
 Bound to `q' in the read-only snapshot pane, and to a dedicated quit key
 plus a `quit-window' remap in the editable indirect pane, so the pane is
 closable while focused without an explicit function call.  Tears the pane
@@ -10258,15 +10234,15 @@ teardown) and re-selects the board window."
       (org-air-view-pane--hide))
     (when (window-live-p board)
       (select-window board)
-      ;; R29-2: the pane-return entry tail normalizes explicitly — point
+      ;; The pane-return entry tail normalizes explicitly — point
       ;; left in the gutter before the pane opened lands on the title.
       (with-current-buffer (window-buffer board)
         (org-air-view--normalize-point-now)))))
 
 (defun org-air-view--quit-close-pane ()
-  "Close a live bottom pane as ONE progressive quit step (R28-2).
+  "Close a live bottom pane as ONE progressive quit step.
 Shared by `org-air-quit' and `org-air-project-quit' (one helper, never
-forked): when the bottom pane window is live, run the R20-3 teardown
+forked): when the bottom pane window is live, run the teardown
 from the HOST buffer's context (so the host-local
 `org-air-view--pane-indirect' really dies — exactly the discipline
 `org-air-view-pane-quit' established), keep focus on the host window,
@@ -10283,8 +10259,7 @@ when no pane is open, so the caller peels its next layer."
 
 (defun org-air-view--view-pane-update-now (buf)
   "Redraw the follow view pane for BUF (debounce-timer callback).
-Redraws only when the item at point CHANGED and the pane window is live
-\(R16 D-P3)."
+Redraws only when the item at point CHANGED and the pane window is live."
   (when (buffer-live-p buf)
     (with-current-buffer buf
       (when (and org-air-view-pane-follow
@@ -10299,7 +10274,7 @@ Redraws only when the item at point CHANGED and the pane window is live
                   (org-air-view-pane--show ctx))))))))))
 
 (defun org-air-view--view-pane-post-command ()
-  "Follow hook: schedule a DEBOUNCED bottom-pane update (R16 D-P3).
+  "Follow hook: schedule a DEBOUNCED bottom-pane update.
 Separate from the inspector hook; inert under batch.  Mirrors the
 inspector's idle-timer model so the snapshot+fontify on each item-change
 does not run synchronously on every command (responsive on large files)."
@@ -10307,7 +10282,7 @@ does not run synchronously on every command (responsive on large files)."
              org-air-view-pane-follow
              (org-air-view--pane-host-p)
              (org-air-view-pane--window-live-p)
-             ;; R20-3b: cheap early-out — if point has not moved since the
+             ;; Cheap early-out — if point has not moved since the
              ;; last fire, a non-motion command never even schedules the
              ;; timer (so `thing-at-point' is not called).
              (not (eql (point) org-air-view--view-pane-last-pos)))
@@ -10320,7 +10295,7 @@ does not run synchronously on every command (responsive on large files)."
                                (current-buffer)))))
 
 (defun org-air-view--panes-resync-now ()
-  "Force a pane/inspector resync for the item NOW at point (R73-1).
+  "Force a pane/inspector resync for the item NOW at point.
 Called from the board's TWO swap tails — the `org-air-view--refresh-repaint'
 tail (which covers the machine's `--refresh-finish' swap, the ≤budget
 sync fast path, the no-change path, and every failure/cancel repaint)
@@ -10331,24 +10306,24 @@ never \"did the board change under the cursor?\" — this is the missing
 half: direct, timer-free calls (batch visible, no idle wait) to
 `org-air-view--inspector-update-now' and
 `org-air-view--view-pane-update-now', SELF-LIMITED by struct
-identity (Decision 1): a rescanned file's items are FRESH structs (the `eq'
+identity: a rescanned file's items are FRESH structs (the `eq'
 guards redraw — the content-changed case), a retained file's items are
 the very same `eq' structs (skip — provably current, no FORCE churn),
 and a removed item leaves a DIFFERENT struct at point (redraw to the
 new item — the done/drop case).  First both pending debounce timers are
 cancelled (a pre-refresh debounce must not fire later against
-superseded state) and the R20-3b `--view-pane-last-pos' bookkeeping is
+superseded state) and the `--view-pane-last-pos' bookkeeping is
 re-stamped (the pane is now correct FOR this position).
 
-Decision 2 — the empty degrade, RESYNC-SCOPED only: when NO context
+THE EMPTY DEGRADE, RESYNC-SCOPED only: when NO context
 resolves at-or-after point (`org-air-view-pane--context-at-point' with
-its R24-4 fall-forward) AND the board is TRULY empty — no item rows
+its fall-forward) AND the board is TRULY empty — no item rows
 anywhere (the fall-forward never looks BACKWARD, so a nil context
 alone also covers point merely parked below the last row of a
 POPULATED board, where keep-last must hold instead) — the last item
 graduated, the board is empty: with the pane window live, the pane is
 CLOSED via
-`org-air-view-pane--hide' (the R20-3 teardown — base buffer and its
+`org-air-view-pane--hide' (the teardown — base buffer and its
 unsaved state survive) and the inspector renders its nil placeholder —
 never a stale/dead-item pane.  Deliberately NOT folded into
 `--view-pane-update-now' itself: in normal FOLLOW motion a nil-thing
@@ -10360,15 +10335,15 @@ region keeps its render instead of degrading to the placeholder on
 every refresh (and the swap goldens stay byte-clean); the placeholder
 is reserved for the true empty degrade, where it is the honest render.
 
-Never signals, arms NO timers, re-queries NOTHING (R53 — the renders
-work from cached structs; the pane's own source visit is its existing
-R16 render path, unchanged).  The post-command trackers and their
+Never signals, arms NO timers, re-queries NOTHING: the renders work from
+cached structs and the pane's own source visit is its existing render
+path.  The post-command trackers and their
 debounces are byte-untouched — this is an ADDITIONAL synchronous nudge
 at the two swap tails only."
   (condition-case nil
       (when (derived-mode-p 'org-air-view-mode)
         (let ((buf (current-buffer)))
-          ;; Cancel superseded pre-refresh debounces + keep the R20-3b
+          ;; Cancel superseded pre-refresh debounces and keep the
           ;; early-out's bookkeeping truthful.
           (when (timerp org-air-view--inspector-timer)
             (cancel-timer org-air-view--inspector-timer)
@@ -10381,8 +10356,8 @@ at the two swap tails only."
           (let* ((thing (get-text-property (point)
                                            org-air-view--inspector-property))
                  (ctx (org-air-view-pane--context-at-point))
-                 ;; R73fix: the degrade legs below require the board
-                 ;; TRULY empty — the R24-4 fall-forward never looks
+                 ;; The degrade legs below require the board
+                 ;; TRULY empty — the fall-forward never looks
                  ;; BACKWARD, so a nil ctx alone also matches point
                  ;; parked BELOW the last row of a populated board (the
                  ;; pad tail), where keep-last must hold.
@@ -10395,12 +10370,12 @@ at the two swap tails only."
             ;; redraw-vs-skip) or the true empty degrade (nil thing, board
             ;; truly empty — the nil placeholder is the honest render).
             ;; A nil-thing CHROME row or the pad tail with items still
-            ;; on the board keeps the last render (Decision 2's keep-last
-            ;; scoping).
+            ;; on the board keeps the last render (the keep-last
+            ;; scoping above).
             (when (or thing board-empty)
               (org-air-view--inspector-update-now buf))
             (org-air-view--view-pane-update-now buf)
-            ;; Decision 2: the empty degrade — no items remain anywhere
+            ;; The empty degrade — no items remain anywhere
             ;; after the swap: close the pane rather than paint a
             ;; removed item.
             (when (and board-empty
@@ -10412,12 +10387,12 @@ at the two swap tails only."
 (defun org-air-view--two-pane-body (items width)
   "Return (BODY-LINES . FILL-ROW) for ITEMS in the two-pane layout at WIDTH.
 FILL-ROW is a full-width blank row carrying the divider, so the divider
-spans the full body height when the body is padded out (S6)."
+spans the full body height when the body is padded out."
   (let* ((rail-width (org-air-view--rail-width width))
          (divider (org-air-view--divider))
          (item-width (max 20 (- width rail-width (string-width divider))))
          (item-content-width (max 1 (- item-width org-air-margin)))
-         ;; D5b: the rail carries NO extra left margin — its labelled rules
+         ;; The rail carries NO extra left margin — its labelled rules
          ;; sit flush at rail column 0 and the single content spine
          ;; (`org-air-rail-content-inset') is the only inset, aligning the
          ;; grid/summary/filters/actions under the rule labels.
@@ -10434,7 +10409,7 @@ spans the full body height when the body is padded out (S6)."
                       (org-air-view--render-lines
                        rail-content-width
                        (lambda () (org-air-view--insert-rail items rail-content-width))))))
-    ;; D-P1: stash the inspector geometry (incl. the FIXED :region-height set
+    ;; Stash the inspector geometry (incl. the FIXED :region-height set
     ;; by `org-air-view--insert-rail' in the rail temp buffer) so the live
     ;; column-only update can re-find + re-fill the reserved region.
     (setq org-air-view--inspector-geom
@@ -10461,7 +10436,7 @@ spans the full body height when the body is padded out (S6)."
       (nreverse out))))
 
 (defun org-air-view--mutation-landing-capture ()
-  "Capture the R90 section-local landing plan for a cached mutation."
+  "Capture the section-local landing plan for a cached mutation."
   (let* ((item (org-air-view--row-property 'org-air-item))
          (key (and item (org-air-view--item-source-key item)))
          (section (org-air-view--section-at-point))
@@ -10509,7 +10484,7 @@ spans the full body height when the body is padded out (S6)."
         found))))
 
 (defun org-air-view--mutation-landing-consume ()
-  "Consume and apply the pending R90 local landing plan, if any.
+  "Consume and apply the pending local landing plan, if any.
 Moved source keys are never accepted as a fallback.  The same-section
 successor at the old local row index wins, then the nearest previous row,
 then the nearest non-excluded outward item, then section chrome."
@@ -10577,10 +10552,10 @@ then the nearest non-excluded outward item, then section chrome."
 
 (defun org-air-view--render (items tag-filter)
   "Render the dashboard for cached ITEMS with TAG-FILTER, filling the window.
-Three bands (S6): a fixed header (banner + rule), a body that fills the
+Three bands: a fixed header (banner + rule), a body that fills the
 full `org-air-view--render-height' (two-pane keeps the divider down
 every body row; stacked blank-fills), and a footer pinned to the bottom.
-R97 D1: the DEEPEST paint funnel — it erases and rewrites the current
+THE DEEPEST paint funnel — it erases and rewrites the current
 buffer, so the board precondition is stated here as well as at
 `org-air-view--render-current'.  Every path that paints a board (the
 entry core, the refresh machine's swap, the synchronous re-query) runs
@@ -10588,7 +10563,7 @@ with the board buffer current already; nothing else may."
   (org-air-view--require-board)
   (org-air-view--with-render-gc
   (let* ((inhibit-read-only t)
-         ;; R27-1 S3: latch the reconciler for the FULL render extent so a
+         ;; Latch the reconciler for the FULL render extent so a
          ;; 0s reconcile timer nesting inside this render (org-ql's file IO
          ;; runs pending timers) can never misread the in-flight popout as
          ;; a user close; the nested run re-arms for after the render.
@@ -10602,16 +10577,16 @@ with the board buffer current already; nothing else may."
          (dims (org-air-view--char-dimensions))
          (org-air-view--pill-char-w (car dims))
          (org-air-view--pill-char-h (cdr dims))
-         ;; R18 D-P1a: one pill-geometry snapshot per render, shared by every
+         ;; One pill-geometry snapshot per render, shared by every
          ;; pane (folded into the svg image cache key for auto-invalidation
          ;; on any pill-geometry defcustom change).
          (org-air-view--pill-style-sig
           (list org-air-pill-pad-cols org-air-pill-radius
                 org-air-pill-fill-alpha org-air-pill-font-scale
                 org-air-pill-border-opacity org-air-pill-vinset))
-         ;; R20-6: set the render dynamics the partition depends on
+         ;; Set the render dynamics the partition depends on
          ;; (items/tag-filter) and ensure the classify cache table for today
-         ;; (R18 D-P1c) BEFORE composing the panes, THEN compute the
+         ;; BEFORE composing the panes, THEN compute the
          ;; compute-once partition (the visible set + the bucket->items map in
          ;; ONE classify pass) and bind it for the whole render extent.  The
          ;; pane temp buffers (`org-air-view--render-lines') rebind it, so
@@ -10625,28 +10600,28 @@ with the board buffer current already; nothing else may."
               ;; Same-generation repaint/filter/mark/collapse skips all source
               ;; tracking work; no file is opened in either path.
               (org-air-view--source-generation-synchronize items)
-              ;; R90 generation swap: exact source-key reconciliation only.
+              ;; Generation swap: exact source-key reconciliation only.
               (org-air-view--marked-reconcile items)
               (org-air-view--classify-cache-ensure)))
          (org-air-view--render-partition
           (org-air-view--compute-partition items))
-         ;; R20-6: the per-render displayed-rows memo (shared by the section
+         ;; The per-render displayed-rows memo (shared by the section
          ;; pass + the meta-width pass so they sort+take each bucket once).
          (org-air-view--render-displayed
           (cons items (make-hash-table :test 'eq)))
-         ;; R99: the per-render pure-cell memo (tag chips, origin
+         ;; The per-render pure-cell memo (tag chips, origin
          ;; breadcrumb, keyword cell, priority slot).  One render's
          ;; lifetime, so it has no invalidation rule and cannot leak.
          (org-air-view--render-memo (make-hash-table :test 'equal :size 128)))
     (erase-buffer)
-    ;; R20-2 + R20-6: cache the visible count for the status mode-line :eval
+    ;; Cache the visible count for the status mode-line :eval
     ;; from the compute-once visible set (redisplay never re-scans all items).
     (setq-local org-air-view--mode-line-count
                 (length (cadr org-air-view--render-partition)))
-    ;; R16 D-P1: seed the per-board popout flag from the INITIAL preference
+    ;; Seed the per-board popout flag from the INITIAL preference
     ;; on first render only (`unset' sentinel); thereafter the toggle /
     ;; reconciler own it.  The renderer never consults `org-air-rail-style'
-    ;; for dispatch again.  R26-5/R49-2: the placement seeds too, through
+    ;; for dispatch again.  The placement seeds too, through
     ;; the ONE shared resolver `org-air-rail--placement' (interactive
     ;; only; batch keeps `unset' -> nil, or the explicit
     ;; `org-air-rail-style' back-compat force).
@@ -10656,9 +10631,9 @@ with the board buffer current already; nothing else may."
                       (and (not noninteractive)
                            (eq (org-air-rail--placement 'board)
                                'side-window)))))
-    ;; R13 D-P3: below `org-air-rail-min-width' drop the rail entirely
+    ;; Below `org-air-rail-min-width' drop the rail entirely
     ;; (board-only); else the existing two-pane vs stacked decision.
-    ;; R16 D-P1: `side-window' is now driven by the RUNTIME flag (a user
+    ;; `side-window' is now driven by the RUNTIME flag (a user
     ;; popped the rail out), never an unconditional render mode — so
     ;; `window-toggle-side-window' is respected.
     (setq org-air-view--orientation
@@ -10667,7 +10642,7 @@ with the board buffer current already; nothing else may."
            ((org-air-rail--popped-p) 'side-window)
            ((org-air-view--two-pane-p width) 'two-pane)
            (t 'stacked)))
-    ;; R15 D-P2 / R27-2: under `side-window' create the rail side window
+    ;; Under `side-window' create the rail side window
     ;; BEFORE composing the board body, then compose at the board window's
     ;; REAL body width (the shared `org-air-rail--host-width' helper — the
     ;; rail cols are frame-derived, so the geometry settles in one step and
@@ -10683,7 +10658,7 @@ with the board buffer current already; nothing else may."
                       (org-air-view--insert-banner items)
                       (org-air-view--insert-rule)
                       (insert "\n"))))
-           ;; R4: with the footer band off (default), there is no bottom
+           ;; With the footer band off (default), there is no bottom
            ;; rule/legend at all — the body fills to the last usable row.
            (footer (if org-air-show-footer
                        (org-air-view--render-lines
@@ -10692,7 +10667,7 @@ with the board buffer current already; nothing else may."
                           (org-air-view--insert-rule)
                           (org-air-view--insert-footer)))
                      nil))
-           ;; R98: the body composition is ONE function shared with the
+           ;; The body composition is ONE function shared with the
            ;; incremental splice (`org-air-view--render-section'), so the
            ;; spliced band is byte-identical to this one by construction
            ;; rather than by two code paths agreeing.
@@ -10702,14 +10677,14 @@ with the board buffer current already; nothing else may."
            (body-target (max (length body-content)
                              (- height (length header) (length footer))))
            (body (org-air-view--pad-line-list body-content body-target fill-row)))
-      ;; R18 D-P1b: bracket the body band with markers and remember the
+      ;; Bracket the body band with markers and remember the
       ;; target floor + fill row, so the TAB-expand section splice can redraw
       ;; only the body (never the header/footer) and reproduce the EXACT
       ;; full-render body height.
       (setq-local org-air-view--body-target-floor
                   (- height (length header) (length footer))
                   org-air-view--body-fill-row fill-row)
-      ;; R43-2: the two-pane pane-divider column (item-width + the divider's
+      ;; The two-pane pane-divider column (item-width + the divider's
       ;; leading space), so the finalize tail keeps the divider INTERIOR on
       ;; every board row instead of trimming the blank rail tail.  Nil for
       ;; board-only / stacked / side-window (and plain style, which has no
@@ -10732,10 +10707,10 @@ with the board buffer current already; nothing else may."
       (org-air-view--insert-lines footer))
     (if (integerp org-air-view-width)
         (org-air-view--normalize-buffer-lines org-air-view-width)
-      ;; D7/D6 — cap every line at the displaying window and right-trim;
-      ;; R43-2 — two-pane divider rows are padded to width (divider interior).
+      ;; Cap every line at the displaying window and right-trim;
+      ;; two-pane divider rows are padded to width (divider interior).
       (org-air-view--finalize-buffer-lines width org-air-view--pane-divider-col))
-    ;; T5: drop the trailing newline so the buffer is EXACTLY the filled
+    ;; Drop the trailing newline so the buffer is EXACTLY the filled
     ;; line count — otherwise the final \n renders one phantom blank row
     ;; below the footer, overrunning the body height by one.
     (goto-char (point-max))
@@ -10744,58 +10719,58 @@ with the board buffer current already; nothing else may."
     (setq org-air-view--rendered-width width
           org-air-view--rendered-height height)
     (org-air-view--goto-first-item)
-    ;; R58: an armed bookmark locator owns the landing — one text-property
+    ;; An armed bookmark locator owns the landing — one text-property
     ;; scan over the rendered rows; stays armed only while the refresh
     ;; machine is still filling (a progressive paint may not hold the row
     ;; yet), so the inspector below syncs to the bookmarked item.
     (org-air-view--bookmark-consume)
-    ;; R90 mutation landing overrides only this mutation repaint.  Consume
+    ;; The mutation landing overrides only this mutation repaint.  Consume
     ;; it after default/bookmark placement and BEFORE inspector/rail setup.
     (org-air-view--mutation-landing-consume)
-    ;; D-P7: locate the inspector band, set its markers, sync to the item
+    ;; Locate the inspector band, set its markers, sync to the item
     ;; the cursor landed on (the live hook keeps it synced thereafter).
     (org-air-view--setup-inspector)
-    ;; R15 D-P2: side-window rail lifecycle.  `side-window' shows/refreshes
+    ;; Side-window rail lifecycle.  `side-window' shows/refreshes
     ;; the rail side window; board-only deletes it (responsive teardown);
     ;; the inline paths leave any rail buffer untouched (none under inline).
     (cond
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      ;; R63-1a: the responsive teardown is an OWNER privilege — the
+      ;; The responsive teardown is an OWNER privilege — the
       ;; fourth gated tail.  A narrow NON-owner (or suspended) render
       ;; must never delete another view's live rail; the actual owner's
-      ;; R56 board-only collapse passes the gate unchanged.
-      ;; R58: an undisplayed (bookmark-restored) board must not delete the
+      ;; own board-only collapse passes the gate unchanged.
+      ;; An undisplayed (bookmark-restored) board must not delete the
       ;; displayed layout's windows.
       (when (and (org-air-rail--tail-owner-p (current-buffer))
                  (not (org-air-rail--undisplayed-host-p (current-buffer))))
         (org-air-rail--hide (current-buffer)))))
-    ;; R25-6: an INLINE (two-pane/stacked) self-render must also drop a
+    ;; An INLINE (two-pane/stacked) self-render must also drop a
     ;; stale side rail owned by ANOTHER view (the cross-view sweep).  When
     ;; SELF is popped `--show' already re-owned the window, so this no-ops.
     (org-air-rail--evict-foreign-rail (current-buffer)))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R18 D-P1b incremental render — redraw only the changed body / calendar.
+;;;; Incremental render — redraw only the changed body / calendar.
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-view--compose-body (items width)
   "Return (BODY-LINES . FILL-ROW) for ITEMS at WIDTH in the live orientation.
-The ONE body composer (R98): `org-air-view--render' calls it to build the
+The ONE body composer: `org-air-view--render' calls it to build the
 middle band, and `org-air-view--render-section' calls it to rebuild that
 band in place.  FILL-ROW is the blank row the band pads out with — empty
 everywhere except two-pane, whose fill row carries the pane divider so
-the rule spans the full body height (S6)."
+the rule spans the full body height."
   (cond
-   ;; R13 D-P3: board-only — full-width item pane, NO rail / calendar /
+   ;; Board-only — full-width item pane, NO rail / calendar /
    ;; inspector.
    ((memq org-air-view--orientation '(board-only side-window))
     (cons (org-air-view--render-lines
            width
            (lambda () (org-air-view--insert-item-pane items width)))
           ""))
-   ;; D-P1: the inspector lives INSIDE the rail (fixed reserved mid-rail
+   ;; The inspector lives INSIDE the rail (fixed reserved mid-rail
    ;; region), not as an appended foot band.
    ((eq org-air-view--orientation 'two-pane)
     (org-air-view--two-pane-body items width))
@@ -10811,16 +10786,16 @@ the rule spans the full body height (S6)."
           ""))))
 
 (defun org-air-view--postprocess-line (line width)
-  "Return LINE post-processed to match a full render's output (R18 D-P1b).
+  "Return LINE post-processed to match a full render's output.
 Mirror `org-air-view--normalize-buffer-lines' (pad to the fixed width seam)
-or `org-air-view--finalize-buffer-lines' (cap to WIDTH + right-trim, and —
-R43-2/R44-2 — pad + `:align-to'-pin a pane-divider row) so a spliced /
+or `org-air-view--finalize-buffer-lines' (cap to WIDTH + right-trim,
+and pad + `:align-to'-pin a pane-divider row) so a spliced /
 inspector-refilled line is byte-identical AND pixel-identical to the
 corresponding full-render line.  The pin keeps the divider straight on the
 inspector-region rows too (they are re-composed here AFTER finalize)."
   (if (integerp org-air-view-width)
       (org-air-view--pad-to line org-air-view-width)
-    ;; R99: LINE comes straight out of `org-air-view--buffer-lines-padded',
+    ;; LINE comes straight out of `org-air-view--buffer-lines-padded',
     ;; which already seeded its width, so this is a memo read.
     (let* ((capped (if (> (org-air-view--display-width line) width)
                        (truncate-string-to-width
@@ -10833,7 +10808,7 @@ inspector-region rows too (they are re-composed here AFTER finalize)."
         (string-trim-right capped)))))
 
 (defun org-air-view--body-region ()
-  "Return (BEG . END) buffer positions of the live body band, or nil (R18)."
+  "Return (BEG . END) buffer positions of the live body band, or nil."
   (when (and (markerp org-air-view--body-beg)
              (markerp org-air-view--body-end)
              (eq (marker-buffer org-air-view--body-beg) (current-buffer))
@@ -10846,29 +10821,29 @@ inspector-region rows too (they are re-composed here AFTER finalize)."
           (marker-position org-air-view--body-end))))
 
 (defun org-air-view--render-section (_bucket)
-  "Redraw only the changed board body region after a section toggled (R18 D-P1b).
+  "Redraw only the changed board body region after a section toggled.
 Recomposes the body the SAME way `org-air-view--render' does (cheap: the
 classify + pill caches make it text-only work), then rewrites ONLY from the
 first line that actually changed to the end of the body band — the header,
 the footer and every earlier section stay byte-untouched, and the body
-height is reproduced from the stored target floor (S6).  The result is
+height is reproduced from the stored target floor.  The result is
 byte-identical to a full render with the same `org-air-view--expanded-
 sections' (proved by the equivalence golden).  Falls back to the cheap full
 render when the body band is unknown.  _BUCKET is accepted for API symmetry.
-R91: the splice deletes from the first CHANGED line down, so a
+The splice deletes from the first CHANGED line down, so a
 `window-start' inside the rewritten span collapses to that line — the
 same visible jump the full render has; the scroll seam covers both.
 
-R98 — EVERY ORIENTATION SPLICES NOW.  The band is built by the shared
+EVERY ORIENTATION SPLICES.  The band is built by the shared
 `org-air-view--compose-body', which dispatches on the live orientation,
-so the column-composed two-pane layout (the wide-frame default, and the
-one the R98 user reports TAB being slow in) no longer falls back to a
+so the column-composed two-pane layout (the wide-frame default) does not
+fall back to a
 full `org-air-view--render'.  Two consequences are handled here rather
 than wished away: the two-pane fill row carries the pane divider (taken
 from the composer, not from the stored one), and the two-pane inspector
 lives INSIDE this band, so its markers are re-bracketed at the tail.
 
-R99: the splice runs under `org-air-view--with-render-gc' for the same
+The splice runs under `org-air-view--with-render-gc' for the same
 reason the full render does — it is ONE synchronous repaint, and letting
 the collector interrupt it two or three times was two thirds of what TAB
 cost in a real frame."
@@ -10887,12 +10862,12 @@ cost in a real frame."
                (list org-air-pill-pad-cols org-air-pill-radius
                      org-air-pill-fill-alpha org-air-pill-font-scale
                      org-air-pill-border-opacity org-air-pill-vinset))
-              ;; R98 — THE COMPUTE-ONCE DYNAMICS, WHICH THIS PATH NEVER BOUND.
-              ;; Without them the "fast" splice re-derived the visible set
-              ;; and re-sorted every bucket once PER CONSUMER (section pass,
-              ;; meta-width pass, badge, summary), which is why the R98
-              ;; measurement found it 1.5x SLOWER than the full render it
-              ;; was supposed to beat: `--passes-filter-p' alone was 25% of
+              ;; THE COMPUTE-ONCE DYNAMICS MUST BE BOUND HERE.  Without
+              ;; them the "fast" splice re-derives the visible set and
+              ;; re-sorts every bucket once PER CONSUMER (section pass,
+              ;; meta-width pass, badge, summary), measured 1.5x SLOWER
+              ;; than the full render it is supposed to beat:
+              ;; `--passes-filter-p' alone was 25% of
               ;; the toggle.  One partition + one displayed-rows memo, exactly
               ;; as `org-air-view--render' binds them.
               (_ (org-air-view--classify-cache-ensure))
@@ -10900,7 +10875,7 @@ cost in a real frame."
                (org-air-view--compute-partition items))
               (org-air-view--render-displayed
                (cons items (make-hash-table :test 'eq)))
-              ;; R99: the same per-render pure-cell memo the full render
+              ;; The same per-render pure-cell memo the full render
               ;; binds -- the splice builds the SAME rows through the SAME
               ;; composer, so it must get the same one-render cache or the
               ;; TAB path pays a per-row cost the repaint path does not.
@@ -10915,7 +10890,7 @@ cost in a real frame."
               (trailing (string-suffix-p "\n" old-text))
               (old-lines (let ((lines (split-string old-text "\n")))
                            (if trailing (butlast lines) lines)))
-              ;; R98: the SAME composer the full render uses, dispatching on
+              ;; The SAME composer the full render uses, dispatching on
               ;; the live orientation — so two-pane and stacked splice too,
               ;; and the band cannot drift from the full render's band.
               (pair (org-air-view--compose-body items width))
@@ -10963,13 +10938,13 @@ cost in a real frame."
              (when (and (> (point) beg) (eq (char-before (point)) ?\n))
                (delete-char -1)))
            (set-marker org-air-view--body-end (point)))
-         ;; R98: two-pane keeps the inspector INSIDE the rail, i.e. inside
+         ;; Two-pane keeps the inspector INSIDE the rail, i.e. inside
          ;; the band just rewritten, so its markers have to be re-bracketed
          ;; and its reserved region re-filled.  IN THE FULL RENDER'S ORDER:
          ;; `org-air-view--render' brackets the region with point on the
          ;; first item, so doing it here with point anywhere else would
          ;; leave the inspector showing a DIFFERENT item and quietly break
-         ;; the R18 equivalence law the moment two-pane started splicing.
+         ;; the equivalence law the moment two-pane started splicing.
          ;; Point is placed for real by `--restore-position' right after
          ;; (and by the caller after that).
          (when (eq org-air-view--orientation 'two-pane)
@@ -10978,7 +10953,7 @@ cost in a real frame."
          (org-air-view--restore-position token)))))))
 
 (defun org-air-view--render-calendar ()
-  "Re-render ONLY the side-window rail buffer for the new month (R18 D-P1b).
+  "Re-render ONLY the side-window rail buffer for the new month.
 The board buffer is byte-untouched: month-nav changes only
 `org-air-view--cal-month', which the rail reads through its back-pointer.
 Falls back to the cheap full render when the rail is not a side window."
@@ -11004,7 +10979,7 @@ Falls back to the cheap full render when the rail is not a side window."
       found)))
 
 (defun org-air-view--restore-to-column (token)
-  "Move point to TOKEN's saved :column on the CURRENT row, clamped (R21-1).
+  "Move point to TOKEN's saved :column on the CURRENT row, clamped.
 Never lands before the row's first visible glyph (so the cursor still reads
 on a real character, S5a); if the saved column runs past a now-narrower
 row's content it lands on the row's last visible glyph rather than the
@@ -11018,13 +10993,13 @@ the column the user was on instead of snapping to the row's leftmost glyph."
       (backward-char 1))))
 
 (defun org-air-view--restore-position (token)
-  "Restore the cursor to the location described by TOKEN (D5).
+  "Restore the cursor to the location described by TOKEN.
 Prefers the same item; if it vanished (refiled/done), lands on the
 nearest surviving item in the same section, then the section heading,
 falling back to the same line/column — never jumping to `point-min'
 unless nothing else is available.  In every branch point is restored to
-TOKEN's saved column (clamped), so a re-render genuinely preserves point
-\(R21-1)."
+TOKEN's saved column (clamped), so a re-render genuinely preserves
+point."
   (let ((marker-pos (org-air-view--find-property
                      'org-air-marker (plist-get token :marker)))
         (section-pos (org-air-view--find-property
@@ -11032,56 +11007,56 @@ TOKEN's saved column (clamped), so a re-render genuinely preserves point
     (cond
      (marker-pos
       ;; SAME item survived: this is the point-preservation case.  Restore
-      ;; the saved column so the user stays on the SAME glyph (R21-1), not
+      ;; the saved column so the user stays on the SAME glyph, not
       ;; snapped to the row's leftmost glyph.
       (goto-char marker-pos)
       (org-air-view--restore-to-column token))
      (section-pos
       ;; Item vanished, its section survived: land on the nearest surviving
       ;; item.  No same-glyph to preserve, so use the safe first-visible
-      ;; landing (R21-2 routes this to the title).
+      ;; landing (point normalisation routes this to the title).
       (goto-char (or (text-property-not-all section-pos (point-max)
                                             'org-air-item nil)
                      section-pos))
-      ;; R21-2: one consistent landing rule — the surviving item's TITLE.
+      ;; One consistent landing rule — the surviving item's TITLE.
       (org-air-view--goto-row-title))
      (t
       ;; Item AND section vanished (a re-query after auto-refresh rebuilds
       ;; markers, or a filter emptied the board): land on the saved line.
       ;; The saved column is not preserved here — it belonged to a row that
-      ;; no longer exists; land on the TITLE (R21-2), falling back to the
+      ;; no longer exists; land on the TITLE, falling back to the
       ;; first visible char for a heading / empty board.
       (goto-char (point-min))
       (forward-line (1- (or (plist-get token :line) 1)))
       (org-air-view--goto-row-title)))
-    ;; R29-2: the restore tail normalizes EXPLICITLY (no hook timing
+    ;; The restore tail normalizes EXPLICITLY (no hook timing
     ;; games) — a restored DEAD column (the gutter before the title) is
     ;; corrected immediately, not on the next keystroke.  Idempotent on
-    ;; any on/after-title column, so R21-1's preserved column survives.
+    ;; any on/after-title column, so the preserved column survives.
     (org-air-view--normalize-point-now)))
 
 (defun org-air-view--render-current ()
   "Re-render the dashboard from `org-air-view--items', preserving point.
 Filters, scope and the calendar month are buffer-local and survive; the
 cursor is restored to the same item (or section, or line) afterwards.
-R27-1 S4 (the single-scanner law): while the R26-8 machine is REFRESHING
+THE SINGLE-SCANNER LAW: while the machine is REFRESHING
 this never runs the synchronous fallback query — a mid-refresh repaint
 renders the items AS-IS (the swap repaints once at the end), and a COLD
 refresh (`org-air-view--loading' t) repaints the loading skeleton — so
 the slice machine can never be raced by a second concurrent scan (whose
 `find-file-noselect'/`normal-mode' wipes the very buffer-locals the
 in-flight slice's org-ql predicate is reading).
-R91: the erase + re-render drops every displaying window's
+The erase + re-render drops every displaying window's
 `window-start' to `point-min', so the repaint is wrapped in the scroll
 seam — point is preserved AND the row it sits on is redrawn on the same
 screen line.  This is the funnel for the filter (`/'), sort, scope
 \(`s'/`S'), lens, calendar month nav and the resize repaint, so all of
-them inherit it.  The R90 mutation landing is deliberately included: the
+them inherit it.  The mutation landing is deliberately included: the
 row that REPLACES a done/refiled row is exactly the row that slid into
 the old screen line, so anchoring keeps that landing stationary too.
-R97 D1 (the FUNNEL precondition): this erases and repaints the CURRENT
-buffer, so it states up front that the current buffer must be a board.
-Before R97 it had no such precondition and eight commands funnelling
+THE FUNNEL PRECONDITION: this erases and repaints the CURRENT buffer, so
+it states up front that the current buffer must be a board.  Without one
+here, every command funnelling
 through it (`g', `G', the calendar month/day nav, the filter and scope
 clears) painted the board over whatever buffer the user was standing
 in, leaving it modified — a subsequent \\[save-buffer] wrote the board
@@ -11096,10 +11071,10 @@ including the ninth command that has not been written yet."
     ((eq org-air-view--refresh-state 'refreshing)
      (org-air-view--refresh-repaint))
     (t
-     ;; R58: with a bookmark locator armed the locator owns the landing —
+     ;; With a bookmark locator armed the locator owns the landing —
      ;; the saved point belongs to the pre-restore skeleton, so the
      ;; save/restore pair is skipped and the render tail's
-     ;; `org-air-view--bookmark-consume' places point instead.  R91: the
+     ;; `org-air-view--bookmark-consume' places point instead.  The
      ;; scroll seam stands down on that path for the same reason (see
      ;; `org-air-view--scroll-anchors').
      (let* ((mutationp org-air-view--pending-mutation-landing)
@@ -11113,8 +11088,8 @@ including the ninth command that has not been written yet."
 
 (defun org-air-view--resize-refresh ()
   "Re-render only when the displaying window's width or height changed.
-Called from the debounced window-size/-configuration hook (S6 makes the
-body fill the height, so a height change must re-pad too)."
+Called from the debounced window-size/-configuration hook.  The body
+fills the window height, so a height change must re-pad too."
   (let ((width (org-air-view--render-width))
         (height (org-air-view--render-height)))
     (unless (and (eql width org-air-view--rendered-width)
@@ -11122,12 +11097,12 @@ body fill the height, so a height change must re-pad too)."
       (org-air-view--render-current))))
 
 (defun org-air-view--render-loading (&optional _progress)
-  "Paint the chrome-only loading skeleton for the cold fast-paint load (R20-1).
+  "Paint the chrome-only loading skeleton for the cold fast-paint load.
 Reuses the banner + rule + footer bands at `board-only' orientation with a
 single centred \"Loading your board…\" body line.  `org-air-view' paints
 this once and forces it visible with `redisplay' so the frame appears
 within one paint, BEFORE the synchronous query runs.
-R97 D1: the second `erase-buffer' funnel, guarded like the first."
+The second `erase-buffer' funnel, guarded like the first."
   (org-air-view--require-board)
   (let* ((inhibit-read-only t)
          (width (org-air-view--render-width))
@@ -11156,7 +11131,7 @@ R97 D1: the second `erase-buffer' funnel, guarded like the first."
                           (org-air-view--insert-rule)
                           (org-air-view--insert-footer)))
                      nil))
-           ;; R56 P3b: the skeleton's centred line carries the live scan
+           ;; The skeleton's centred line carries the live scan
            ;; numbers too, so even the pre-content chrome answers "is it
            ;; doing anything?" honestly.
            (msg (propertize
@@ -11186,7 +11161,7 @@ R97 D1: the second `erase-buffer' funnel, guarded like the first."
     (goto-char (point-min))))
 
 (defun org-air-view--short-error (err)
-  "Return a bounded single-line human string for the load error ERR (R20-1).
+  "Return a bounded single-line human string for the load error ERR.
 The first line of `error-message-string', capped at 160 chars.  org/org-ql
 errors routinely carry large data payloads (a re-query of N items can make
 `error-message-string' six figures long); this guarantees the cold-load
@@ -11199,7 +11174,7 @@ timer path produced — a truncated, single-line, human message."
       line)))
 
 (defun org-air-view--loading-guard ()
-  "Soft-error during the brief synchronous fast-paint window (R20-1).
+  "Soft-error during the brief synchronous fast-paint window.
 Guards the data-dependent commands (filter/scope/TAB) so they never act on
 an empty skeleton; navigation over the skeleton stays harmless.  Now
 near-inert: the load window is a single synchronous body the user cannot
@@ -11208,51 +11183,51 @@ interrupt, but the guard is cheap and harmless."
     (user-error "Still loading your board…")))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R26-8 — cache-first async: disk cache + token-guarded chunked refresh.
+;;;; Cache-first async: disk cache + token-guarded chunked refresh.
 ;;;; ---------------------------------------------------------------------
 
 (defconst org-air-view--cache-version 8
-  "Serialisation version of `org-air-cache-file' (R26-8).  Bump = discard.
-v2 (R53): `org-air-item' gained the scan-time slots
+  "Serialisation version of `org-air-cache-file'.  Bump = discard.
+v2: `org-air-item' gained the scan-time slots
 \(kind/donep/activity/body-deadline) that make the cache LOAD-BEARING —
 a cache-hit board renders data-pure, never opening a file.
-v3 (R53fix): the struct gained `subtree-ts' (day view's Logged/created
+v3: the struct gained `subtree-ts' (day view's Logged/created
 key); a v2 cache would hydrate records of the wrong shape.
-v4 (R54): the struct gained `active-ts' (the R54-1 stale-eligibility
-signal) and `ntype' (the R54-2 note type), and the cache carries the
-per-file `:file-meta' table.  R54-3 (still v4, the declared one-bump
-shape): the file-meta plists gained the link-graph keys
+v4: the struct gained `active-ts' (the stale-eligibility
+signal) and `ntype' (the note type), and the cache carries the
+per-file `:file-meta' table.  Still v4 (the declared one-bump shape):
+the file-meta plists gained the link-graph keys
 \(:ids/:links-raw/:links-out/:links-in) and the cache the `:visits'
-ledger — both were declared part of the v4 shape when R54 part 1
+ledger — both were declared part of the v4 shape when part 1
 landed, so a part-1 v4 cache still hydrates cleanly: empty ledger, and
 link-less metas are SKIPPED by `org-air-query-file-meta-hydrate' (they
 would read as false all-orphans and get re-persisted by a warm cache
 write), so the file-meta table starts empty and re-fills via the paced
 scan.  A v3 cache is simply a cold miss — skeleton + paced rescan,
 never a hang.
-v5 (R59): the struct gained the two container signal slots (`childp' +
+v5: the struct gained the two container signal slots (`childp' +
 `own-active-ts') backing `org-air-query-container-item-p'; a v4 cache
 would hydrate records of the wrong shape, so it is a clean one-time
-cold miss — skeleton + the R56 paced rescan, never a hang (the
+cold miss — skeleton + the paced rescan, never a hang (the
 documented version-mismatch path).
-v6 (R61): the struct gained the four review harvest slots (`clocks' /
+v6: the struct gained the four review harvest slots (`clocks' /
 `logs' / `created' / `rtrunc') — v5 records have the wrong record
 length, so a v5 cache is the same clean one-time cold miss.  New
 TRAILING slots ride the existing print/`read' machinery with zero new
 serialisation code — the version bump exists precisely for the record
-length.  R90 retains v6 because its final source projection is again Org's
+length.  v6 is retained because the source projection is again Org's
 native title/tag semantics; the experimental broad projection was never a
 released cache contract.
-v7 (R93): the struct gained the `updated' recency slot — the scan-time
+v7: the struct gained the `updated' recency slot — the scan-time
 fact the Needs-attention aging rule classifies on.  Another new TRAILING
 slot, so again zero serialisation code and the same clean one-time cold
-miss for a v6 cache: skeleton + the R56 paced rescan, never a hang.  The
+miss for a v6 cache: skeleton + the paced rescan, never a hang.  The
 bump is REQUIRED and not merely defensive: a v6 record would hydrate with
 no `updated' at all, and every historyless heading would then age off the
 file mtime — a whole board of wrong reasons rather than an honest
 refill.
-v8 (R94): NO new slot — the RECORD SHAPE is identical to v7 and this bump
-is about MEANING.  R94 narrowed what `updated' may contain: an inactive
+v8: NO new slot — the RECORD SHAPE is identical to v7 and this bump
+is about MEANING: `updated' narrowed to exclude an inactive
 `SCHEDULED:'/`DEADLINE:' value and a QUOTED old plan date inside a
 reschedule log line are no longer updates
 \(`org-air-query--plan-stamp-p', `org-air-query--quoted-stamp-p').  A v7
@@ -11260,13 +11235,13 @@ record is well-formed but was harvested under the OLD rule, so hydrating
 it would keep a heading looking fresher than it is — and, now that
 `org-air-classify--untracked-p' reads the same slot, would also keep it
 out of the Untracked section it belongs in.  Wrong answers that look
-right are worse than a cold miss, so v7 is discarded: skeleton + the R56
+right are worse than a cold miss, so v7 is discarded: skeleton + the
 paced rescan, never a hang.")
 
 (defun org-air-view--item-pos (item)
   "Return a position for ITEM valid inside its source file's buffer.
 Accepts a live marker OR the cache-hydrated (FILE . POS) cons in the
-marker slot (R26-8) — the cons is a startup-window state; the completed
+marker slot — the cons is a startup-window state; the completed
 refresh swap replaces cached items with live-marker ones."
   (let ((m (org-air-item-marker item)))
     (cond ((markerp m) m)
@@ -11284,7 +11259,7 @@ refresh swap replaces cached items with live-marker ones."
     copy))
 
 (defun org-air-view--cache-write (items mtimes)
-  "Persist ITEMS + the MTIMES snapshot to `org-air-cache-file' (R26-8).
+  "Persist ITEMS + the MTIMES snapshot to `org-air-cache-file'.
 Atomic (temp file + rename); a nil `org-air-cache-file' disables
 persistence; any write error is swallowed (the cache is an optimisation,
 never a failure source)."
@@ -11300,11 +11275,11 @@ never a failure source)."
             (list :version org-air-view--cache-version
                   :key (org-air-view--cache-key)
                   :mtimes mtimes
-                  ;; R54-2: persist the per-file fact table, pruned to the
+                  ;; Persist the per-file fact table, pruned to the
                   ;; snapshot's files so vanished files never linger.
                   :file-meta (org-air-query-file-meta-alist
                               (mapcar #'car mtimes))
-                  ;; R54-3: the bounded visit ledger — the prune to the
+                  ;; The bounded visit ledger — the prune to the
                   ;; snapshot's files IS the bound (size <= file count).
                   :visits (org-air-query-visits-alist
                            (mapcar #'car mtimes))
@@ -11331,7 +11306,7 @@ are all silently \"no cache\" — the cold path."
       (error nil))))
 
 (defun org-air-view--mtimes-snapshot (files)
-  "Return an alist FILE -> current mtime for FILES (R42-1).
+  "Return an alist FILE -> current mtime for FILES.
 The baseline recorded in `org-air-view--items-mtimes' after a completed
 full scan, so a later `org-air-view--refresh-start' can prove — via
 `org-air-view--changed-files' — exactly which files changed without
@@ -11342,7 +11317,7 @@ reparsing anything."
           files))
 
 (defvar org-air-view--changed-files-mtimes nil
-  "FILE -> mtime memo of the last `org-air-view--changed-files' run (R56 P1c).
+  "FILE -> mtime memo of the last `org-air-view--changed-files' run.
 An alist.  The enumeration diff already stats every current file; this
 stash lets `org-air-view--refresh-queue-order' sort the paced queue by recency
 WITHOUT a second stat pass (reuse, never re-stat).  A memo of
@@ -11351,7 +11326,7 @@ mtimes in `org-air-view--refresh-mtimes' stay the one baseline
 authority).")
 
 (defun org-air-view--changed-files (files snapshot)
-  "Return the FILES whose mtime diverged from SNAPSHOT (R42-1).
+  "Return the FILES whose mtime diverged from SNAPSHOT.
 SNAPSHOT is an alist FILE -> mtime from the last completed full scan.  A
 file is \"changed\" when it is new (absent from SNAPSHOT), its mtime
 differs, or it VANISHED (present in SNAPSHOT but no longer among FILES —
@@ -11359,9 +11334,9 @@ its stale rows must be dropped).  Pure: the shared staleness oracle for
 both the cache-first load (`org-air-view--cache-load') and the
 mtime-incremental refresh (`org-air-view--refresh-start').  nil when every
 mtime matches (FRESH: no scan at all)."
-  ;; R53 P1d: hash the snapshot and diff in ONE pass — the old per-file
-  ;; `assoc' + `member' was O(n²) (measured 0.275s -> 0.051s at 5006
-  ;; files).  The snapshot stays an alist on disk; hashed in memory only.
+  ;; Hash the snapshot and diff in ONE pass: a per-file `assoc' +
+  ;; `member' here is O(n²), measured 0.275s against 0.051s at 5006
+  ;; files.  The snapshot stays an alist on disk; hashed in memory only.
   (let ((table (make-hash-table :test #'equal :size (length snapshot)))
         (changed nil)
         (stats nil))
@@ -11370,7 +11345,7 @@ mtime matches (FRESH: no scan at all)."
     (dolist (f files)
       (let ((mtime (file-attribute-modification-time
                     (file-attributes f))))
-        ;; R56 P1c: stash the stat this diff already paid so the paced
+        ;; Stash the stat this diff already paid so the paced
         ;; queue can order by recency with zero extra stats.
         (push (cons f mtime) stats)
         (unless (equal (gethash f table 'org-air--missing) mtime)
@@ -11383,14 +11358,14 @@ mtime matches (FRESH: no scan at all)."
     changed))
 
 (defun org-air-view--files-intersect (changed files)
-  "Return the members of CHANGED that are in FILES, order preserved (R60-3).
-The defence-in-depth half of the R60 refresh key guard, independently
+  "Return the members of CHANGED that are in FILES, order preserved.
+The defence-in-depth half of the refresh key guard, independently
 correct: `org-air-query-items-in-files' must never be handed a path
 outside the CURRENT enumerated set, whatever the reason it left
 \(excluded, un-listed, or vanished) — `file-exists-p' was always the
 wrong predicate for the vanished-from-CONFIG case, since a file removed
 from the configured set still exists on disk and would re-scan and
-resurrect its rows through the merge.  Hash-backed single pass (R53)."
+resurrect its rows through the merge.  Hash-backed single pass."
   (let ((table (make-hash-table :test #'equal :size (length files))))
     (dolist (f files) (puthash f t table))
     (seq-filter (lambda (f) (gethash f table)) changed)))
@@ -11402,22 +11377,22 @@ ITEMS carry cons (FILE . POS) marker slots (hydrated on demand by
 whose mtime diverged from the snapshot — new files and snapshot files now
 missing included — nil when every mtime matches (FRESH: no scan at all).
 Hydrates `org-air-view--items-mtimes' from the persisted `:mtimes' so the
-FIRST post-cache `g r' is already mtime-incremental (R42-1)."
+FIRST post-cache `g r' is already mtime-incremental."
   (when-let* ((data (org-air-view--cache-read)))
     (let* ((files (org-air-query-files))
            (mtimes (plist-get data :mtimes)))
       (setq org-air-view--items-mtimes mtimes)
-      ;; R54-2: rehydrate the per-file fact table so a warm board answers
-      ;; file-level questions (F1 `title-from-org', the denote: shim's ID
+      ;; Rehydrate the per-file fact table so a warm board answers
+      ;; file-level questions (`title-from-org', the denote: shim's ID
       ;; index) with zero file opens.
       (org-air-query-file-meta-hydrate (plist-get data :file-meta))
-      ;; R54-3: rehydrate the opt-in visit ledger alongside it.
+      ;; Rehydrate the opt-in visit ledger alongside it.
       (org-air-query-visits-hydrate (plist-get data :visits))
       (cons (plist-get data :items)
             (org-air-view--changed-files files mtimes)))))
 
 (defun org-air-view--refresh-queue-order (files &optional mtimes)
-  "Return FILES ordered for the paced fill: inbox FIRST, then mtime DESC (R56 P1c).
+  "Return FILES ordered for the paced fill: inbox FIRST, then mtime DESC.
 Pure given its inputs.  `org-air-inbox-file' (when it is in FILES) always
 takes position 1, so the very first budgeted slice scans the user's
 captures and the first progressive paint is real, triageable content.
@@ -11450,11 +11425,11 @@ FILES; enumeration semantics are unchanged this round."
 Unlike `org-air-view--render-current' this never falls back to a
 synchronous query when the items are nil (the cold/failed machine states
 must not re-block the frame).
-R58: with a bookmark locator armed the locator OWNS the landing (the
+With a bookmark locator armed the locator OWNS the landing (the
 saved point belongs to the pre-restore skeleton), so the save/restore
 pair is skipped — the render tail's `org-air-view--bookmark-consume'
 places point instead.
-R91: wrapped in the scroll seam, and the seam closes AFTER the resync
+Wrapped in the scroll seam, and the seam closes AFTER the resync
 below — the pane/inspector nudge may open or close the pane window,
 changing the board window's height, so the anchor must be applied
 against the FINAL window geometry, not the pre-resync one."
@@ -11464,7 +11439,7 @@ against the FINAL window geometry, not the pre-resync one."
      (org-air-view--render org-air-view--items org-air-view--tag-filter)
      (when token
        (org-air-view--restore-position token))
-     ;; R73-1: the swap-tail resync — point is FINAL here (restored above,
+     ;; The swap-tail resync — point is FINAL here (restored above,
      ;; or bookmark-consumed inside the render), so the pane/inspector are
      ;; nudged onto the item NOW at point.  Identity-limited: a repaint
      ;; that changed nothing (failure/cancel/mid-machine marker paint)
@@ -11472,40 +11447,40 @@ against the FINAL window geometry, not the pre-resync one."
      (org-air-view--panes-resync-now))))
 
 (defconst org-air-view--refresh-pace 0.05
-  "Bounded idle interval (seconds) pacing the chunked refresh slices (R34-3).
+  "Bounded idle interval (seconds) pacing the chunked refresh slices.
 An internal constant, never a defcustom.")
 
 (defconst org-air-view--refresh-sync-budget 12
-  "Changed-file count at/below which refresh scans SYNCHRONOUSLY (R42-2).
+  "Changed-file count at/below which refresh scans SYNCHRONOUSLY.
 Warm per-file reparse is ~0.13ms, so up to this many changed files finish
 well under one frame with no idle pacer and no marker churn; a larger
 change set (a bulk edit, or the cold first load which routes through
-`org-air-view' not the refresh) keeps the R34-3 repeating idle pacer over
+`org-air-view' not the refresh) keeps the repeating idle pacer over
 the changed subset.  An internal constant, never a defcustom.")
 
 (defconst org-air-view--refresh-watchdog-timeout 8.0
-  "Seconds before a stranded paced scan is force-completed (R42-2).
-A wall-clock backstop only — the R34-3 idle pacer resumes across idle
+  "Seconds before a stranded paced scan is force-completed.
+A wall-clock backstop only — the idle pacer resumes across idle
 periods and normally finishes long before this — that guarantees
 `org-air-view--refresh-state' can never persist at `refreshing'
 indefinitely (the user's \"refreshing FOREVER\" failure).")
 
 (defun org-air-view--refresh-next-delay (idle-elapsed interrupted-p)
-  "Return the bounded delay before the next refresh slice (R34-3).
-OBSOLETE (R56 P2a): the pacer is now the adaptive self-chaining
+  "Return the bounded delay before the next refresh slice.
+OBSOLETE: the pacer is now the adaptive self-chaining
 wall-clock chain of `org-air-view--refresh-next-gap' — kept as a
 documented alias of the bounded constant `org-air-view--refresh-pace' so
-R34-3's boundedness ERTs re-bless explicitly.  The R34-3 law it locked
+the boundedness ERTs re-bless explicitly.  The law it locked
 \(the delay must NOT grow with the slice index; the old chain pushed an
 ABSOLUTE idle target forward ~0.05s per slice, so any interaction
-stranded it at \"loading N/M\" forever) carries over: the R56 gap is
+stranded it at \"loading N/M\" forever) carries over: the gap is
 bounded 0.01..0.6s both ways.  IDLE-ELAPSED and INTERRUPTED-P are
 accepted for the model but never push the delay up."
   (ignore idle-elapsed interrupted-p)
   org-air-view--refresh-pace)
 
 (defconst org-air-view--refresh-gap-fast 0.01
-  "Chain gap after an UNINTERRUPTED slice (R56 P2a).
+  "Chain gap after an UNINTERRUPTED slice.
 Near-continuous drain: an uninterrupted slice means Emacs is idle anyway,
 so the fill runs at ~2/3 duty cycle (measured ~23ms slice + this gap) and
 a cold 1801-file scan completes in ~6.5-8s — the old once-per-idle-period
@@ -11514,20 +11489,20 @@ of scan CPU over 48s-to-minutes.  An internal constant, never a
 defcustom.")
 
 (defconst org-air-view--refresh-gap-backoff 0.15
-  "First chain gap after an input-aborted slice (R56 P2a).
+  "First chain gap after an input-aborted slice.
 Doubles per consecutive abort up to `org-air-view--refresh-gap-cap' so
 sustained typing costs at most one aborted slice attempt per cap period
 \(input latency stays bounded by one 18ms slice either way); the first
 uninterrupted slice resets to `org-air-view--refresh-gap-fast'.")
 
 (defconst org-air-view--refresh-gap-cap 0.6
-  "Ceiling for the chain's abort-backoff gap (R56 P2a).
+  "Ceiling for the chain's abort-backoff gap.
 Bounded both ways: the chain can never slow past this, so convergence
 under sustained typing is never worse than the old 0.2s-period fallback's
 throughput floor — and never faster than input comfort allows.")
 
 (defun org-air-view--refresh-next-gap (outcome &optional last-gap)
-  "Return the adaptive wall-clock gap before the next chain slice (R56 P2a).
+  "Return the adaptive wall-clock gap before the next chain slice.
 Pure.  OUTCOME is `aborted' when the last slice was cut by input; any
 other value counts as uninterrupted.  Uninterrupted -> the fast
 near-continuous `org-air-view--refresh-gap-fast'; aborted -> back off
@@ -11536,7 +11511,7 @@ from LAST-GAP (the previously armed gap, nil on the first slice):
 `org-air-view--refresh-gap-cap' ceiling while aborts continue; the first
 uninterrupted slice resets to fast.  Monotone under consecutive aborts
 and bounded both ways, so the pacing can never strand.  One-shot
-chaining is safe here where R34-3's chain was not: that bug was an IDLE
+chaining is safe here where an IDLE chain was not: that bug was an IDLE
 timer whose absolute idle target grew per slice; a wall-clock one-shot
 has no idle target (and the \"repeating\" idle timer never delivered
 idle pacing anyway — one fire per continuous idle period)."
@@ -11547,7 +11522,7 @@ idle pacing anyway — one fire per continuous idle period)."
     org-air-view--refresh-gap-fast))
 
 (defun org-air-view--refresh-chain-live-p ()
-  "Non-nil when the adaptive chain's one-shot is armed and PENDING (R56 P2a).
+  "Non-nil when the adaptive chain's one-shot is armed and PENDING.
 `timerp' alone is not liveness — a fired one-shot is still a timer
 struct; membership in `timer-list' is what proves a next slice is
 scheduled."
@@ -11555,7 +11530,7 @@ scheduled."
        (memq org-air-view--refresh-timer timer-list)))
 
 (defun org-air-view--refresh-chain-arm (buffer token outcome)
-  "(Re-)arm the adaptive one-shot chain for BUFFER under TOKEN (R56 P2a).
+  "(Re-)arm the adaptive one-shot chain for BUFFER under TOKEN.
 Cancels any pending chain one-shot first so exactly ONE live pacing
 timer exists, then schedules `org-air-view--refresh-run-slice' after the
 `org-air-view--refresh-next-gap' gap for OUTCOME (recording the gap as
@@ -11574,29 +11549,29 @@ BUFFER current (all state is buffer-local)."
                             buffer token)))))
 
 (defun org-air-view--refresh-watchdog-disarm ()
-  "Cancel the one-shot refresh safety timer, if any (R42-2)."
+  "Cancel the one-shot refresh safety timer, if any."
   (when (timerp org-air-view--refresh-watchdog)
     (cancel-timer org-air-view--refresh-watchdog))
   (setq org-air-view--refresh-watchdog nil))
 
 (defconst org-air-view--refresh-wallclock-pace 0.2
-  "Repeating wall-clock pacer period for the OLD watchdog fallback (R53 P1c).
-OBSOLETE (R56 P2a): the 18ms-budget-per-0.2s fallback was a 9-12% duty
+  "Repeating wall-clock pacer period for the OLD watchdog fallback.
+OBSOLETE: the 18ms-budget-per-0.2s fallback was a 9-12% duty
 cycle — 198 slices ≈ 48-60s at a measured 1801-file corpus, minutes with
 interaction — superseded by the adaptive chain
 \(`org-air-view--refresh-next-gap'), which the watchdog now re-arms
 instead.  Kept only as documentation of the superseded cadence; unused.")
 
 (defun org-air-view--refresh-watchdog-fire (buffer token)
-  "Rescue a stranded paced refresh WITHOUT ever hanging (R42-2/R56 P2b).
-A PURE BACKSTOP: with the R56 P2a pacer already wall-clock (progress
+  "Rescue a stranded paced refresh WITHOUT ever hanging.
+A PURE BACKSTOP: with the pacer already wall-clock (progress
 never depends on idleness), the watchdog's only remaining job is
 machine-level convergence insurance — a lost timer, a wedged token.  If
 BUFFER is still `refreshing' under TOKEN when it fires: a PROVABLY SMALL
 remainder (<= `org-air-view--refresh-sync-budget' files) is drained
 synchronously — well under a frame at the measured p95.  A LARGER queue
 is NEVER drained synchronously (the old force-complete WAS the user's
-minutes-long mid-session freeze at 5000 files — the R53 law stands): the
+minutes-long mid-session freeze at 5000 files — the law stands): the
 adaptive P2a chain is re-armed IF none is live, and the watchdog re-arms
 behind it.  Token-guarded, so a superseded refresh's watchdog is a
 silent no-op.  The state still can never strand at `refreshing' — it
@@ -11646,7 +11621,7 @@ converges by pacing, not by freezing."
                       (org-air-view--short-error err)))))))))
 
 (defun org-air-view--refresh-disarm ()
-  "Cancel the pacing + watchdog timers, if any (R34-3/R42-2).
+  "Cancel the pacing + watchdog timers, if any.
 Single teardown point for every timer the paced refresh arms."
   (when (timerp org-air-view--refresh-timer)
     (cancel-timer org-air-view--refresh-timer))
@@ -11654,28 +11629,28 @@ Single teardown point for every timer the paced refresh arms."
   (org-air-view--refresh-watchdog-disarm))
 
 (defun org-air-view--refresh-arm (buffer token)
-  "Arm the adaptive self-chaining wall-clock pacer for BUFFER, TOKEN (R56 P2a).
+  "Arm the adaptive self-chaining wall-clock pacer for BUFFER, TOKEN.
 ONE one-shot `run-with-timer' whose callback — the budgeted slice runner
 itself — runs one `org-air-refresh-slice-budget' slice (unchanged;
 still `while-no-input', still C-g-abortable) and re-arms itself with the
 adaptive `org-air-view--refresh-next-gap' gap: near-continuous (0.01s)
 while uninterrupted, backing off 0.15..0.6s under input.  Wall-clock,
 not idle: the old \"repeating\" idle pacer fired ONCE per continuous
-idle period ((elisp) Idle Timers; R56 pty-probed 1 fire in 3s of
+idle period ((elisp) Idle Timers; pty-probed at 1 fire in 3s of
 idleness), so a user who opened the board and WAITED got one slice per
 watchdog period — the measured minutes-long fill.  Re-arm discipline:
 the callback re-arms ONLY under its own live token+state and only while
 a chain handle exists; `org-air-view--refresh-disarm' (from finish /
 failure / cancel) is the single teardown, so exactly one live pacing
-timer exists at a time.  The R42-2 watchdog arms behind it as a pure
-backstop (P2b).  Never arms under `noninteractive' — the deterministic
+timer exists at a time.  The watchdog arms behind it as a pure
+backstop.  Never arms under `noninteractive' — the deterministic
 ERTs call `org-air-view--refresh-run-slice' directly instead."
   (unless noninteractive
     (with-current-buffer buffer
       (unless (org-air-view--refresh-chain-live-p)
         (setq org-air-view--refresh-gap nil)
         (org-air-view--refresh-chain-arm buffer token 'completed)
-        ;; R42-2: a wall-clock backstop behind the chain, so `refreshing'
+        ;; A wall-clock backstop behind the chain, so `refreshing'
         ;; can never persist indefinitely even if the chain is lost.
         (org-air-view--refresh-watchdog-disarm)
         (setq org-air-view--refresh-watchdog
@@ -11702,12 +11677,12 @@ Every pending slice callback carries the old token and self-cancels."
   (org-air-view--refresh-cancel)
   (org-air-view--deferred-disarm)
   (setq org-air-view--refresh-state nil)
-  ;; R53 P1: the session's scan work buffer goes with the board (it is
+  ;; The session's scan work buffer goes with the board (it is
   ;; recreated on demand, so an early teardown only costs one re-init).
   (org-air-query-teardown))
 
 (defun org-air-view--deferred-disarm ()
-  "Cancel the pending one-shot cache-first first-paint timer, if any (R45-2).
+  "Cancel the pending one-shot cache-first first-paint timer, if any.
 Called on every interactive (re)entry and on teardown so a stale one-shot
 never double-renders and a killed buffer's timer never strands."
   (when (timerp org-air-view--deferred-timer)
@@ -11715,12 +11690,12 @@ never double-renders and a killed buffer's timer never strands."
   (setq org-air-view--deferred-timer nil))
 
 (defun org-air-view--deferred-arm (buffer token &optional stale)
-  "Arm the one-shot idle first-paint for BUFFER under TOKEN (R45-2/R56 P1a).
+  "Arm the one-shot idle first-paint for BUFFER under TOKEN.
 Scheduled by BOTH cache-hit branches AFTER the pill-free skeleton is
 painted, so the cached full board (and its cold SVG pill rasterization)
 lands OFF the launch critical path.  With STALE non-nil the one-shot is
 `org-air-view--deferred-stale-paint' — it paints the FULL cached board
-and then OWNS the paced changed-subset kickoff (R56 P1a: a command-body
+and then OWNS the paced changed-subset kickoff (a command-body
 `org-air-view--refresh-start' would bump the token via
 `--refresh-cancel' and orphan this very one-shot).  Never arms under
 `noninteractive' \(the byte gate stays synchronous with no timer); the
@@ -11736,7 +11711,7 @@ deterministic ERTs call the one-shot functions directly instead."
              buffer token)))))
 
 (defun org-air-view--deferred-first-paint (buffer token)
-  "Render the cached full board off the launch critical path (R45-2).
+  "Render the cached full board off the launch critical path.
 The one-shot the cache-HIT FRESH branch schedules after its skeleton
 paint.  Renders the cached items AS-IS — org-ql is NOT called, so the
 cache's no-scan benefit is fully preserved.  Robustness mirrors the slice
@@ -11759,13 +11734,13 @@ to the single-message + empty-board discipline."
                     (org-air-view--short-error err))))))))
 
 (defun org-air-view--deferred-stale-paint (buffer token)
-  "Paint the FULL cached board, then kick the paced rescan (R56 P1a).
+  "Paint the FULL cached board, then kick the paced rescan.
 The paint LAW made concrete for the cache-STALE open: the board never
 shows chrome in place of content it already holds — the full last-known
 board sat IN MEMORY while the old skeleton-until-finish arm made the
-user stare at \"Loading your board…\" for the whole paced fill (R56
-measured: ZERO progressive paints; first content = the finish paint,
-48s-to-minutes at 1801 files).  This one-shot (the STALE arm's R45-2
+user stare at \"Loading your board…\" for the whole paced fill
+\(measured: ZERO progressive paints; first content = the finish paint,
+48s-to-minutes at 1801 files).  This one-shot (the STALE arm's
 deferred tick) renders the cached items AS-IS — no org-ql call — then
 OWNS the `org-air-view--refresh-start' kickoff: paint, then start (a
 command-body start would bump the token and orphan this callback; the
@@ -11803,7 +11778,7 @@ With COLD non-nil (the initial skeleton load, where the board is NOT yet
 painted) the sync fast path is bypassed so the async skeleton machine
 paints instantly and keeps input live; only a WARM refresh (already
 painted) takes the sync path.
-Mtime-incremental (R42-2): cancels any in-flight refresh (its slices go
+Mtime-incremental: cancels any in-flight refresh (its slices go
 stale via the token), stats the CURRENT file list and diffs it against the
 `org-air-view--items-mtimes' baseline via `org-air-view--changed-files'.
 
@@ -11821,12 +11796,12 @@ stale via the token), stats the CURRENT file list and diffs it against the
 - A larger changed set (bulk edit) SEEDS the accumulator with the retained
   unchanged items (reused verbatim — their markers are valid by mtime
   match) and queues ONLY the changed files — inbox first, then mtime
-  descending (R56 P1c, `org-air-view--refresh-queue-order') — paced by
-  the R56 P2a adaptive chain (with the R42-2 watchdog backstop); on
+  descending (`org-air-view--refresh-queue-order') — paced by
+  the adaptive chain (with the watchdog backstop); on
   finish the accumulator = retained ∪ rescanned = the full set (ordering
-  is irrelevant, the R20-6 partition regroups/sorts at render).
+  is irrelevant, the partition regroups/sorts at render).
 
-R56 P1 — the paint LAW: at no point may the board display an empty
+THE PAINT LAW: at no point may the board display an empty
 skeleton while item content is available in-buffer — cached items from a
 previous session (the cache-stale open paints them via
 `org-air-view--deferred-stale-paint' before this machine runs), or
@@ -11834,7 +11809,7 @@ accumulated items from the running scan (a fill with NO previous content
 enters progressive STREAM mode here and paints repeatedly as slices
 land).
 
-R60-3 key guard (the R57 discipline — the key IS the detector): when
+THE KEY GUARD (the key IS the detector): when
 the live `org-air-view--cache-key' no longer matches the key the
 retained items were derived under (the exclude set / file set narrowed
 mid-session, a vocabulary or routed-knob change), the session is COLD
@@ -11844,7 +11819,7 @@ into the merge) and the full machine runs: paced when large,
 sync-budget when small.  Without the guard the old baseline names the
 removed files \"vanished\", the sync path finds them still ON DISK and
 resurrects their rows through the incremental merge.  The painted
-board stays up until the swap (R56); the swap stamps the fresh key
+board stays up until the swap; the swap stamps the fresh key
 exactly where the machine already does.
 
 The caller paints (board or skeleton) after this so the header
@@ -11853,7 +11828,7 @@ marker/progress is visible from the first paint."
   (let* ((stale-key (not (equal org-air-view--items-key
                                 (org-air-view--cache-key))))
          (files (progn
-                  ;; R60-3: a stale key voids the merge baseline — the
+                  ;; A stale key voids the merge baseline — the
                   ;; retained mtimes were recorded under another config.
                   (when stale-key
                     (setq org-air-view--items-mtimes nil))
@@ -11867,7 +11842,7 @@ marker/progress is visible from the first paint."
      ;; classify cache (`--classify-cache-day') only invalidates ON RENDER
      ;; and there is no midnight timer, so skipping the repaint would strand
      ;; yesterday's overdue/today/upcoming bucketing on screen after a day
-     ;; rolls (and would break the R18 D-P1c "next refresh picks it up"
+     ;; rolls (and would break the "next refresh picks it up"
      ;; promise for a retuned classify defcustom).  Render is ~28ms.  B1:
      ;; keep the existing mtime baseline VERBATIM (do NOT re-stat) — it just
      ;; proved itself (every current file matched, none vanished); a re-stat
@@ -11887,26 +11862,25 @@ marker/progress is visible from the first paint."
      ;; skeleton machine).
      ((and (not cold)
            (<= (length changed) org-air-view--refresh-sync-budget))
-      ;; F3: the scan is the one sync site that used to run UNPROTECTED — a
-      ;; signal here (with the board `refreshing'+`loading' on a small cold
-      ;; load whose all-changed set fits the budget) would leave state
-      ;; `refreshing' with no timer and no watchdog: the exact strand this
-      ;; round exists to kill.  Mirror the slice handler: error -> `failed'
-      ;; + repaint.
+      ;; This scan is the one SYNCHRONOUS site, so it must be protected: a
+      ;; signal here (board `refreshing' + `loading' on a small cold load
+      ;; whose all-changed set fits the budget) would leave the state
+      ;; `refreshing' with no timer and no watchdog — a permanent strand.
+      ;; Mirror the slice handler: error -> `failed' + repaint.
       (condition-case err
           (let* ((_ (org-air-query-skip-log-reset))
-                 ;; R60-3 defence-in-depth: intersect with the CURRENT
+                 ;; Defence-in-depth: intersect with the CURRENT
                  ;; enumerated set, never `file-exists-p' — an excluded/
                  ;; un-listed file still exists on disk.
                  (existing (org-air-view--files-intersect changed files))
-                 ;; R60-3: under a stale key nothing is retained — the
+                 ;; Under a stale key nothing is retained — the
                  ;; old items were derived under another config.
                  (retained (and (not stale-key)
                                 (seq-remove
                                  (lambda (it)
                                    (member (org-air-item-file it) changed))
                                  org-air-view--items)))
-                 ;; B1: stat the FULL set ONCE *before* the scan reads any
+                 ;; Stat the FULL set ONCE *before* the scan reads any
                  ;; file, so no file is stat'd AFTER it is read; a file
                  ;; changed post-stat/pre-read then diverges next refresh
                  ;; and re-scans (errors converge) instead of masking.
@@ -11938,14 +11912,14 @@ marker/progress is visible from the first paint."
      ;; Bulk/cold: retain unchanged items, PACE only the changed subset.
      (t
       (let ((existing (org-air-view--files-intersect changed files))
-            ;; R60-3: stale key => retain nothing (see the sync path).
+            ;; Stale key => retain nothing (see the sync path).
             (retained (and (not stale-key)
                            (seq-remove
                             (lambda (it)
                               (member (org-air-item-file it) changed))
                             org-air-view--items))))
         (org-air-query-skip-log-reset)
-        ;; R56 P1c: inbox first, then recency — the first budgeted slice
+        ;; Inbox first, then recency — the first budgeted slice
         ;; scans the inbox, so the first progressive paint is real,
         ;; triageable content (cold time-to-inbox was unbounded before:
         ;; plain directory-walk order).
@@ -11954,11 +11928,11 @@ marker/progress is visible from the first paint."
               org-air-view--refresh-total (length existing)
               org-air-view--refresh-acc (copy-sequence retained)
               org-air-view--refresh-mtimes nil
-              ;; R56 P1b: STREAM mode only when there is NO previous full
+              ;; STREAM mode only when there is NO previous full
               ;; content to show (true cold open) — a painted or
-              ;; cache-seeded board keeps the R26-8 single-swap rule.  A
+              ;; cache-seeded board keeps the single-swap rule.  A
               ;; nil last-paint lets the first item-bearing slice paint
-              ;; IMMEDIATELY (P1c), then the interval cadence takes over.
+              ;; IMMEDIATELY, then the interval cadence takes over.
               org-air-view--refresh-progressive (null org-air-view--items)
               org-air-view--refresh-last-paint
               (and org-air-view--items (float-time))
@@ -11980,9 +11954,9 @@ marker/progress is visible from the first paint."
 The single-swap rule (no partial paints): the accumulated items replace
 `org-air-view--items' in one motion, the board repaints once with point
 preserved, and the machine returns to FRESH.  Disarms the repeating pacer
-first so it cannot fire again after the chain is DONE (R34-3)."
+first so it cannot fire again after the chain is DONE."
   (org-air-view--refresh-disarm)
-  ;; R42-1 (B1): the merged accumulator (retained unchanged items ∪
+  ;; The merged accumulator (retained unchanged items ∪
   ;; rescanned changed items) is the full set; its mtime baseline is built
   ;; ENTIRELY from SCAN-TIME data — never re-stat'd at finish.  For each
   ;; current file take the scan-time mtime captured by the slices
@@ -12024,11 +11998,11 @@ first so it cannot fire again after the chain is DONE (R34-3)."
           org-air-view--refresh-render-secs nil
           org-air-view--cache-stale-files nil
           org-air-view--loading nil)
-    ;; R56 P3c: this repaint runs with the machine already idle, so the
+    ;; This repaint runs with the machine already idle, so the
     ;; `⟳ scanning N/M…' segment vanishes in the same motion the final
     ;; content lands — a crisp clear, no lingering "done!" chrome.
     (org-air-view--refresh-repaint)
-    ;; R53 P1b: ONE summary line per completed scan — never per-file echo
+    ;; ONE summary line per completed scan — never per-file echo
     ;; spam; the details live behind M-x org-air-scan-report.
     (unless (or noninteractive (zerop scanned))
       (message "org-air: scanned %d file%s (%d item%s)%s"
@@ -12040,13 +12014,13 @@ first so it cannot fire again after the chain is DONE (R34-3)."
     (org-air-view--cache-write items mtimes)))
 
 (defun org-air-view--refresh-note-abort ()
-  "Track input-aborts of the queue-head file; skip it after N (R53 P1c).
+  "Track input-aborts of the queue-head file; skip it after N.
 `while-no-input' aborted before the head file's items were committed; a
 file that aborts `org-air-scan-abort-retries' consecutive slices is
 skip-logged `slow' and dropped WITHOUT entering the scan-time mtimes, so
 the next refresh's diff names it again (errors converge) while the board
 stays usable now — no livelock.
-R56 P2c: counts ONLY aborts that landed while the head file's scan had
+Counts ONLY aborts that landed while the head file's scan had
 actually STARTED (`org-air-view--refresh-scan-started', raised right
 before the query call, cleared on commit).  An abort BEFORE the head
 started — input landed between files, or before the first — increments
@@ -12067,7 +12041,7 @@ times still skips — the anti-livelock stays."
               org-air-view--refresh-abort-file nil)))))
 
 (defun org-air-view--refresh-paint-interval ()
-  "Effective seconds between progressive stream paints (R56 P1b).
+  "Effective seconds between progressive stream paints.
 `org-air-cold-paint-interval' floored by 3x the last progressive render
 cost (`org-air-view--refresh-render-secs'), so paint overhead can never
 exceed ~1/3 of the fill even when the accumulated board grows expensive
@@ -12076,7 +12050,7 @@ to re-render."
        (* 3 (or org-air-view--refresh-render-secs 0))))
 
 (defun org-air-view--refresh-progressive-paint ()
-  "Repaint the still-filling COLD board from the accumulator (R53 P1c/R56 P1b).
+  "Repaint the still-filling COLD board from the accumulator.
 The STREAM paint: swaps a COPY of the accumulator in, invalidates the
 classify cache and repaints with point preserved.  The FIRST progressive
 paint drops the `org-air-view--loading' guard — the verbs go live over
@@ -12084,11 +12058,11 @@ real rows (items in still-queued files stay guarded by
 `org-air-view--refresh-stale-item-guard') — and the stream then
 CONTINUES on the `org-air-view--refresh-paint-interval' cadence until
 `org-air-view--refresh-finish''s single final swap ends stream mode.
-R56 P1b decoupled the stream gate (`org-air-view--refresh-progressive',
-set at refresh start) from the loading flag this paint clears — the R53
+The stream gate (`org-air-view--refresh-progressive', set at refresh
+start) is DECOUPLED from the loading flag this paint clears — the
 reuse made the throttle a one-shot: measured exactly ONE progressive
 paint per cold fill, frozen at ~1% content until the finish.  Warm
-incremental refreshes never take this path, so the R26-8 single-swap
+incremental refreshes never take this path, so the single-swap
 rule holds there.  Records its own render cost so paint overhead stays
 bounded."
   (setq org-air-view--refresh-last-paint (float-time)
@@ -12102,14 +12076,14 @@ bounded."
     (setq org-air-view--refresh-render-secs (- (float-time) start))))
 
 (defconst org-air-view--refresh-banner-tick-interval 0.5
-  "Seconds between in-place banner progress rewrites while refreshing (R56 P3b).
+  "Seconds between in-place banner progress rewrites while refreshing.
 Progressive paints are ~1s apart and single-swap refreshes paint only at
 the end, so the slice runner ticks the BANNER LINE alone at this bound —
 the `⟳ scanning N/M…' numbers stay live between full paints.  An
 internal constant, never a defcustom.")
 
 (defun org-air-view--refresh-banner-tick ()
-  "Rewrite ONLY the banner line in place with fresh progress numbers (R56 P3b).
+  "Rewrite ONLY the banner line in place with fresh progress numbers.
 Bounded: at most once per `org-air-view--refresh-banner-tick-interval',
 one line-1 rewrite (microseconds), no body touch, point preserved by
 `save-excursion'; only while the machine is `refreshing'; never in
@@ -12142,21 +12116,21 @@ compose the banner as buffer line 1."
           (insert line))))))
 
 (defun org-air-view--refresh-run-slice (buffer token)
-  "Scan ONE budgeted slice of BUFFER's refresh queue under TOKEN (R53 P1c).
+  "Scan ONE budgeted slice of BUFFER's refresh queue under TOKEN.
 The named slice runner the pacing timers schedule — ERTs call it directly
 in a loop, so the whole machine is testable synchronously with zero
 timers.  The slice consumes queued files until
-`org-air-refresh-slice-budget' is exceeded (minimum 1 file — the R26-8
+`org-air-refresh-slice-budget' is exceeded (minimum 1 file — the
 fixed `org-air-refresh-files-per-slice' count is superseded), each file
 through the never-signalling data layer.  The loop runs under
 `while-no-input': pending input aborts BETWEEN files and the unconsumed
 remainder (including the in-progress file — per-file work-buffer state
 makes retry free) stays queued for the next tick;
 `org-air-view--refresh-note-abort' skip-logs a file that keeps aborting
-mid-scan (R56 P2c: aborts landing BETWEEN files count against nobody).
+mid-scan (aborts landing BETWEEN files count against nobody).
 A `quit' propagates untouched: queue intact, machine still
 `refreshing', pacer re-fires.  A COLD load streams REPEATED progressive
-paints (interactive only; R56 P1b) — the first item-bearing slice paints
+paints (interactive only) — the first item-bearing slice paints
 immediately (P1c: the inbox, by queue order), then on the bounded
 `org-air-view--refresh-paint-interval' cadence whenever new items
 accumulated — while warm refreshes accumulate privately and swap ONCE.
@@ -12167,7 +12141,7 @@ A machine-level error keeps the painted board, flips to FAILED (header:
     (with-current-buffer buffer
       (when (and (eq token org-air-view--refresh-token)
                  (eq org-air-view--refresh-state 'refreshing))
-        ;; R56 P2a: the slice re-arms its own adaptive one-shot chain at
+        ;; The slice re-arms its own adaptive one-shot chain at
         ;; the bottom (only under a live token+state, and only while a
         ;; chain handle exists — direct ERT drives never spawn timers).
         ;; `refresh-finish'/failure/cancel disarm.
@@ -12187,9 +12161,9 @@ A machine-level error keeps the painted board, flips to FAILED (header:
                                        (file-attributes f)))
                                ;; copy: org-ql may hand back a CACHED list
                                ;; object — nconc'ing it would mutate the
-                               ;; cache.  One-file calls keep the R26-8
+                               ;; cache.  One-file calls keep the
                                ;; query seam (and its ERT stubs) intact.
-                               ;; R56 P2c: raise the started flag ONLY
+                               ;; Raise the started flag ONLY
                                ;; once the head file's scan is actually
                                ;; entered; cleared on the commit below.
                                (items (progn
@@ -12213,7 +12187,7 @@ A machine-level error keeps the painted board, flips to FAILED (header:
               ;; Done -> finish (which disarms the chain and swaps once).
               (if (null org-air-view--refresh-queue)
                   (org-air-view--refresh-finish)
-                ;; R56 P1b/P1c: the progressive STREAM — gated on stream
+                ;; The progressive STREAM — gated on stream
                 ;; mode (NOT the self-clearing `--loading' flag), at least
                 ;; one NEW item since the last paint, and either no paint
                 ;; yet (immediate first content) or the bounded cadence.
@@ -12226,9 +12200,9 @@ A machine-level error keeps the painted board, flips to FAILED (header:
                                       org-air-view--refresh-last-paint)
                                    (org-air-view--refresh-paint-interval))))
                   (org-air-view--refresh-progressive-paint))
-                ;; R56 P3b: live numbers between paints (banner line only).
+                ;; Live numbers between paints (banner line only).
                 (org-air-view--refresh-banner-tick)
-                ;; R56 P2a: re-arm the adaptive chain — fast after a clean
+                ;; Re-arm the adaptive chain — fast after a clean
                 ;; slice, backing off while input keeps aborting.
                 (when (and (not noninteractive)
                            (timerp org-air-view--refresh-timer))
@@ -12246,11 +12220,11 @@ A machine-level error keeps the painted board, flips to FAILED (header:
                     (org-air-view--short-error err))))))))
 
 (defun org-air-view--refresh-stale-item-guard (item)
-  "Soft-error on a triage verb for ITEM while its file is mid-refresh (R26-8).
+  "Soft-error on a triage verb for ITEM while its file is mid-refresh.
 Only an item whose source file's mtime diverged from the cache snapshot is
 blocked (its cached position may be wrong); positions in unchanged files
 are valid by construction (mtime match), so triage there stays live.
-R53 P1c: after a progressive cold paint the painted rows come from the
+After a progressive cold paint the painted rows come from the
 scan accumulator — a file ALREADY scanned this refresh carries fresh
 positions, so only still-queued files stay guarded."
   (when (and (eq org-air-view--refresh-state 'refreshing)
@@ -12263,7 +12237,7 @@ positions, so only still-queued files stay guarded."
 ;;;###autoload
 (defun org-air-view ()
   "Open the org-air dashboard buffer.
-R26-8 cache-first async: an interactive start with a valid persisted cache
+Cache-first async: an interactive start with a valid persisted cache
 \(`org-air-cache-file') paints the FULL last-known board instantly — all
 mtimes matching means FRESH (no scan at all); any divergence starts the
 token-guarded chunked refresh with the `stale · refreshing…' header
@@ -12275,14 +12249,14 @@ single swap).  A re-open with the in-buffer item cache warm, or any
 byte fixture is produced exactly as before and the gate never reads or
 writes the cache file.  Errors surface as a single truncated line; the
 buffer can never wedge in a loading state.
-R58: the three-branch data body lives in `org-air-view--open-core' (the
+The three-branch data body lives in `org-air-view--open-core' (the
 bookmark handlers re-enter it with display suppressed); this command is
 prep + display + the core — byte-identical behaviour, same order
 \(display still precedes the cond so width derivation sees the window)."
   (interactive)
   (let ((buffer (get-buffer-create org-air-view-buffer-name)))
     (with-current-buffer buffer
-      ;; R26-5: IDEMPOTENT entry — re-running the mode on a live buffer
+      ;; IDEMPOTENT entry — re-running the mode on a live buffer
       ;; runs `kill-all-local-variables' and wipes the whole session (rail
       ;; placement, sort, filter...).  Initialise only when not already in
       ;; the mode (the same guard as the project entry; one discipline).
@@ -12293,7 +12267,7 @@ prep + display + the core — byte-identical behaviour, same order
       (org-air-view--source-tracking-claim))
     ;; Display the buffer first so width derivation measures the window
     ;; that actually shows the dashboard (U1), in a full-width window so
-    ;; the rail/calendar are never pushed off-screen (D4).
+    ;; the rail/calendar are never pushed off-screen.
     (pop-to-buffer buffer
                    (or org-air-display-action
                        '((display-buffer-reuse-window
@@ -12302,15 +12276,15 @@ prep + display + the core — byte-identical behaviour, same order
     (org-air-view--open-core buffer t)))
 
 (defun org-air-view--open-core (buffer display)
-  "Run the board's three-branch data entry for BUFFER (R58 factoring).
+  "Run the board's three-branch data entry for BUFFER.
 The EXACT cond `org-air-view' always ran — WARM/batch synchronous render
 → persisted-cache skeleton + deferred one-shot (+ paced stale kickoff) →
-COLD skeleton + the R56 paced machine.  DISPLAY non-nil is the command
+COLD skeleton + the paced machine.  DISPLAY non-nil is the command
 path (BUFFER was just displayed; the skeleton `redisplay' flushes the
 visible frame); nil is the bookmark-handler path, which skips ONLY those
 skeleton-flush `redisplay' calls (pointless and mildly wasteful
 undisplayed) — branch choice, token discipline and every render are
-identical.  Ensures the mode idempotently (R26-5) and never displays
+identical.  Ensures the mode idempotently and never displays
 BUFFER itself."
   (with-current-buffer buffer
     (unless (derived-mode-p 'org-air-view-mode)
@@ -12321,7 +12295,7 @@ BUFFER itself."
     (let ((cached (and org-air-view--items
                        (equal org-air-view--items-key
                               (org-air-view--cache-key)))))
-      ;; R45-2: a (re)entry supersedes any pending one-shot first paint —
+      ;; A (re)entry supersedes any pending one-shot first paint —
       ;; the buffer is about to be (re)painted synchronously
       ;; (WARM/cache-hit) or via a fresh skeleton (cold/stale), so a stale
       ;; one-shot must never fire and double-render.  Interactive only: the
@@ -12333,9 +12307,9 @@ BUFFER itself."
        ;; fast-paint path): synchronous — unchanged behaviour, byte-stable.
        ((or cached noninteractive)
         (unless cached
-          ;; R18 D-P1c: fresh structs from a re-query invalidate the
+          ;; Fresh structs from a re-query invalidate the
           ;; classify cache (old `eq' entries can never be wrongly hit, but
-          ;; drop them).  R42-1: snapshot the queried files' mtimes as the
+          ;; drop them).  Snapshot the queried files' mtimes as the
           ;; incremental baseline (a display-invisible local; no golden
           ;; reads it, so the byte fixtures are untouched).
           (setq org-air-view--items (org-air-query-items)
@@ -12343,7 +12317,7 @@ BUFFER itself."
                 org-air-view--items-mtimes
                 (org-air-view--mtimes-snapshot (org-air-query-files))))
         (org-air-view--render org-air-view--items org-air-view--tag-filter))
-       ;; R26-8 CACHED: a valid persisted cache paints the FULL last-known
+       ;; CACHED: a valid persisted cache paints the FULL last-known
        ;; board instantly.  All mtimes match -> FRESH, no scan at all; any
        ;; divergence -> REFRESHING (chunked slices; `stale · refreshing…'
        ;; marker in the count slot from this very first paint).  Nothing
@@ -12353,7 +12327,7 @@ BUFFER itself."
                 org-air-view--items-key (org-air-view--cache-key)
                 org-air-view--classify-cache nil
                 org-air-view--cache-stale-files (cdr cache))
-          ;; R45-2: paint the pill-free chrome skeleton FIRST (instant, like
+          ;; Paint the pill-free chrome skeleton FIRST (instant, like
           ;; the cold path), then let the full pill-bearing board land OFF
           ;; the launch critical path — never a blocking full paint in the
           ;; command body (a fresh Emacs has a cold SVG image cache, so that
@@ -12361,19 +12335,19 @@ BUFFER itself."
           ;; the 2-10s blank-frozen open).  The board still appears in ONE
           ;; motion, merely deferred one idle tick behind the skeleton.
           (org-air-view--render-loading)
-          ;; R58: the `redisplay' exists to flush the VISIBLE skeleton —
+          ;; The `redisplay' exists to flush the VISIBLE skeleton —
           ;; skipped on the undisplayed bookmark-handler path.
           (when display (redisplay t))
           ;; Bump the token first (via cancel) so any earlier in-flight
           ;; callback self-cancels before the one-shot below is armed.
           (org-air-view--refresh-cancel)
           (if (cdr cache)
-              ;; STALE: R56 P1a (the paint LAW — the board never shows
+              ;; STALE (the paint LAW — the board never shows
               ;; chrome in place of content it already holds).  The
               ;; deferred one-shot paints the FULL cached board one idle
-              ;; tick behind the skeleton (R26-8's warm-open contract
+              ;; tick behind the skeleton (the warm-open contract
               ;; restored; pill rasterization stays off the command body,
-              ;; the R45-2 rationale is about WHICH tick paints, never
+              ;; the rationale is about WHICH tick paints, never
               ;; WHETHER) and then OWNS the paced changed-subset kickoff:
               ;; calling `--refresh-start' here would bump the token again
               ;; and orphan the very one-shot it precedes.  See
@@ -12387,12 +12361,12 @@ BUFFER itself."
             (org-air-view--deferred-arm (current-buffer)
                                         org-air-view--refresh-token))
           t))
-       ;; R26-8 COLD (no cache): honest fast paint of the chrome skeleton,
+       ;; COLD (no cache): honest fast paint of the chrome skeleton,
        ;; then the SAME chunked refresh — input stays live over the
-       ;; skeleton (the R20-1 synchronous wait retires); `--loading' guards
+       ;; skeleton (the synchronous wait retires); `--loading' guards
        ;; the data-dependent verbs until the machine's single swap (which
        ;; always clears it, success or failure — never a wedge).  Any error
-       ;; starting the machine falls back to the R20-1 discipline: a single
+       ;; starting the machine falls back to the discipline: a single
        ;; truncated message + the empty board.
        (t
         (setq org-air-view--loading t)
@@ -12400,7 +12374,7 @@ BUFFER itself."
             (progn
               (org-air-view--refresh-start t) ; COLD: paced skeleton machine
               (org-air-view--render-loading)
-              ;; R58: skeleton flush — visible (command) path only.
+              ;; Skeleton flush — visible (command) path only.
               (when display (redisplay t)))
           (error
            (setq org-air-view--items nil
@@ -12412,13 +12386,13 @@ BUFFER itself."
 
 (defun org-air-refresh ()
   "Re-query files and refresh the current org-air dashboard.
-Preserves the active filter and the cursor's place.  R26-8: an
+Preserves the active filter and the cursor's place.  An
 interactive `g' on the board IS the refresh machine — it cancels any
 pending slices (token bump) and restarts the chunked scan from the
 current file list, keeping the painted board (with the header marker)
 until the single swap.  Under `noninteractive' (the byte gate) it is the
 exact synchronous re-query it always was.
-R91: the interactive arm repaints through `org-air-view--refresh-repaint'
+The interactive arm repaints through `org-air-view--refresh-repaint'
 \(already scroll-stable); the synchronous arm is the board's SECOND swap
 tail, so it carries the seam itself — closed after the pane resync for
 the same window-geometry reason."
@@ -12439,9 +12413,9 @@ the same window-geometry reason."
        ;; (stale slices go stale via the token; failed/stale markers clear).
        (org-air-view--refresh-teardown)
        (setq org-air-view--cache-stale-files nil)
-       ;; R18 D-P1c: a re-query builds fresh item structs, so drop the
+       ;; A re-query builds fresh item structs, so drop the
        ;; classify cache (bounds memory; picks up a changed classify-tuning
-       ;; defcustom on the next refresh).  R42-1: refresh the incremental
+       ;; defcustom on the next refresh).  Refresh the incremental
        ;; mtime baseline too (display-invisible local; no golden reads it).
        (setq org-air-view--items (org-air-query-items)
              org-air-view--classify-cache nil
@@ -12449,7 +12423,7 @@ the same window-geometry reason."
              (org-air-view--mtimes-snapshot (org-air-query-files)))
        (org-air-view--render org-air-view--items filter)
        (org-air-view--restore-position token)
-       ;; R73-1: the second swap tail — the fully-synchronous (batch /
+       ;; The second swap tail — the fully-synchronous (batch /
        ;; byte-gate) re-query rebuilt every struct, so the resync redraws
        ;; the panes for the restored point in the same motion.
        (org-air-view--panes-resync-now)))))
@@ -12504,15 +12478,15 @@ filters are preserved by `org-air-refresh'."
   (org-air-prev-item))
 
 (defun org-air-view--read-filter (candidate-tags &optional vocab)
-  "Prompt for a tag filter PRE-FILLED with the active one (R18 D-P2/D-P3).
+  "Prompt for a tag filter PRE-FILLED with the active one.
 CANDIDATE-TAGS is the completion vocabulary (board item tags, or project
-doc tags).  VOCAB, when non-nil, is the R72 date/status token offer list
+doc tags).  VOCAB, when non-nil, is the date/status token offer list
 \(`org-air-view--filter-vocabulary'), appended after the tag candidates;
 the prompt then names the shapes.  REQUIRE-MATCH stays nil, so `due:12d'
 types freely.  View-agnostic: shared by `org-air-filter',
 `org-air-review-filter' and `org-air-project-filter' so the pre-fill +
 AND default + `M-/' toggle are coded once (project/revisit pass no VOCAB
-— their records carry no planning slots, R72 Decision 8)."
+— their records carry no planning slots)."
   (completing-read-multiple
    (if vocab "Filter (#tag, text, is:/due:/todo:): " "Filter (#tag or text): ")
    (append candidate-tags vocab) nil nil
@@ -12520,7 +12494,7 @@ AND default + `M-/' toggle are coded once (project/revisit pass no VOCAB
      (mapconcat #'identity (org-air-view--filter-tags) ","))))
 
 (defun org-air-view--rerender-current-view ()
-  "Re-render whichever org-air view is current: board or project (R18 D-P3).
+  "Re-render whichever org-air view is current: board or project.
 The shared filter commands (`org-air-filter-clear',
 `org-air-filter-toggle-match') re-render through this so they work in BOTH
 the board and the project view without a hard dependency on
@@ -12529,11 +12503,11 @@ org-air-project (resolved by `fboundp')."
    ((and (derived-mode-p 'org-air-project-mode)
          (fboundp 'org-air-project-refresh))
     (org-air-project-refresh))
-   ;; R54-3: the revisit view re-renders in place (data untouched).
+   ;; The revisit view re-renders in place (data untouched).
    ((and (derived-mode-p 'org-air-revisit-mode)
          (fboundp 'org-air-revisit--render-current))
     (org-air-revisit--render-current))
-   ;; R61-4: the review view re-renders in place (data untouched).
+   ;; The review view re-renders in place (data untouched).
    ((and (derived-mode-p 'org-air-review-mode)
          (fboundp 'org-air-review--render-current))
     (org-air-review--render-current))
@@ -12541,7 +12515,7 @@ org-air-project (resolved by `fboundp')."
 
 (defun org-air-filter (tags)
   "Filter dashboard to TAGS, a comma-separated or list value.
-R18 D-P2: the prompt is PRE-FILLED with the active filter so each
+The prompt is PRE-FILLED with the active filter so each
 invocation continues narrowing instead of restarting; edit/extend the
 pre-filled value, or clear it to drop the filter."
   (interactive
@@ -12559,7 +12533,7 @@ pre-filled value, or clear it to drop the filter."
 
 (defun org-air-filter-by-tag (tag)
   "Compatibility wrapper: filter dashboard to TAG.
-R18 D-P2: pre-fills with the first active filter tag (empty clears)."
+Pre-fills with the first active filter tag (empty clears)."
   (interactive
    (progn
      (org-air-view--require-board)
@@ -12585,7 +12559,7 @@ R18 D-P2: pre-fills with the first active filter tag (empty clears)."
   (org-air-view--render-current))
 
 (defun org-air-filter-clear ()
-  "Clear tag filters (shared by the board + project views, R18 D-P3)."
+  "Clear tag filters (shared by the board and project views)."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
   (org-air-view--require-view)
@@ -12594,9 +12568,9 @@ R18 D-P2: pre-fills with the first active filter tag (empty clears)."
 
 (defun org-air-filter-toggle-match ()
   "Toggle the multi-tag filter combinator: AND (`all') <-> OR (`any').
-R18 D-P2: `all' means every active tag must match (narrow); `any' means
-any one matches (widen).  Re-renders the current view (board or project,
-R18 D-P3) and echoes the new mode.  Bound to `M-/' in both maps; the
+`all' means every active tag must match (narrow); `any' means
+any one matches (widen).  Re-renders the current view (board or
+project) and echoes the new mode.  Bound to `M-/' in both maps; the
 banner/rail/project header show the active combinator beside the chips."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
@@ -12607,7 +12581,7 @@ banner/rail/project header show the active combinator beside the chips."
 
 (defun org-air-view--filter-combinator-word ()
   "Return the active filter combinator as the literal word AND or OR.
-R18 D-P2: TTY-safe and deterministic for byte goldens."
+TTY-safe and deterministic for byte goldens."
   (if (eq org-air-filter-match 'all) "AND" "OR"))
 
 (defun org-air-scope (scope)
@@ -12618,7 +12592,7 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
      (org-air-view--loading-guard)
      (let* ((groups (delete-dups (delq nil (mapcar #'org-air-item-group org-air-view--items))))
             (files (delete-dups (mapcar #'org-air-item-file org-air-view--items)))
-            ;; R19-4d: Scope is a purely STRUCTURAL lens now — all / @group /
+            ;; Scope is a purely STRUCTURAL lens now — all / @group /
             ;; ⌂ file.  The `#tag' option is DROPPED here (it overlapped the
             ;; live tag Filter, which does tags better: multi-tag + AND/OR +
             ;; live).  Tags belong entirely to `/' (`org-air-filter').
@@ -12649,7 +12623,7 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
   (org-air-view--render-current))
 
 (defun org-air-next-line ()
-  "Move point down one line, landing on its title (R3, vim j; R21-2)."
+  "Move point down one line, landing on its title (vim `j')."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
   (org-air-view--require-view)
@@ -12657,7 +12631,7 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
   (org-air-view--goto-row-title))
 
 (defun org-air-prev-line ()
-  "Move point up one line, landing on its title (R3, vim k; R21-2)."
+  "Move point up one line, landing on its title (vim `k')."
   (interactive nil org-air-view-mode org-air-project-mode
                org-air-review-mode org-air-revisit-mode)
   (org-air-view--require-view)
@@ -12665,7 +12639,7 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
   (org-air-view--goto-row-title))
 
 (defun org-air-next-item ()
-  "Move point to the next item row, landing on its title (R21-2)."
+  "Move point to the next item row, landing on its title."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (let ((pos (next-single-property-change (point) 'org-air-item nil (point-max))))
@@ -12676,7 +12650,7 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
       (org-air-view--goto-row-title))))
 
 (defun org-air-prev-item ()
-  "Move point to the previous item row, landing on its title (R21-2)."
+  "Move point to the previous item row, landing on its title."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (let ((pos (previous-single-property-change (point) 'org-air-item nil (point-min))))
@@ -12691,7 +12665,7 @@ R18 D-P2: TTY-safe and deterministic for byte goldens."
 In two-pane mode the heading sits past the indent margin (and the
 composed row also carries rail text), so scan the whole line rather than
 only its first column."
-  ;; B1: `next-single-property-change' returns LIMIT (not nil) when no
+  ;; `next-single-property-change' returns LIMIT (not nil) when no
   ;; change is found before it, so guard with `< pos eol' — the old
   ;; `<= pos eol' + `(or ... (1+ eol))' parked pos at eol forever (hang).
   (let ((pos (line-beginning-position))
@@ -12712,15 +12686,15 @@ only its first column."
       bucket)))
 
 (defun org-air-toggle-section ()
-  "Toggle expand/collapse of the section HEADER at point (T2/B1).
+  "Toggle expand/collapse of the section HEADER at point.
 On a section header, toggle its full vs capped preview and KEEP POINT ON
-THE HEADER so it can be re-collapsed immediately.  R51-3: on the
+THE HEADER so it can be re-collapsed immediately.  On the
 `…and N more' fold row itself, EXPAND that section — the row literally
 teaches TAB, so TAB there must act, not drift; point lands on the first
 newly-revealed row (the rows replace the fold row, so point stays put
 visually).  On any other line TAB is safe — it moves to the next section
 header and never toggles or hangs.
-R91: the two TOGGLE branches move point AFTER rendering, so each carries
+The two TOGGLE branches move point AFTER rendering, so each carries
 the scroll seam itself — wrapping the render alone would anchor the
 intermediate landing and leave the final one adrift.  The third branch
 \(plain motion to the next header) is deliberately NOT anchored: it is an
@@ -12738,33 +12712,32 @@ explicit jump, and ordinary scrolling is the right answer there."
              (if (memq bucket org-air-view--expanded-sections)
                  (delq bucket org-air-view--expanded-sections)
                (cons bucket org-air-view--expanded-sections)))
-       ;; R98: either direction starts the reveal budget over — a collapse
+       ;; Either direction starts the reveal budget over — a collapse
        ;; forgets how far the section had been paged, and a fresh expand
        ;; paints ONE batch.
        (org-air-view--section-reveal-reset bucket)
-       ;; R18 D-P1b / R98: EVERY orientation now splices only the body band.
-       ;; The two-pane fallback to a full render was the "correctness
-       ;; first" note this replaces: `org-air-view--render-section'
-       ;; recomposes the body exactly as the full render does for the live
-       ;; orientation, so the result is byte-identical and the header,
-       ;; footer and every unchanged earlier section stay untouched.
+       ;; EVERY orientation splices only the body band.
+       ;; `org-air-view--render-section' recomposes the body exactly as
+       ;; the full render does for the live orientation, so the result is
+       ;; byte-identical and the header, footer and every unchanged
+       ;; earlier section stay untouched.
        (org-air-view--render-section bucket)
        (let ((pos (org-air-view--find-property 'org-air-section bucket)))
          (when pos
            (goto-char pos)
            ;; A section header has no title mark, so this falls back to
-           ;; first-visible (R21-2) — point stays on the header.
+           ;; first-visible — point stays on the header.
            (org-air-view--goto-row-title)))))
      (more
       (org-air-view--with-scroll-stable
-       ;; R51-3: EXPAND the fold row's bucket.  R98: the row now also
+       ;; EXPAND the fold row's bucket.  The row also
        ;; appears under an ALREADY-expanded section whose reveal budget is
        ;; still short of its member count, and there this branch REVEALS
        ;; THE NEXT BATCH instead — the row's own sentence says so.  Either
        ;; way, remember the first HIDDEN item — the first member the
        ;; CURRENT window does not show — BEFORE the render so point can
        ;; land on its revealed row after (never worse than the section
-       ;; header).  R95: derived from the rows the section actually
+       ;; header), derived from the rows the section actually
        ;; DISPLAYS (`org-air-view--displayed-items-for-bucket', which is
        ;; `--collapsed-window' for a collapsed section), so neither
        ;; Untracked's per-file quota nor a partly-paged section can land
@@ -12784,7 +12757,7 @@ explicit jump, and ordinary scrolling is the right answer there."
              (org-air-view--section-reveal-more more)
            (cl-pushnew more org-air-view--expanded-sections)
            (org-air-view--section-reveal-reset more))
-         ;; The SAME render seam the header branch takes (R18 D-P1b/R98).
+         ;; The SAME render seam the header branch takes.
          (org-air-view--render-section more)
          (let ((pos (or (and first-hidden
                              (org-air-view--find-property 'org-air-item
@@ -12817,7 +12790,7 @@ explicit jump, and ordinary scrolling is the right answer there."
 (defalias 'org-air-back-section #'org-air-prev-section)
 
 (defun org-air-toggle-mark ()
-  "Toggle the item at point in the exact source-key bulk selection (R90).
+  "Toggle the item at point in the exact source-key bulk selection.
 Every mirror occurrence renders together; the selection survives cached
 repaints, filters, sorts, folds and view changes in this live board.
 The mark records the bounded projection witness of the heading actually
@@ -12845,7 +12818,7 @@ heading (`org-air-view--marked-reconcile')."
              (if (= (length org-air-view--marked-keys) 1) "" "s"))))
 
 (defun org-air-clear-marks ()
-  "Clear every source-key mark in the live board, repainting once (R90)."
+  "Clear every source-key mark in the live board, repainting once."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (if (null org-air-view--marked-keys)
@@ -12865,20 +12838,20 @@ heading (`org-air-view--marked-reconcile')."
 
 (defvar org-air-view--triage-source-buffer nil
   "Source buffer of the most recent triage disposition.
-R73: a compatibility shadow — still SET by every recording path, but no
+A compatibility shadow — still SET by every recording path, but no
 longer read by `u' (`org-air-edit-undo' dispatches on the bounded
 `org-air-view--edit-ring' instead).")
 
 (defconst org-air-view--edit-ring-max 20
-  "Depth bound of the recent-edits undo ring (R73 Decision 7).
+  "Depth bound of the recent-edits undo ring.
 An internal bound like `org-air-view--refresh-pace' — never a
 defcustom; 20 covers a whole process-inbox sitting, and the payload per
 record is a short string, a buffer ref, ints, and bounded opaque tokens.")
 
 (defvar org-air-view--edit-ring nil
-  "The bounded recent-edits ring: a plain NEWEST-FIRST list (R73).
+  "The bounded recent-edits ring: a plain NEWEST-FIRST list.
 A single-file record is a plist (:desc :buffer :file :kind :tick :time).
-R90 adds one compound shape, (:desc :kind bulk :parts :time), whose
+There is one compound shape, (:desc :kind bulk :parts :time), whose
 ordered PARTS carry the same live-buffer/file/tick facts plus a bounded
 opaque token for the expected undo head; it holds no source markers, raw undo
 objects, or retained content.  A killed buffer degrades honestly in either
@@ -12890,22 +12863,22 @@ the head; `org-air-view--edit-ring-push' truncates the tail at
 wanted.")
 
 (defvar org-air-view--edit-redo-ring nil
-  "The REDO side of the recent-edits ring (R75): a NEWEST-FIRST list.
-Same single-file and R90 compound shapes as `org-air-view--edit-ring',
+  "The REDO side of the recent-edits ring: a NEWEST-FIRST list.
+Same single-file and compound shapes as `org-air-view--edit-ring',
 with small metadata and no source markers, raw undo objects, or retained
-content, and the same GLOBAL single-timeline discipline (Decision 1).  Fed ONLY
+content, and the same GLOBAL single-timeline discipline.  Fed ONLY
 by `org-air-edit-undo''s SUCCESS branch — the popped record, tick
 re-stamped to the buffer's post-undo chars tick; the
 consumed-without-revert branches (structural, dead, tick-tripped) feed
 NOTHING, so a refile/archive record can never sit here and `U' can
-never re-run a cross-buffer delete+insert (Decision 4 — not-redoable
-BY CONSTRUCTION, the R64 duplicate class closed on both sides).
+never re-run a cross-buffer delete+insert (not-redoable
+BY CONSTRUCTION, the duplicate class closed on both sides).
 CLEARED by every FRESH edit inside `org-air-view--edit-ring-push' (the
 one choke point every verb routes through — a fresh edit forks history
 and discards the redone branch); the ring ops themselves push/re-push
 DIRECTLY (`org-air-view--edit-ring-requeue') and never clear, so
 undo/redo walks never eat their own future.  Bounded by CONSERVATION
-under the one `org-air-view--edit-ring-max' defconst (Decision 6:
+under the one `org-air-view--edit-ring-max' defconst (
 records only ever shuffle between the two sides until a fresh edit
 truncates history), with the same defensive truncate on every push.")
 
@@ -13045,12 +13018,12 @@ contain no source bytes, markers, undo objects, or snapshots.")
         (org-air-view--history-records-discard discarded)))))
 
 (defun org-air-view--edit-ring-push (desc buffer &optional kind save-result cache-sync)
-  "Push an undo record for the DESC edit made in BUFFER (R73 Decision 3).
+  "Push an undo record for the DESC edit made in BUFFER.
 SAVE-RESULT supplies the exact pre-user-hook undo identity/tick.  CACHE-SYNC
 marks metadata edits whose undo/redo can finalize from cached source state.
 KIND defaults to `in-place' (single-buffer, honestly undoable via the
 buffer's own undo list); `refile' / `archive' mark the record
-STRUCTURAL — named by `u' but never auto-reverted (Decision 6: a
+STRUCTURAL — named by `u' but never auto-reverted (a
 source-side undo beside the moved copy would make a silent duplicate).
 The tick is `buffer-chars-modified-tick' (never `buffer-modified-tick')
 so fontification/text-property churn can never trip the `u' guard.
@@ -13058,7 +13031,7 @@ Older same-buffer records are NOT re-stamped here — only a successful
 ring UNDO re-stamps (`org-air-view--edit-ring-restamp'): an in-place
 chain never needs it (undoing the newer record first restores the
 older record's expected state and re-stamps then), while re-stamping
-under a STRUCTURAL push would arm the exact duplicate-maker Decision 6
+under a STRUCTURAL push would arm the exact duplicate-maker that rule
 forbids — the consumed-without-undo refile/archive record would leave
 its source-side cut as the buffer's newest undo step, and a
 guard-passing `u' on the older in-place record would `undo-only' THAT
@@ -13066,14 +13039,14 @@ cut, resurrecting the item beside its moved copy.  Letting the tick
 guard trip there (\"changed since\") is the honest degrade.  Bounded
 push-and-truncate to `org-air-view--edit-ring-max'.  Never signals.
 
-R75 Decision 1: the SAME push CLEARS `org-air-view--edit-redo-ring' —
+The SAME push CLEARS `org-air-view--edit-redo-ring' —
 a fresh edit forks history and discards the redone branch (standard
 undo/redo semantics), enforced BY CONSTRUCTION at this one choke point
 every current and future verb already routes through.  The clear is
 GLOBAL, not per-buffer: the ring is ONE timeline, and a `U' that
 re-applied an edit from before the newest recorded mutation would lie
 about it (the buffer-level `undo-redo' refusal backstops independently
-beneath this — Decision 3).  The ring ops themselves never come
+beneath this).  The ring ops themselves never come
 through here (`org-air-view--edit-ring-requeue' pushes directly)."
   (condition-case nil
       (when (buffer-live-p buffer)
@@ -13108,7 +13081,7 @@ through here (`org-air-view--edit-ring-requeue' pushes directly)."
 
 (defun org-air-view--history-restamp-pair (plist buffer tick head)
   "Refresh PLIST's paired BUFFER history guard to TICK and HEAD, or not at all.
-R90 gave a compound part a SECOND guard component beside `:tick' — the
+A compound part carries a SECOND guard component beside `:tick' — the
 `:undo-head' identity `org-air-view--bulk-history-blockers' checks straight
 after the tick — so the two are ONE fact about one buffer state and may only
 ever move together.  Refreshing half of the pair leaves the other half saying
@@ -13138,12 +13111,12 @@ non-nil when the pair was refreshed."
     t))
 
 (defun org-air-view--edit-ring-restamp (buffer &optional tick head)
-  "Re-stamp BUFFER's ring records with its current chars tick (R73/R75).
+  "Re-stamp BUFFER's ring records with its current chars tick.
 Run after every successful ring op in BUFFER (`u' undo, `U' redo): the
 op restored exactly the content state the neighbouring records were
 stamped against, so the tick guard keeps meaning \"no NON-ring change
 intervened\" — while a real user edit still trips it (the tick bumps
-with no re-stamp).  R75 Decision 5: TWO-SIDED — iterates BOTH
+with no re-stamp).  TWO-SIDED — iterates BOTH
 `org-air-view--edit-ring' AND `org-air-view--edit-redo-ring', because
 in a same-buffer deep walk (edits A,B → u,u → U,U) each ring op
 changes the buffer's tick, so the OTHER side's remaining records for
@@ -13188,15 +13161,15 @@ BUFFER here, in one instant, never one now and one later."
 (defun org-air-view--edit-ring-requeue (rec buffer ring)
   "Re-stamp REC to BUFFER's current chars tick and push it onto RING.
 RING is the SYMBOL of one ring side (`org-air-view--edit-ring' /
-`org-air-view--edit-redo-ring').  The DIRECT ring-op push (R75
-Decision 1): `org-air-edit-undo''s success branch moves the reverted
+`org-air-view--edit-redo-ring').  The DIRECT ring-op push:
+`org-air-edit-undo''s success branch moves the reverted
 record onto the redo side, `org-air-edit-redo''s success branch moves
 it back onto the undo side — deliberately NOT via
 `org-air-view--edit-ring-push', which would clear the redo remainder
 \(undo/redo walks must never eat their own future).  The re-stamp
 makes the record's tick guard mean \"no non-ring change since the
 ring op\" on its new side; the same defensive push-and-truncate to
-`org-air-view--edit-ring-max' applies (Decision 6: the bound is
+`org-air-view--edit-ring-max' applies (the bound is
 enforced on BOTH sides, not merely argued by conservation).
 
 The re-stamp goes through the same atomic pair as every other one
@@ -13214,7 +13187,7 @@ records, so no path writes half a guard."
 
 (defun org-air-view--item-at-point ()
   "Return the org-air item at point, or signal a `user-error'.
-R22-2: line-based so a row action resolves from ANY column on the row (the
+Line-based so a row action resolves from ANY column on the row (the
 leading margin / rail / trailing pad carry no item property; a point-only
 lookup there fails)."
   (or (org-air-view--row-property 'org-air-item)
@@ -13692,10 +13665,10 @@ touched file and mirrors committed effective tags without a query scan."
           #'org-air-inbox--flush-pending-log-note
           ,cache-sync)))))
 
-;;;; R90 source-key bulk tag coordinator
+;;;; Source-key bulk tag coordinator
 
 (defvar org-air-view--bulk-source-write nil
-  "Non-nil while R90 owns source saves and the one cached repaint.")
+  "Non-nil while the bulk coordinator owns source saves and the repaint.")
 
 (defun org-air-view--items-by-source-key (&optional items)
   "Return an equal hash from exact source key to all matching cached ITEMS."
@@ -14605,7 +14578,7 @@ files.  Earlier files remain committed and only successes/no-ops clear."
 (defun org-air-view--apply-date (kind date)
   "Set KIND (`scheduled' or `deadline') to DATE on the item at point.
 DATE is a date string or `clear'.  Refinement only — stays in Inbox.
-R68-3 audit: the quick-date `read-char-exclusive' runs BEFORE the
+The quick-date `read-char-exclusive' runs BEFORE the
 macro, against the displayed board — safe; a `lognotereschedule' /
 `lognoteredeadline' note is downgraded + flushed by the macro's
 logging discipline."
@@ -14642,14 +14615,14 @@ Upcoming membership and a calendar dot but stays in Inbox until filed."
   "Set DEADLINE on the item at point via the quick-date sub-prompt.
 DATE may be supplied non-interactively.  A refinement: stays in Inbox.
 
-R96 RENAME (was `org-air-item-deadline'): that name is ALSO the
+NAMED `-set-deadline', NOT `org-air-item-deadline': that name is ALSO the
 `org-air-item' struct-slot accessor generated by the `cl-defstruct' in
 org-air-query.el, so this command owned the shared function cell and
 every accessor reach through it — `funcall', `apply', `mapcar', a fresh
 `eval', a hook — ran the COMMAND instead of reading the slot.  Only the
 `cl-defstruct' compiler macro (which inlines the accessor at compile AND
 at interpreted call sites) kept the tree working.  Same medicine as
-`org-air-item-cycle-todo' (R68), which was renamed off the `todo' slot
+`org-air-item-cycle-todo', which was renamed off the `todo' slot
 for exactly this reason.  Deliberately NOT aliased back: a `defalias'
 under the old name would re-take the function cell and restore the bug
 verbatim.  The `d' key binding, the `?' help entry and the inbox walk's
@@ -14663,15 +14636,15 @@ verbatim.  The `d' key binding, the `?' help entry and the inbox walk's
 
 (defun org-air-set-schedule (date)
   "Set SCHEDULED DATE on the item at point (legacy — no key binding).
-R68-3: converted to `org-air-view--at-item-source' (its old body was
+Converted to `org-air-view--at-item-source' (its old body was
 a hand-copy of the macro), so a `lognotereschedule' configuration now
 records a downgraded timestamped entry in the same save instead of
 trapping an `*Org Note*' prompt against the undisplayed source buffer
 — and the edit gains the triage-undo (`u') recording.
-R68fix: this defun must sit BELOW the `org-air-view--at-item-source'
+This defun must sit BELOW the `org-air-view--at-item-source'
 defmacro — a use above the definition byte-compiles against whatever
 macro a stale `.elc' happens to carry on an incremental build,
-silently losing the logging discipline (the round-68 Fable blocker)."
+silently losing the logging discipline."
   (interactive
    (progn (org-air-view--require-board)
           (list (read-string "Schedule (empty clears): ")))
@@ -14686,18 +14659,18 @@ silently losing the logging discipline (the round-68 Fable blocker)."
 
 (defun org-air-set-tag ()
   "Add TAG to the item at point.
-The R68-3 audit left this raw (the `read-string' prompt runs BEFORE
+The audit left this raw (the `read-string' prompt runs BEFORE
 the buffer switch — against the displayed board — and `org-toggle-tag'
-is prompt-free; uniformity alone had no bug behind it).  R73-2
+is prompt-free; uniformity alone had no bug behind it).  The
 converts it onto `org-air-view--at-item-source' after all: an
 unrecorded tag edit would be invisible to the recent-edits
-ring (`u'), and the conversion brings the R68 logging discipline for free.
-The prompt STAYS before the macro — the R68-3 safety shape.
-Relocated BELOW the defmacro (the R68fix source-order law: a call
+ring (`u'), and the conversion brings the logging discipline for free.
+The prompt STAYS before the macro — the safety shape.
+Sits BELOW the defmacro (the source-order law: a call
 above the definition byte-compiles against whatever macro a stale
 `.elc' carries on an incremental build).
 
-R90: with marks active, prompts once and adds that tag to every eligible
+With marks active, prompts once and adds that tag to every eligible
 exact source heading as one compound, file-atomic edit."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
@@ -14719,7 +14692,7 @@ exact source heading as one compound, file-atomic edit."
 
 ;;;###autoload
 (defun org-air-item-backlog ()
-  "Toggle `org-air-backlog-tag' on the item at point — defer/un-defer (R83).
+  "Toggle `org-air-backlog-tag' on the item at point — defer/un-defer.
 Adds the tag when absent, REMOVES it when present (a reversible
 un-backlog): a board-active tagged item routes OFF the four task buckets
 \(Overdue / Upcoming / High priority / Needs attention) and the Inbox into
@@ -14735,25 +14708,25 @@ single non-interactive keystroke (fully batch-testable, no GUI-confirm
 bits).
 
 Writes the SOURCE heading via `org-air-view--at-item-source' (the SAME
-path `org-air-set-tag' uses): the R68 board-context logging discipline
+path `org-air-set-tag' uses): the board-context logging discipline
 \(inhibit the note-downgrade + pre-save flush), ONE `atomic-change-group'
 \(one edit = one undo group), an `org-toggle-tag' that preserves every
-OTHER tag, and — for free — an R73/R75 recent-edits ring record (`u'
+OTHER tag, and — for free — a recent-edits ring record (`u'
 undoes, `U' redoes; an in-place, single-buffer record, never structural).
 
-Then — R53, no rescan — mutates the CACHED item's `tags' slot in place,
+Then — with no rescan — mutates the CACHED item's `tags' slot in place,
 drops that one item's `eq' classify-memo entry, and repaints from cache
 via `org-air-view--refresh-current': the row moves from Needs-attention
 to Backlog (Summary follows) with NO org-ql re-query.  Never-error: the
 soft `user-error' (no item at point / a mid-refresh stale file) is
 message-only, a mid-body signal rolls back the `atomic-change-group'
 \(no save, no ring push), and any RESIDUAL hard error downgrades to a
-message (the R53 never-error law).
+message (the never-error law).
 
-Relocated BELOW the `org-air-view--at-item-source' defmacro (the R68fix
+Sits BELOW the `org-air-view--at-item-source' defmacro (the
 source-order law), beside `org-air-set-tag'.
 
-R90: the ordinary Backlog is header-only until TAB expands it.  A single
+The ordinary Backlog is header-only until TAB expands it.  A single
 unmarked toggle lands on a local survivor instead of following the moved
 item.  With marks active, set-all semantics apply to every eligible exact
 source heading and one compound `u'/`U' record covers all changed files."
@@ -14785,7 +14758,7 @@ source heading and one compound `u'/`U' record covers all changed files."
                     (org-air-view--bulk-rekey-landing landing old-index))
               (when org-air-view--classify-cache
                 (remhash item org-air-view--classify-cache))
-              ;; R90: this one mutation repaint excludes the moved identity;
+              ;; This one mutation repaint excludes the moved identity;
               ;; generic repaint/sort/resize restoration stays untouched.
               (when landing
                 (setq org-air-view--pending-mutation-landing
@@ -14798,7 +14771,7 @@ source heading and one compound `u'/`U' record covers all changed files."
               (org-air-view--panes-resync-now))
             (message "%s \"%s\"" (if had "Un-backlogged" "Backlogged")
                      (org-air-item-title item)))
-        ;; R53 never-error: the soft `user-error' (no item / the mid-refresh
+        ;; Never-error: the soft `user-error' (no item / the mid-refresh
         ;; stale guard) propagates message-only; any RESIDUAL hard error
         ;; downgrades to a message (belt-and-suspenders) — never a backtrace.
         (user-error (signal (car err) (cdr err)))
@@ -14815,10 +14788,11 @@ source heading and one compound `u'/`U' record covers all changed files."
 ;;;###autoload
 (defun org-air-item-cycle-todo ()
   "Set the TODO state of the item at point — select from its file's keywords.
-R68-1: completes over the item's SOURCE file's own merged todo
+Completes over the item's SOURCE file's own merged todo
 vocabulary (`org-air-inbox--read-todo-keyword' — the user's globals +
 the file's `#+TODO:' line win, dir/file-local declarations honoured;
-R57) and applies the choice via an EXPLICIT-string `org-todo' through
+the merged vocabulary) and applies the choice via an EXPLICIT-string
+`org-todo' through
 `org-air-view--at-item-source'.  Never a nil-arg `org-todo': under
 fast-selection todo keywords (`TODO(t)' …) that routes into
 `org-fast-todo-selection' even from pure Lisp — a synchronous key
@@ -14847,9 +14821,9 @@ triage spec's `T' key maps here."
 ;;;###autoload
 (defun org-air-item-archive ()
   "Archive the item at point's subtree (graduates it out of Inbox).
-R68-3 audit: SAFE — `org-archive-subtree' performs no interactive
+SAFE inside the source macro: `org-archive-subtree' performs no interactive
 reads and its archive-buffer writes are non-interactive.
-R73 Decision 6: the record is `:structural' — `org-archive-subtree'
+The record is `:structural' — `org-archive-subtree'
 writes the archive location too, so a source-side undo would leave the
 archived COPY (the duplicate shape); `u' consumes the record with a
 message naming the archive file instead."
@@ -14873,7 +14847,7 @@ message naming the archive file instead."
 (defun org-air-item-done ()
   "Mark the item at point DONE (graduates it out of Inbox).
 The explicit-symbol `(org-todo \='done)' never enters fast-selection;
-R68-3: a `COMP(c!)'-style time record — or a `DONE(d@)' note,
+A `COMP(c!)'-style time record — or a `DONE(d@)' note,
 downgraded to its timestamp — is flushed into the same save by the
 `org-air-view--at-item-source' logging discipline instead of pending
 against the undisplayed source buffer."
@@ -14890,7 +14864,7 @@ against the undisplayed source buffer."
 ;;;###autoload
 (defun org-air-item-kill ()
   "Delete the item at point's subtree, with confirmation (graduates it).
-R68-3 audit: SAFE — the `yes-or-no-p' confirm runs BEFORE the macro,
+SAFE inside the source macro: the `yes-or-no-p' confirm runs BEFORE it,
 against the displayed board; `org-cut-subtree' is prompt-free."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
@@ -15043,7 +15017,7 @@ before any undo primitive, relocation marker, save, or ring mutation."
 
 (defun org-air-view--history-command-blockers (record operation)
   "Return command-time blockers for RECORD's inverse OPERATION.
-Ordinary records without `:expected-undo' deliberately retain the R73/R75
+Ordinary records without `:expected-undo' deliberately retain the
 stale-edit law and perform no durability reads here."
   (if (eq (plist-get record :kind) 'bulk)
       (org-air-view--bulk-history-command-blockers
@@ -15296,7 +15270,7 @@ cut must never be made automatically undoable through an older record."
   "Restamp BUFFER's ring records only against its OWN authoritative TICK.
 TICK is the post-commit `buffer-chars-modified-tick' org-air itself left in
 BUFFER — `:expected-tick', captured INSIDE the save attempt at commit time,
-never sampled again afterwards.  R75 Decision 5 gives a restamp its whole
+never sampled again afterwards.  A restamp gets its whole
 meaning: the ring op restored exactly the state the neighbouring records were
 stamped against, so the guard keeps saying \"no NON-ring change intervened\".
 A restamp may therefore only ever record a change org-air MADE.  A compound
@@ -15783,7 +15757,7 @@ after disk commit is finalized as success and only emits a bounded warning."
                    desc (length parts) (if (= (length parts) 1) "" "s"))))))))
 
 (defun org-air-edit-undo ()
-  "Undo the MOST RECENT recorded board edit (R73 Decisions 5 + 6).
+  "Undo the MOST RECENT recorded board edit.
 Pops the newest record off the bounded recent-edits ring
 `org-air-view--edit-ring' and dispatches on its kind — one press, one
 record, never a cascade:
@@ -15796,12 +15770,12 @@ record, never a cascade:
   by a `buffer-chars-modified-tick' check (a manual/external change
   since the edit consumes the record with a message instead of eating
   the WRONG change; after a successful undo the same-buffer records
-  are re-stamped — two-sided since R75 — so the ring's own steps never
-  trip it), then saved + refreshed — the R73-1 resync rides the
+  are re-stamped — two-sided — so the ring's own steps never
+  trip it), then saved + refreshed — the resync rides the
   refresh tail, so the row AND the pane/inspector revert in the same
   motion — and the reverted record moves onto the REDO ring
   \(`org-air-view--edit-redo-ring', tick re-stamped post-undo), so `U'
-  \(`org-air-edit-redo') can re-apply it (R75 Decision 1);
+  \(`org-air-edit-redo') can re-apply it;
 - a STRUCTURAL record (refile / archive — a cross-buffer
   delete+insert) is honestly NOT undone: consumed with a message
   naming the manual path (a source-side undo would resurrect the item
@@ -15810,7 +15784,7 @@ record, never a cascade:
 
 Only the SUCCESS branch feeds the redo ring — the consumed-without-
 revert branches (structural, dead, tick-tripped) reverted nothing, so
-pushing would advertise a redo that does not exist (R75 Decision 1;
+pushing would advertise a redo that does not exist (
 structural records are therefore not-redoable BY CONSTRUCTION).
 
 `?' shows the ring (the Recent edits block); `u' undoes the top.
@@ -15833,11 +15807,11 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
             (kind (plist-get rec :kind))
             (next (car org-air-view--edit-ring)))
         (cond
-         ;; R90 compound metadata history: preflight every file before one
+         ;; Compound metadata history: preflight every file before one
          ;; reverse-commit-order undo and one final cached repaint.
          ((eq kind 'bulk)
           (org-air-view--bulk-history-operation rec 'undo))
-         ;; Decision 6: structural honesty — named, never a duplicate-making
+         ;; Structural honesty — named, never a duplicate-making
          ;; partial undo.
          ((memq kind '(refile archive))
           (org-air-view--history-record-discard rec)
@@ -15849,11 +15823,11 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
                    (if next
                        (format "  Next u: %s" (plist-get next :desc))
                      "")))
-         ;; Decision 5 step 1: ordinary dead records are consumed.
+         ;; Ordinary dead records are consumed.
          ((not (buffer-live-p buf))
           (org-air-view--history-record-discard rec)
           (message "Cannot undo: %s — source buffer gone" desc))
-         ;; Preserve R73's established stale-user-edit degrade for ordinary
+         ;; Preserve the stale-user-edit degrade for ordinary
          ;; records: consume it, move zero bytes, and name the changed buffer.
          ((and (not (plist-member rec :expected-undo))
                (not (eql (plist-get rec :tick)
@@ -15865,40 +15839,40 @@ triage dispositions; `org-air-triage-undo' stays as a defalias."
           (org-air-view--single-history-operation rec 'undo)))))))
 
 (defalias 'org-air-triage-undo #'org-air-edit-undo
-  "Renamed to `org-air-edit-undo' (R73) — `u' now undoes every board
+  "Renamed to `org-air-edit-undo' — `u' now undoes every board
 edit through the bounded recent-edits ring, not just the last triage
 disposition.  Kept as an alias for muscle memory, the process-inbox
 `?u' route, and test pins.")
 
 (defun org-air-edit-redo ()
-  "Re-apply the edit `u' just reverted (R75 Decisions 1–5).
+  "Re-apply the edit `u' just reverted.
 Pops the newest record off the redo ring
 `org-air-view--edit-redo-ring' — fed exclusively by
 `org-air-edit-undo''s success branch, so a refile/archive record can
 NEVER be here (consumed without reversal, structural records are
-not-redoable BY CONSTRUCTION — Decision 4, the R64 duplicate class
+not-redoable BY CONSTRUCTION — the duplicate class
 closed on both sides) — and re-applies it via ONE buffer-level
-`undo-redo' step in the record's OWN buffer.  The R73/R73fix
+`undo-redo' step in the record's OWN buffer.  The
 one-edit-one-group + one-undo-one-step discipline makes `undo-redo'
 \(the purpose-built partner of `undo-only'; Emacs 28.1+, our floor is
 29.1) re-apply EXACTLY the reverted edit in one step — including its
 flushed log line, since the group carried both — byte-identical to
 the post-edit state, and LINEARISE the undo list so a later `u'
-walks back through the same edit again (Decision 3, batch-verified).
+walks back through the same edit again.
 
-Guards mirror `u' (Decision 5): a dead source buffer or a
+Guards mirror `u': a dead source buffer or a
 manual/external change since the undo (the chars-tick guard — ring ops
 re-stamp two-sided, a real edit does not) consumes the record with a
 message, never an error; the `undo-redo' call itself is
 condition-case-caught (the theoretical `undo-limit' GC chain break
-with no char change — R53's never-error law), degrading to a named
+with no char change — the never-error law), degrading to a named
 message with zero bytes moved.  On success: save, two-sided restamp,
 the record moves BACK onto the undo ring head DIRECTLY
 \(`org-air-view--edit-ring-requeue' — never the push choke point,
 which would clear the redo remainder), and the refresh tail carries
-the R73-1 pane/inspector resync — so repeated `u'/`U' walk the ring
+the pane/inspector resync — so repeated `u'/`U' walk the ring
 both ways, byte-exact.  A FRESH edit clears the redo ring at the push
-choke point (standard undo/redo semantics — Decision 1); the explicit
+choke point (standard undo/redo semantics); the explicit
 `undo-boundary' before `undo-redo' is harmless (the
 last-change-was-undo lookup skips leading boundaries) and kept for
 symmetry with the undo side's Lisp-landed-buffer ruling.
@@ -15920,15 +15894,15 @@ read-only board where isearch is a real navigation path)."
       (let ((kind (plist-get rec :kind))
             (buf (plist-get rec :buffer)))
         (cond
-         ;; R90 compound metadata history: forward commit order, all-part
+         ;; Compound metadata history: forward commit order, all-part
          ;; preflight, one final cached repaint.
          ((eq kind 'bulk)
           (org-air-view--bulk-history-operation rec 'redo))
-         ;; Decision 5 step 2: ordinary dead records are consumed.
+         ;; Ordinary dead records are consumed.
          ((not (buffer-live-p buf))
           (org-air-view--history-record-discard rec)
           (message "Cannot redo: %s — source buffer gone" desc))
-         ;; Ordinary later user edits retain R75's consumed stale-record law.
+         ;; Ordinary later user edits retain the consumed stale-record law.
          ((and (not (plist-member rec :expected-undo))
                (not (eql (plist-get rec :tick)
                          (buffer-chars-modified-tick buf))))
@@ -15987,7 +15961,7 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
               (?f (call-interactively #'org-air-item-file-group))
               (?t (call-interactively #'org-air-set-tag))
               (?T (org-air-item-cycle-todo))
-              ;; R83: `b' is a DEFER disposition — the single-home backlog
+              ;; `b' is a DEFER disposition — the single-home backlog
               ;; gate drops the item out of the `inbox' bucket, so the
               ;; guided walk's countdown advances like any filing verb.
               (?b (org-air-item-backlog))
@@ -16016,33 +15990,33 @@ and scope are preserved; `q'/`RET' exits with partial progress kept."
     (encode-time 0 0 0 1 month year)))
 
 (defun org-air-calendar-prev ()
-  "Page to the previous month, or the previous day in the day view (R6)."
+  "Page to the previous month, or the previous day in the day view."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (if org-air-view--day
       (org-air-view-day (time-subtract org-air-view--day (days-to-time 1)))
     (setq org-air-view--cal-month
           (org-air-view--calendar-month-time org-air-view--cal-month -1))
-    ;; R18 D-P1b: under `side-window' the calendar lives in the separate rail
+    ;; Under `side-window' the calendar lives in the separate rail
     ;; buffer, so month-nav redraws only that buffer — the board is untouched.
     (org-air-view--render-calendar)))
 
 (defun org-air-calendar-next ()
-  "Page to the next month, or the next day in the day view (R6)."
+  "Page to the next month, or the next day in the day view."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (if org-air-view--day
       (org-air-view-day (time-add org-air-view--day (days-to-time 1)))
     (setq org-air-view--cal-month
           (org-air-view--calendar-month-time org-air-view--cal-month 1))
-    ;; R18 D-P1b: side-window redraws only the rail buffer (see -prev).
+    ;; Side-window redraws only the rail buffer (see -prev).
     (org-air-view--render-calendar)))
 
 (defun org-air-view--day-owner ()
-  "Resolve the OWNER board buffer for a day-open (R55-1).
+  "Resolve the OWNER board buffer for a day-open.
 Resolution order, first live hit wins: the current buffer when it is an
 `org-air-view-mode' board (the IDENTITY tier — inline calendar, day-nav,
-batch); else the rail's R25-6 back-pointer `org-air-rail--board-buffer'
+batch); else the rail's back-pointer `org-air-rail--board-buffer'
 when live AND a board (a PROJECT/REVISIT owner falls through — their
 rails carry no day cells); else the `*org-air*' buffer when live.
 Signals `user-error' otherwise — a day-open NEVER renders into whatever
@@ -16060,7 +16034,7 @@ buffer happens to be current."
 (defun org-air-view--day-owner-window (owner)
   "Return a live MAIN window showing OWNER on the selected frame, or nil.
 MAIN means nil `window-side' parameter and nil dedication — by
-construction never the dedicated `*org-air-rail*' side window (R55-1)."
+construction never the dedicated `*org-air-rail*' side window."
   (catch 'hit
     (dolist (w (get-buffer-window-list owner nil (selected-frame)))
       (when (and (window-live-p w)
@@ -16070,7 +16044,7 @@ construction never the dedicated `*org-air-rail*' side window (R55-1)."
     nil))
 
 (defun org-air-view--day-focus-owner (owner)
-  "Leave focus in a MAIN window showing OWNER after a day-open (R55-1).
+  "Leave focus in a MAIN window showing OWNER after a day-open.
 When the selected window already shows OWNER (the inline/identity tier)
 this is a no-op — focus behaviour byte-identical to trunk.  Otherwise hop
 to OWNER's main window (the `org-air-rail-return' pattern); when OWNER
@@ -16078,7 +16052,7 @@ has no live main window (a between-reconciles foreign-rail state, or
 `M-x' from an unrelated window), `display-buffer' it — never into the
 invoking (possibly rail) window, never into a dedicated side window, and
 never via `switch-to-buffer' (which errors in a dedicated window).
-Batch never routes (the R26-5 `noninteractive' gate: no live windows to
+Batch never routes (the `noninteractive' gate: no live windows to
 speak of, and the goldens must not move)."
   (unless (or noninteractive
               (eq (window-buffer (selected-window)) owner))
@@ -16098,16 +16072,16 @@ speak of, and the goldens must not move)."
 
 ;;;###autoload
 (defun org-air-view-day (&optional date)
-  "Focus the single-day view (R6) on DATE, the calendar day at point, or today.
+  "Focus the single-day view on DATE, the calendar day at point, or today.
 The item pane becomes that day's items grouped Deadline / Scheduled /
 Logged.  `q' or `g' returns to the full board; `<'/`>' move to the
 adjacent day; the rail calendar re-centres on the focused month.
 
-R55-1 (owner-routed): day state is applied to, and the re-render runs
+OWNER-ROUTED: day state is applied to, and the re-render runs
 in, the OWNER board buffer — resolved by `org-air-view--day-owner', NOT
 `(current-buffer)' — and focus lands in a MAIN window showing it,
 regardless of where the command was invoked (rail side window, inline
-cell, board, `M-x').  Under the R49-3 default `side-window' placement
+cell, board, `M-x').  Under the default `side-window' placement
 the calendar's day cells live in the dedicated `*org-air-rail*' side
 window; the naive body rendered the day pane INTO that window and
 trapped focus there.  The rail buffer/window are NEVER rendered into,
@@ -16130,7 +16104,7 @@ synchronous `org-air-query-items' re-scan on a keypress)."
       (let ((day (or date cell org-air-view--day (current-time))))
         (setq org-air-view--day day
               org-air-view--cal-month day)
-        ;; R79 D4: swap the sort key vocabulary to the day view's and
+        ;; Swap the sort key vocabulary to the day view's and
         ;; coerce the active key (shared priority/title carry across).
         (org-air-view--enter-day-sort)
         (org-air-view--render-current)))
@@ -16144,8 +16118,8 @@ calendar popup); returns an internal time at midnight.  DEFAULT-TIME is
 the owner board's focused day when a day view is up (so a re-jump
 nudges from the SHOWN day), else today.  Owner resolution is LENIENT
 here (no board yet -> today): `org-air-goto-date' opens the board
-itself (R78 Decision 4), so the reader must not pre-empt it with the
-R55-1 `user-error'."
+itself, so the reader must not pre-empt it with the
+`user-error'."
   (let* ((owner (ignore-errors (org-air-view--day-owner)))
          (default (and owner
                        (buffer-local-value 'org-air-view--day owner))))
@@ -16153,47 +16127,47 @@ R55-1 `user-error'."
 
 ;;;###autoload
 (defun org-air-goto-date (date)
-  "Jump the org-air board to DATE's single-day view (R78).
+  "Jump the org-air board to DATE's single-day view.
 Interactively, prompt with the full `org-read-date' vocabulary.  DATE
-is an internal time.  Delegates to `org-air-view-day', so the R55-1
-owner routing applies unchanged: the day renders in the OWNER board
-from its CACHED items (no rescan — R53) and focus lands in a MAIN
+is an internal time.  Delegates to `org-air-view-day', so the owner
+routing applies unchanged: the day renders in the OWNER board
+from its CACHED items (no rescan) and focus lands in a MAIN
 window.  With no live board anywhere, opens `org-air-view' first (the
 `org-air-process-inbox' precedent), then jumps.  `<'/`>' step days
-from the landed date; `q' returns to the full board (R28-2)."
+from the landed date; `q' returns to the full board."
   (interactive (list (org-air-goto-date--read-date)))
   (unless (ignore-errors (org-air-view--day-owner))
     (org-air-view))
   (org-air-view-day date))
 
 (defun org-air-view-board ()
-  "Leave the single-day view and return to the full board (R6)."
+  "Leave the single-day view and return to the full board."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (when org-air-view--day
     (setq org-air-view--day nil)
-    ;; R79 D4: restore the board sort key vocabulary and coerce back.
+    ;; Restore the board sort key vocabulary and coerce back.
     (org-air-view--leave-day-sort)
     (org-air-view--render-current)))
 
 (defun org-air-quit ()
-  "Progressively close org-air surfaces — ONE surface per press (R28-2).
+  "Progressively close org-air surfaces — ONE surface per press.
 Peel order, most-recent surface first: a live bottom pane closes FIRST
 \(board alive, point untouched); the single-day view returns to the full
-board (R6); only then does a press quit org-air itself — rail teardown +
+board; only then does a press quit org-air itself — rail teardown +
 `quit-window'."
   (interactive nil org-air-view-mode)
   (org-air-view--require-board)
   (cond
-   ;; R28-2 layer 1: a live pane is the most-recent surface — close it, STOP.
+   ;; Layer 1: a live pane is the most-recent surface — close it, STOP.
    ((org-air-view--quit-close-pane))
-   ;; Layer 2: single-day view -> the full board (R6).
+   ;; Layer 2: single-day view -> the full board.
    (org-air-view--day (org-air-view-board))
    (t
-    ;; R16 D-P1: tear down the popped-out rail (if any) before quitting.
+    ;; Tear down the popped-out rail (if any) before quitting.
     (when org-air-view--rail-popped-out
       (org-air-rail--teardown))
-    ;; R16 D-P3: tear down a lingering (window-less) pane buffer as well.
+    ;; Tear down a lingering (window-less) pane buffer as well.
     (org-air-view-pane--teardown)
     (quit-window))))
 
@@ -16219,10 +16193,10 @@ board (R6); only then does a press quit org-air itself — rail teardown +
   (org-air-peek-item))
 
 (defconst org-air-help-buffer-name "*org-air-help*"
-  "Name of the org-air help buffer (R50-2).")
+  "Name of the org-air help buffer.")
 
 (define-derived-mode org-air-help-mode special-mode "Org-Air-Help"
-  "Major mode for the `*org-air-help*' buffer (R50-2).
+  "Major mode for the `*org-air-help*' buffer.
 A normal read-only, scrollable buffer (SPC/DEL page via the
 `special-mode' parent; evil motions apply under evil).  `q' quits back to
 the origin window via the PARENT `special-mode' binding (`quit-window'),
@@ -16230,13 +16204,13 @@ so it works even with `org-air-use-default-keybindings' nil — the knob
 only clears installer-owned keys, and org-air installs none here."
   (setq-local truncate-lines nil)
   (setq-local line-spacing org-air-line-spacing)
-  ;; R58: a trivial record (context symbol only) so a `*org-air-help*'
+  ;; A trivial record (context symbol only) so a `*org-air-help*'
   ;; buffer in a saved layout can never raise the activities.el error.
   (setq-local bookmark-make-record-function
               #'org-air-help--bookmark-make-record))
 
 (defvar-local org-air-help--context-sym nil
-  "Help context symbol this `*org-air-help*' buffer was rendered for (R58).
+  "Help context symbol this `*org-air-help*' buffer was rendered for.
 Set by `org-air-help--render' (after the mode call, which wipes locals);
 read by the bookmark record producer.")
 
@@ -16295,7 +16269,7 @@ read by the bookmark record producer.")
      (org-air-revisit . "revisit dusty notes")
      (org-air-quit . "quit")
      (org-air-help . "this help")))
-  "BOARD help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).
+  "BOARD help groups: (TITLE . ((COMMAND . DESCRIPTION) …)).
 Key text is NEVER stored here — it is derived at render time from the
 ACTUAL live keymaps of the origin buffer, so the help can never lie.")
 
@@ -16325,7 +16299,7 @@ ACTUAL live keymaps of the origin buffer, so the help can never lie.")
      (org-air-revisit . "revisit dusty notes")
      (org-air-project-quit . "quit")
      (org-air-help . "this help")))
-  "PROJECT help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).")
+  "PROJECT help groups: (TITLE . ((COMMAND . DESCRIPTION) …)).")
 
 (defconst org-air-help--doc-groups
   '(("Session"
@@ -16337,12 +16311,12 @@ ACTUAL live keymaps of the origin buffer, so the help can never lie.")
      (org-air-rail-toggle . "pop rail out/in"))
     ("Help"
      (org-air-help . "this help")))
-  "DOC-SESSION help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).
+  "DOC-SESSION help groups: (TITLE . ((COMMAND . DESCRIPTION) …)).
 The doc file buffer is EDITABLE, so these derive to the
 `org-air-leader-key' leader forms plus the direct back-verb binding.")
 
 (defun org-air-help--context (buffer)
-  "Return the help context symbol for BUFFER (R50-2).
+  "Return the help context symbol for BUFFER.
 `board' / `project' / `revisit' / `review' / `doc-session'; anything
 else falls back to `board' (matching the old echo-area fallback)."
   (with-current-buffer buffer
@@ -16356,22 +16330,22 @@ else falls back to `board' (matching the old echo-area fallback)."
      (t 'board))))
 
 (defun org-air-help--groups (context)
-  "Return the group table for help CONTEXT (R50-2)."
+  "Return the group table for help CONTEXT."
   (pcase context
     ('project org-air-help--project-groups)
     ('doc-session org-air-help--doc-groups)
-    ;; R54-3: the revisit groups live in org-air-revisit.el (module split).
+    ;; The revisit groups live in org-air-revisit.el (module split).
     ('revisit (if (boundp 'org-air-revisit--help-groups)
                   (symbol-value 'org-air-revisit--help-groups)
                 org-air-help--board-groups))
-    ;; R61-4: the review groups live in org-air-review.el (module split).
+    ;; The review groups live in org-air-review.el (module split).
     ('review (if (boundp 'org-air-review--help-groups)
                  (symbol-value 'org-air-review--help-groups)
                org-air-help--board-groups))
     (_ org-air-help--board-groups)))
 
 (defun org-air-help--context-title (context)
-  "Return the human name of help CONTEXT for the title line (R50-2)."
+  "Return the human name of help CONTEXT for the title line."
   (pcase context
     ('project "project")
     ('revisit "revisit")
@@ -16380,7 +16354,7 @@ else falls back to `board' (matching the old echo-area fallback)."
     (_ "board")))
 
 (defun org-air-help--insert-header (label)
-  "Insert a help section header for LABEL, rail-header idiom (R50-2).
+  "Insert a help section header for LABEL, rail-header idiom.
 The rail's prefix-marker + `org-air-face-rail-header' face family — no
 new faces, no theme surface growth."
   (insert (propertize (org-air-layout-glyph 'rail-marker)
@@ -16390,7 +16364,7 @@ new faces, no theme surface growth."
           "\n"))
 
 (defun org-air-help--rows (cells origin)
-  "Resolve CELLS ((COMMAND . DESC) …) against ORIGIN's live maps (R50-2).
+  "Resolve CELLS ((COMMAND . DESC) …) against ORIGIN's live maps.
 Returns ((KEY-TEXT LIVE-P . DESC) …): KEY-TEXT via
 `org-air-view--legend-key' (`where-is' in ORIGIN, so prefix and leader
 sequences render naturally, and an evil rebinding, a custom
@@ -16406,7 +16380,7 @@ yields a faded `M-x command-name' cell instead of a lie."
           cells))
 
 (defun org-air-help ()
-  "Show org-air key bindings in the `*org-air-help*' buffer (R50-2).
+  "Show org-air key bindings in the `*org-air-help*' buffer.
 A dedicated, formatted, scrollable help view (mu4e/magit style) that
 replaces the old one-line echo-area message: grouped sections, one
 binding per row, KEY derived from the ACTUAL active keymaps of the
@@ -16415,7 +16389,7 @@ origin buffer (`where-is'), so it is correct under evil, a custom
 Context-aware: board / project / doc-session pick their own group set.
 Displayed via `pop-to-buffer'; `q' (`quit-window', the `special-mode'
 parent binding) restores the origin window.
-R58: the render body lives in `org-air-help--render' (the bookmark
+The render body lives in `org-air-help--render' (the bookmark
 handler re-renders undisplayed); this command is the render + display."
   (interactive)
   (let* ((origin (current-buffer))
@@ -16426,7 +16400,7 @@ handler re-renders undisplayed); this command is the render + display."
     buffer))
 
 (defun org-air-help--render (buffer context origin)
-  "Render the CONTEXT help view into BUFFER, keys derived from ORIGIN (R58).
+  "Render the CONTEXT help view into BUFFER, keys derived from ORIGIN.
 The extracted render core of `org-air-help' (byte-identical output): the
 command wraps it with `pop-to-buffer'; the bookmark handler calls it
 directly and never displays (the restorer owns the windows).  ORIGIN is
@@ -16446,7 +16420,7 @@ BUFFER."
                             org-air-view--items)))))))
     (with-current-buffer buffer
       (org-air-help-mode)
-      ;; R58: remember the context for the bookmark record producer (the
+      ;; Remember the context for the bookmark record producer (the
       ;; mode call above ran `kill-all-local-variables').
       (setq-local org-air-help--context-sym context)
       (let ((inhibit-read-only t))
@@ -16472,8 +16446,8 @@ BUFFER."
                       "  "
                       (propertize desc 'face 'org-air-face-faded)
                       "\n"))))
-        ;; R90: a conditional selection explainer.  Empty marks emit no
-        ;; bytes, preserving every pre-R90 help fixture.
+        ;; A conditional selection explainer.  Empty marks emit no
+        ;; bytes.
         (when mark-counts
           (insert "\n")
           (org-air-help--insert-header "Marked items")
@@ -16491,7 +16465,7 @@ BUFFER."
                   (propertize "Other mutations are single-item; press M first"
                               'face 'org-air-face-faded)
                   "\n"))
-        ;; R73 Decision 8 + R75 Decision 7: the Recent-edits block —
+        ;; The Recent-edits block —
         ;; newest first, at most 5 rows per side, `u' undoes the top /
         ;; `U' redoes the top.  The gate is EITHER-ring-non-empty
         ;; (undoing the only edit leaves undo empty + redo populated —
@@ -16531,9 +16505,9 @@ BUFFER."
                           (propertize (concat (plist-get rec :desc) suffix)
                                       'face 'org-air-face-faded)
                           "\n")))))
-          ;; R75: the redo sub-list — `[not simply undoable]' CANNOT
+          ;; The redo sub-list — `[not simply undoable]' CANNOT
           ;; occur here (structural records never enter the redo ring,
-          ;; Decision 4); only the `[gone]' suffix applies.
+          ;; construction); only the `[gone]' suffix applies.
           (when (and (boundp 'org-air-view--edit-redo-ring)
                      org-air-view--edit-redo-ring)
             (insert "  "
@@ -16565,7 +16539,7 @@ BUFFER."
   "Visit ITEM's original Org heading.
 When ITEM is nil, use the item at point in an org-air dashboard.  DISPLAY
 controls window choice and defaults to `org-air-visit-display'."
-  ;; R97 D1: the precondition is stated on the INTERACTIVE path only —
+  ;; The precondition is stated on the INTERACTIVE path only —
   ;; the engine API (`(org-air-visit-item ITEM)') is called from the
   ;; revisit view, the pane and Lisp, and must stay buffer-agnostic.
   (interactive (progn (org-air-view--require-item-view) nil)
@@ -16573,20 +16547,20 @@ controls window choice and defaults to `org-air-visit-display'."
   (let ((item (or item (get-text-property (point) 'org-air-item))))
     (unless item
       (user-error "No org-air item at point"))
-    ;; R54-3: an org-air-initiated open — feed the opt-in visit ledger.
+    ;; An org-air-initiated open — feed the opt-in visit ledger.
     (org-air--note-visited (org-air-item-file item))
-    ;; R18 D-P4: RET owns the pane now (`org-air-view-pane-return'); the old
+    ;; RET owns the pane now (`org-air-view-pane-return'); the old
     ;; opt-in `org-air-view-pane-on-return' RET-also-opens-pane behaviour is
     ;; obsolete and no longer consulted here.
     (let* ((marker (org-air-item-marker item))
-           ;; R26-8: a cache-hydrated item carries a (FILE . POS) cons —
+           ;; A cache-hydrated item carries a (FILE . POS) cons —
            ;; hydrate on demand (visit the file in the background).
            (buffer (or (and (markerp marker) (marker-buffer marker))
                        (find-file-noselect (org-air-item-file item))))
            (display (or display org-air-visit-display))
            (dash-window (get-buffer-window
                          (get-buffer org-air-view-buffer-name) t))
-           ;; T4/B2: capture the window configuration and the originating
+           ;; Capture the window configuration and the originating
            ;; item's SOURCE marker (stable across a dashboard re-render — a
            ;; dashboard-buffer position marker collapses to point-min when
            ;; the buffer is re-rendered).  `org-air-return' re-locates the
@@ -16610,7 +16584,7 @@ controls window choice and defaults to `org-air-visit-display'."
                    #'org-fold-show-context
                  (intern "org-show-context")))
       (recenter)
-      ;; T4: arm the captured return contract in the visited buffer.
+      ;; Arm the captured return contract in the visited buffer.
       (org-air-view--enable-return config origin)
       (when (fboundp 'pulse-momentary-highlight-one-line)
         (pulse-momentary-highlight-one-line (point))))))
@@ -16626,13 +16600,13 @@ controls window choice and defaults to `org-air-visit-display'."
 (define-minor-mode org-air-return-mode
   "Buffer-local mode in an item buffer visited from the org-air dashboard.
 Binds `org-air-return-key' to `org-air-return' so the captured window
-configuration is restored with one key (T4)."
+configuration is restored with one key."
   :lighter " ↳org-air"
   :keymap org-air-return-mode-map)
 
 (defun org-air-view--enable-return (config origin)
-  "Enable `org-air-return-mode', recording window CONFIG and ORIGIN (T4).
-R35.1: the `org-air-return-key' binding is gated on
+  "Enable `org-air-return-mode', recording window CONFIG and ORIGIN.
+The `org-air-return-key' binding is gated on
 `org-air-use-default-keybindings' — with the knob nil org-air installs NO
 key in the user's OWN visited file buffer (and still honours the existing
 empty `org-air-return-key' opt-out).  When gated off, any stale binding of
@@ -16650,7 +16624,7 @@ knob-on visit does not leave a key behind."
 
 ;;;###autoload
 (defun org-air-return ()
-  "Restore the window configuration captured when this item was visited (T4).
+  "Restore the window configuration captured when this item was visited.
 Lands point back on the originating dashboard item row.  The user's Org
 buffer is never killed and no split is left broken."
   (interactive)
@@ -16664,7 +16638,7 @@ buffer is never killed and no split is left broken."
       (cond
        ((window-live-p win)
         (select-window win)
-        ;; B2: re-locate the originating row by its (stable) source marker
+        ;; Re-locate the originating row by its (stable) source marker
         ;; — the dashboard may have re-rendered while the item was visited.
         (when (markerp origin)
           (let ((pos (org-air-view--find-property 'org-air-marker origin)))
@@ -16675,7 +16649,7 @@ buffer is never killed and no split is left broken."
 
 ;;;###autoload
 (defun org-air-return-to-dashboard ()
-  "Return to the org-air dashboard window (T4 fallback).
+  "Return to the org-air dashboard window (the return fallback).
 If the dashboard is on screen, select its window; otherwise show it in
 the current window.  Used when no captured configuration is available."
   (interactive)
@@ -16688,7 +16662,7 @@ the current window.  Used when no captured configuration is available."
         (switch-to-buffer dashboard)))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R58 — Emacs bookmark support (activities.el / burly / `C-x r m').
+;;;; Emacs bookmark support (activities.el / burly / `C-x r m').
 ;;;; ---------------------------------------------------------------------
 ;;
 ;; Every org-air view buffer provides a buffer-local
@@ -16696,7 +16670,7 @@ the current window.  Used when no captured configuration is available."
 ;; bookmark-driven session restorers (activities.el, burly.el, plain
 ;; `bookmark-jump') can save and rebuild the views.  Records carry the
 ;; VIEW-defining state plus a durable (FILE . POS) locator for point (the
-;; R53 marker-slot model — never a raw buffer position) and ONLY
+;; marker-slot model — never a raw buffer position) and ONLY
 ;; printable values (`bookmark-save' writes the alist with `prin1').
 ;; Handlers re-enter the EXISTING cache-first entry cores with display
 ;; suppressed and NEVER touch windows: `bookmark--jump-via' hands
@@ -16710,26 +16684,26 @@ the current window.  Used when no captured configuration is available."
 (declare-function org-air-review-bookmark-jump "org-air-review")
 
 (defconst org-air-view--bookmark-version 1
-  "Schema version stamped into every org-air bookmark record (R58).
+  "Schema version stamped into every org-air bookmark record.
 Readers treat every field as optional (unknown fields ignored, missing
 fields defaulted), so a version mismatch reads best-effort — never a
 signal into bookmark.el / activities.el.")
 
 (defconst org-air-view--bookmark-header-keys
   '(org-air-version org-air-view org-air-context)
-  "The per-record header trio every org-air bookmark record carries (R58).
+  "The per-record header trio every org-air bookmark record carries.
 Stripped by `org-air-view--bookmark-host-fields' when a dependent
 buffer's record embeds its host's state fields (the rail delegation), so
 the embedding record keeps its OWN header.")
 
 (defun org-air-view--bookmark-epoch (time)
-  "Return TIME as a printable integer epoch, or nil (R58 rule 5).
+  "Return TIME as a printable integer epoch, or nil.
 Times are stored as integer epochs (`time-convert') — an Emacs time
 object must never enter a bookmark record."
   (and time (ignore-errors (time-convert time 'integer))))
 
 (defun org-air-view--bookmark-header (view handler location names)
-  "Return the shared org-air bookmark record header alist (R58).
+  "Return the shared org-air bookmark record header alist.
 VIEW is the record's view symbol, HANDLER the jump function, LOCATION
 the string `bookmark-location' displays in the bmenu list (views are not
 file-visiting, so records carry `location' instead of `filename'), and
@@ -16745,7 +16719,7 @@ DIAGNOSTIC ONLY: a jump always opens under the user's LIVE configuration
         (cons 'org-air-context (org-air-view--cache-key))))
 
 (defun org-air-view--bookmark-host-fields (record)
-  "Return RECORD's embeddable `org-air-…' state fields (R58 delegation).
+  "Return RECORD's embeddable `org-air-…' state fields.
 Drops bookmark.el's reserved keys (`handler', `defaults', `location'… —
 anything not `org-air-'-prefixed) and the header trio
 `org-air-view--bookmark-header-keys', leaving exactly the view-defining
@@ -16759,7 +16733,7 @@ state a dependent buffer's record embeds from its host."
 
 (defun org-air-view--bookmark-scan (prop pred)
   "Return the first position whose text PROP value satisfies PRED, or nil.
-A pure text-property scan over the rendered buffer (R58): never opens a
+A pure text-property scan over the rendered buffer: never opens a
 file, bounded by the buffer size.  PRED is called only on non-nil
 values."
   (let ((pos (point-min)) (found nil))
@@ -16771,7 +16745,7 @@ values."
     found))
 
 (defun org-air-view--bookmark-locator-of (record)
-  "Return the point-locator slot RECORD arms, or nil (R58).
+  "Return the point-locator slot RECORD arms, or nil.
 A plist (:item (FILE . POS) :title TITLE); either half may be absent —
 the consume chain falls through accordingly.  Malformed fields are
 dropped, never signalled on."
@@ -16787,7 +16761,7 @@ dropped, never signalled on."
 ;;; --- Board (`*org-air*') -----------------------------------------------
 
 (defun org-air-view--bookmark-name ()
-  "Return the board record's `defaults' candidates, most specific first (R58).
+  "Return the board record's `defaults' candidates, most specific first.
 Day view first (\"org-air: day 2026-07-18\"), then the scoped board
 \(\"org-air: board · file inbox.org\", · #tag, · group G), then the
 generic \"org-air: board\"."
@@ -16808,8 +16782,8 @@ generic \"org-air: board\"."
                "org-air: board"))))
 
 (defun org-air-view--bookmark-item-fields ()
-  "Return the (FILE . POS) locator fields for the row at point, or nil (R58).
-The R53 marker-slot model: a scanned item's marker slot IS a durable
+  "Return the (FILE . POS) locator fields for the row at point, or nil.
+The marker-slot model: a scanned item's marker slot IS a durable
 \(FILE . POS) cons; a live-capture item whose marker is a real marker
 degrades to (FILE . POS) via `marker-position' at record time — a marker
 must never enter the alist (rule 5).  Point on chrome (banner, section
@@ -16831,7 +16805,7 @@ heading, calendar) records NO item fields."
                                  (substring-no-properties title)))))))))
 
 (defun org-air-view--bookmark-make-record ()
-  "Return the Emacs bookmark record for the current board buffer (R58).
+  "Return the Emacs bookmark record for the current board buffer.
 Pure buffer-local reads plus one row text-property lookup — cheap enough
 for activities.el's repeated timer saves, valid mid-refresh (no
 in-flight machine state leaks into the alist) and NEVER signals: any
@@ -16867,7 +16841,7 @@ comes from the cache/scan — records stay tiny)."
                                           (list "org-air: board")))))
 
 (defun org-air-view--bookmark-apply (record)
-  "Apply RECORD's org-air view fields to the current board buffer (R58).
+  "Apply RECORD's org-air view fields to the current board buffer.
 A pure `setq-local' translator: record fields → the view-defining
 buffer-locals.  Every field is optional, unknown fields are IGNORED
 \(forward compatibility) and a missing/malformed field lands on the mode
@@ -16893,14 +16867,14 @@ read best-effort through this same path) restores a plain board."
                (cdr sort) (symbolp (cdr sort)))
       (setq-local org-air-view--sort-key (car sort)
                   org-air-view--sort-direction (cdr sort)))
-    ;; R90: restoring an explicit lens is the same explicit reveal request
+    ;; Restoring an explicit lens is the same explicit reveal request
     ;; as applying it interactively; raw `#backlog' remains collapse-neutral.
     (org-air-view--ensure-explicit-backlog-lens)))
 
 (defun org-air-view--bookmark-consume ()
-  "Land point per the armed bookmark locator; one-shot (R58).
+  "Land point per the armed bookmark locator; one-shot.
 Called at the tail of every successful full paint (the one choke point:
-the sync path, the deferred one-shot, the stale paint, every R56
+the sync path, the deferred one-shot, the stale paint, every
 progressive paint and the machine's final swap).  Drift chain: exact
 \(FILE . POS) marker row → same FILE + title (POS drifted) → same title
 \(refiled) → stay ARMED while a refresh is still in flight, else clear
@@ -16943,16 +16917,16 @@ text-property scan; never opens a file, never signals."
 
 ;;;###autoload
 (defun org-air-view-bookmark-jump (record)
-  "Handler for org-air board bookmarks (R58).
+  "Handler for org-air board bookmarks.
 Rebuilds `*org-air*' from RECORD without displaying it (the bookmark
 caller owns display — the activities.el contract) and without a blocking
-rescan (the R26-8/R56 cache-first machine).  Never signals: a malformed
+rescan (the cache-first machine).  Never signals: a malformed
 or future-versioned RECORD degrades to a plain board open."
   (require 'org-air)
   (let ((buffer (get-buffer-create org-air-view-buffer-name)))
     (condition-case err
         (with-current-buffer buffer
-          ;; R26-5 idempotent entry guard — identical to the command's.
+          ;; Idempotent entry guard — identical to the command's.
           (unless (derived-mode-p 'org-air-view-mode)
             (org-air-view-mode))
           ;; 1. Saved view state FIRST, so the very first paint (skeleton
@@ -16961,7 +16935,7 @@ or future-versioned RECORD degrades to a plain board open."
           ;; 2. Stash the point locator for the paint tail to consume.
           (setq org-air-view--bookmark-locator
                 (org-air-view--bookmark-locator-of record))
-          ;; 3. The entry core, display suppressed (R58 factoring).
+          ;; 3. The entry core, display suppressed.
           (org-air-view--open-core buffer nil))
       (error
        (message "org-air: bookmark restore degraded: %s"
@@ -16977,7 +16951,7 @@ or future-versioned RECORD degrades to a plain board open."
 ;;; --- Rail (`*org-air-rail*', delegating) -------------------------------
 
 (defun org-air-rail--bookmark-make-record ()
-  "Return the DELEGATING bookmark record for the rail buffer (R58).
+  "Return the DELEGATING bookmark record for the rail buffer.
 Shared header with view `rail' plus `org-air-host' (which view owns the
 rail, from the back-pointer's major mode) and the HOST's full state
 field set — obtained by calling the host buffer's own
@@ -17015,13 +16989,13 @@ board-hosted rail record; never signals."
 
 ;;;###autoload
 (defun org-air-rail-bookmark-jump (record)
-  "Handler for org-air rail bookmarks (R58, delegating).
+  "Handler for org-air rail bookmarks (delegating).
 Restores the HOST view from the embedded fields in RECORD via the host's
 own handler flow (no display), then recreates `*org-air-rail*' and
-renders it from the host (`org-air-rail--render', batch-safe per R15
-D-P2), leaving the RAIL current.  Restore-order independent: if the
+renders it from the host (`org-air-rail--render', batch-safe), leaving
+the RAIL current.  Restore-order independent: if the
 host's own record restores later, its idempotent entry finds the buffer
-already initialised — no double init (the R26-5 guard).  Never touches
+already initialised — no double init (the guard).  Never touches
 windows; never signals."
   (require 'org-air)
   (condition-case err
@@ -17052,7 +17026,7 @@ windows; never signals."
 ;;; --- Entry pane (`*org-air-view*', delegating) -------------------------
 
 (defun org-air-view-pane--bookmark-make-record ()
-  "Return the DELEGATING bookmark record for the snapshot pane (R58).
+  "Return the DELEGATING bookmark record for the snapshot pane.
 Shared header with view `entry', `org-air-host' and `org-air-entry-ctx'
 — the (FILE . POS) of the snapshot's source, from the printable stash
 the snapshot writer left (`org-air-view-pane--bookmark-ctx').  Never
@@ -17088,7 +17062,7 @@ signals; a stash-less pane records a bare degrading header."
 
 ;;;###autoload
 (defun org-air-entry-view-bookmark-jump (record)
-  "Handler for org-air entry-pane bookmarks (R58, delegating).
+  "Handler for org-air entry-pane bookmarks (delegating).
 Ensures the host board exists (undisplayed, through the same idempotent
 entry guard the commands use — a LIVE board is left untouched, so
 restore order never matters), recreates the pane buffer and renders the
@@ -17132,7 +17106,7 @@ current; never touches windows."
 ;;; --- Help (`*org-air-help*', trivial) ----------------------------------
 
 (defun org-air-help--bookmark-make-record ()
-  "Return the trivial bookmark record for the help buffer (R58).
+  "Return the trivial bookmark record for the help buffer.
 Header plus `org-air-help-context' (the `org-air-help--context' symbol
 this buffer was rendered for) — included so no `*org-air-help*' in a
 saved layout can ever raise the activities.el error."
@@ -17143,7 +17117,7 @@ saved layout can ever raise the activities.el error."
 
 ;;;###autoload
 (defun org-air-help-bookmark-jump (record)
-  "Handler for org-air help bookmarks (R58).
+  "Handler for org-air help bookmarks.
 Re-renders `*org-air-help*' for RECORD's stored context.  The keymap
 origin is the matching live view buffer when one exists (so the KEY
 column stays honest), else the help buffer itself (degrading to `M-x'

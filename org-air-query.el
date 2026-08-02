@@ -12,11 +12,11 @@
 
 ;; Normalise Org headings from `org-air-files' into `org-air-item' records.
 ;;
-;; R53: the scan is a WORK-BUFFER scan — org-ql stays the only query
-;; engine, but org-air now hands it buffers IT manages (one reused work
-;; buffer per session, or a user's live buffer) instead of letting it
-;; `find-file-noselect' every file.  That kills the measured O(n^2)
-;; `buffer-list' cost (271.8s -> 3.41s at 5006 files), retains ZERO source
+;; The scan is a WORK-BUFFER scan: org-ql is the only query engine, but
+;; org-air hands it buffers IT manages (one reused work buffer per
+;; session, or a user's live buffer) instead of letting it
+;; `find-file-noselect' every file.  That avoids the O(n^2) `buffer-list'
+;; cost measured at 271.8s -> 3.41s over 5006 files, retains ZERO source
 ;; buffers, and lets the per-file body be wrapped in the never-error law:
 ;; a signalling file (encrypted, unreadable, binary, vanished) contributes
 ;; 0 items and one skip-log entry — it can NEVER abort a whole scan.
@@ -33,7 +33,7 @@
 (defvar org-air-exclude-regexps)
 
 ;;;; ---------------------------------------------------------------------
-;;;; R97 D1/D6 — the SURFACE precondition (the one refusal shape).
+;;;; The SURFACE precondition — the one refusal shape.
 ;;;; ---------------------------------------------------------------------
 ;;
 ;; org-air owns a small set of buffers (the board, the project tree, the
@@ -65,7 +65,7 @@ SURFACE names the surface in the refusal (e.g. \"an org-air board\");
 ENTRY names the command that opens it (e.g. \"org-air\").  Signals a
 `user-error' — never a bare `error' — and touches nothing, so an
 out-of-context \\[execute-extended-command] can neither prompt nor
-modify the buffer the user is standing in (R97 D1)."
+modify the buffer the user is standing in."
   (unless (apply #'org-air-surface-p modes)
     (user-error "Not in %s (run `M-x %s')" surface entry)))
 
@@ -73,16 +73,16 @@ modify the buffer the user is standing in (R97 D1)."
   '(:not-done ("TODO" "NEXT" "STARTED" "READY" "WIP"
                "WAIT" "WAITING" "HOLD" "BLOCKED")
     :done     ("DONE" "COMP" "CANCELLED" "CANCELED" "KILL" "DROP"))
-  "TODO keyword vocabulary org-air SUPPLEMENTS the user's with (R57-1).
+  "TODO keyword vocabulary org-air SUPPLEMENTS the user's with.
 The :not-done and :done keyword sets merged AFTER the user's own global
 `org-todo-keywords' (deduplicated at bare-name level, see
 `org-air-query--scan-todo-keywords') so a heading like `* NEXT Foo' is
 parsed as a NEXT task even in a file without a `#+TODO:' line.  Only
 ever a supplement, never a replacement: the user's global is the base,
 and a file's OWN `#+TODO:'/`#+SEQ_TODO:' always wins — this fills the
-gap for files declaring none.  R57-2 adds the Air-aligned keywords READY
-and WIP (:not-done) plus COMP and DROP (:done), mirroring Air document
-states draft/ready/work-in-progress/complete/dropped.  Defaults mirror
+gap for files declaring none.  The Air-aligned keywords READY and WIP
+\(:not-done) plus COMP and DROP (:done) are included, mirroring Air
+document states draft/ready/work-in-progress/complete/dropped.  Defaults mirror
 the keys of `org-air-todo-keyword-faces' plus the standard done
 keywords."
   :type '(plist :key-type symbol :value-type (repeat string))
@@ -90,7 +90,7 @@ keywords."
 
 (defcustom org-air-note-type-tag-alist
   '(("task" . task) ("note" . knowledge) ("journal" . journal))
-  "Tags that OVERRIDE the derived note type (R54-2, optional).
+  "Tags that OVERRIDE the derived note type (optional).
 Alist of TAG (string, matched case-insensitively) to TYPE (`task',
 `knowledge' — `note' accepted as a synonym — or `journal').  Matched
 against an item's tags, which already include inherited `#+filetags', so
@@ -103,7 +103,7 @@ tagging at all."
 
 (defcustom org-air-journal-directory-regexp
   "\\`\\(?:journal\\|diary\\|daily\\)\\'"
-  "Regexp a PATH COMPONENT must match for a file to type `journal' (R54-2).
+  "Regexp a PATH COMPONENT must match for a file to type `journal'.
 One of the journal sub-heuristic's three signals (with a date-shaped file
 name and a date-shaped `#+title'); matched case-insensitively against
 each directory component of the scanned file's path."
@@ -111,56 +111,53 @@ each directory component of the scanned file's path."
   :group 'org-air)
 
 (defcustom org-air-plain-heading-type 'knowledge
-  "Type derived for a plain heading with no task signal (R54-2 step 6).
-The USER-RULED default `knowledge' keeps dateless prose off the GTD board
-\(everything else is a KNOWLEDGE note).  The legacy value `task'
-restores the pre-R54 behaviour where every dateless heading was board
-material (Needs attention by default) — for GTD purists whose bare
-section headings must stay tasks.  R77: when
-`org-air-task-requires-todo' is non-nil the fall-through is `knowledge'
-regardless of this value — \"task requires a keyword\" and \"every
-keyword-less heading is a task\" are contradictory, and the explicit
-knob wins so its contract is total (see its docstring)."
+  "Type derived for a plain heading with no task signal.
+The default `knowledge' keeps dateless prose off the GTD board.  The
+value `task' makes every dateless heading board material instead — for
+GTD purists whose bare section headings must stay tasks.
+
+When `org-air-task-requires-todo' is non-nil the fall-through is
+`knowledge' regardless of this value: \"task requires a keyword\" and
+\"every keyword-less heading is a task\" are contradictory, and the
+explicit knob wins so its contract is total (see its docstring)."
   :type '(choice (const knowledge) (const task))
   :group 'org-air)
 
 (defcustom org-air-task-requires-todo nil
-  "When non-nil, only a TODO-keyworded heading types `task' (R77).
-The R54-2 task signal narrows from \"TODO keyword OR scheduled/deadline\"
-to the keyword alone: a scheduled/deadline heading WITHOUT a keyword — a
+  "When non-nil, only a TODO-keyworded heading types `task'.
+The task signal narrows from \"TODO keyword OR scheduled/deadline\" to
+the keyword alone: a scheduled/deadline heading WITHOUT a keyword — a
 routine like \"* Water plants  SCHEDULED: <… ++2w>\" — types through the
-rest of the R54 chain (journal heuristic, else knowledge) instead of
-camping in the board's task sections.  It keeps its day-view row and
-calendar mark (those surfaces read planning slots, not types) and stays
-reachable through the note surfaces (Notes row / Revisit) via the F7
-file vote.  The R54-2 overrides (`ORG_AIR_TYPE', `#+type:', the tag
-alist) still outrank the knob, so any single routine can be forced back
-onto the board.  \"Not-done\" is by composition: a DONE-keyword heading
-still types `task' (a done task is a task) and is buried by
+rest of the chain (journal heuristic, else knowledge) instead of camping
+in the board's task sections.  It keeps its day-view row and calendar
+mark (those surfaces read planning slots, not types) and stays reachable
+through the note surfaces (Notes row / Revisit) via the file-type vote.
+The explicit overrides (`ORG_AIR_TYPE', `#+type:', the tag alist) still
+outrank the knob, so any single routine can be forced back onto the
+board.  \"Not-done\" is by composition: a DONE-keyword heading still
+types `task' (a done task is a task) and is buried by
 `org-air-classify--board-active-p' — never re-typed into Revisit
-knowledge.  The knob shapes scan-time `ntype'/file-meta, so it is an
-`org-air-view--cache-key' element: a flip takes the documented cold
-re-derive, exactly like a vocabulary change.  Default nil — the R54 D1
-USER-RULED signal, byte-identical behaviour."
+knowledge.  The knob shapes scan-time `ntype' and file-meta, so it is an
+`org-air-view--cache-key' element: a flip takes a cold re-derive,
+exactly like a vocabulary change."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-skip-container-headings t
-  "When non-nil, pure CONTAINER headings never render as items (R59).
+  "When non-nil, pure CONTAINER headings never render as items.
 A container is a heading that HAS child headings and carries NO
-actionable signal of its OWN: no TODO keyword (the R57 merged
+actionable signal of its OWN: no TODO keyword (the merged scan
 vocabulary decides what counts as one) and no own-body
-scheduled/deadline/active timestamp (the R54 date model, scoped to the
-heading's own text above its first child).  Such a heading is structure
-— its children represent the content — and is skipped on the board
-\(including the Inbox bucket), in the day view and in the R54 F7
-file-type vote.  Set to nil to restore the pre-R59 behaviour where a
-grouping heading in the inbox rendered as its own row."
+scheduled/deadline/active timestamp, scoped to the heading's own text
+above its first child.  Such a heading is structure — its children
+represent the content — and is skipped on the board (the Inbox bucket
+included), in the day view and in the file-type vote.  Set to nil and a
+grouping heading in the inbox renders as its own row."
   :type 'boolean
   :group 'org-air)
 
 (defcustom org-air-max-file-size (* 4 1024 1024)
-  "Largest file (bytes) the background scan will read; nil = no limit (R53).
+  "Largest file (bytes) the background scan will read; nil = no limit.
 A file over the limit is skipped with a `too-large' entry in the scan
 report (`org-air-scan-report') instead of stalling a slice — the generic
 monster-file valve of the never-hang contract."
@@ -168,8 +165,8 @@ monster-file valve of the never-hang contract."
   :group 'org-air)
 
 (defcustom org-air-log-cap 5000
-  "Most CLOCK intervals / LOGBOOK stamps retained per heading (R61-1).
-The R61 harvest keeps at most this many entries in EACH of the `clocks'
+  "Most CLOCK intervals / LOGBOOK stamps retained per heading.
+The review harvest keeps at most this many entries in EACH of the `clocks'
 and `logs' item slots (NEWEST kept); hitting either cap sets the item's
 `rtrunc' flag, rendered as an inline \"⚠ history truncated\" marker on
 the review surface — truncation is never silent.  A cap, deliberately
@@ -178,7 +175,7 @@ unchanged file's cached fields would go stale with no mtime change (it
 breaks the mtime-cache law) and old periods would read as silent zeros.
 The default ≈ 13 years of daily clocking on a SINGLE heading.  The cap
 shapes scanned-and-persisted data, so it is the SIXTH element of
-`org-air-view--cache-key' (R61-2): a change invalidates the cache
+`org-air-view--cache-key': a change invalidates the cache
 exactly like a vocabulary change."
   :type 'integer
   :group 'org-air)
@@ -194,7 +191,7 @@ before an optional trailing \"(...)\" fast-access/logging spec —
     kw))
 
 (defun org-air-query--scan-todo-keywords ()
-  "The USER's global `org-todo-keywords' + org-air's supplement (R57-1).
+  "The USER's global `org-todo-keywords' + org-air's supplement.
 BASE: `default-value' of `org-todo-keywords', kept VERBATIM — same
 interpretation symbols, same keyword spellings (fast-access keys and
 `!'/`@' logging specs intact), same order and `|' placement; a legacy
@@ -242,14 +239,14 @@ default base."
       base)))
 
 (defun org-air-query-merged-done-keywords ()
-  "Return the bare DONE keyword names of the merged scan vocabulary (R57-1).
+  "Return the bare DONE keyword names of the merged scan vocabulary.
 Derives the done set from `org-air-query--scan-todo-keywords' exactly as
 Org does per sequence — the keywords after the \"|\" separator; when a
 sequence declares no separator, its LAST keyword — at bare-name level
 \(`org-air-query--todo-keyword-name').  Pure list data over the merged
 vocabulary: the final fallback done set for items built OUTSIDE the scan
-\(see `org-air-classify--done-keywords'), replacing the pre-R57
-hard-wired (\"DONE\")."
+\(see `org-air-classify--done-keywords') — never a hard-wired
+\(\"DONE\")."
   (cl-loop for seq in (org-air-query--scan-todo-keywords)
            append (let* ((kws (cdr seq))
                          (done (or (cdr (member "|" kws)) (last kws))))
@@ -260,42 +257,41 @@ hard-wired (\"DONE\")."
 (cl-defstruct (org-air-item
                (:constructor org-air-item-create)
                (:copier nil))
-  "A normalised Org heading (or R53 note file) for org-air views.
-R53 P2 (cache v2): `kind', `donep', `activity' and `body-deadline' are
-SCAN-TIME slots — everything classify/render needs lives in the struct,
-so painting a cache-hydrated board never opens a file.
-R93 (cache v7): `updated' joins them as the RECENCY fact backing the
-Needs-attention bucket."
+  "A normalised Org heading (or note file) for org-air views.
+Everything classify and render need lives in the struct as a SCAN-TIME
+slot, so painting a cache-hydrated board never opens a file.  Adding or
+changing a slot means bumping the cache version in org-air-view.el; the
+comments below record which version each group arrived in."
   title tags file marker todo priority scheduled deadline group closed
-  ;; R53 scan-time slots (data-pure render):
-  kind          ; 'heading | 'file (P3 headingless note file-item)
+  ;; Scan-time slots, cache v2 (the data-pure render law):
+  kind          ; 'heading | 'file (a headingless note file-item)
   donep         ; non-nil when todo ∈ the file's own `org-done-keywords'
   activity      ; epoch float: closed‖scheduled‖deadline‖first subtree ts‖mtime
   subtree-ts    ; epoch float of the first timestamp in the subtree BODY,
-                ; or nil (R53fix B1: the day view's Logged/created key —
-                ; distinct from `activity', whose mtime fallback must
-                ; never fill that group)
+                ; or nil.  The day view's Logged/created key — distinct
+                ; from `activity', whose mtime fallback must never fill
+                ; that group
   body-deadline ; epoch float of the first subtree DEADLINE: when the
                 ; heading itself has none (the calendar's origin check)
-  ;; R54 scan-time slots (cache v4):
+  ;; Scan-time slots, cache v4:
   active-ts     ; epoch float of the first ACTIVE <ts> in the subtree
                 ; (`org-ts-regexp': planning lines in, inactive [..] out)
-                ; — the R54-1 stale-eligibility signal, distinct from
-                ; `subtree-ts' (regexp-both, the day view's key)
-  ntype         ; 'task | 'journal | 'knowledge — the R54-2 content-
-                ; derived note type; nil on items built outside the scan
+                ; — the "has a date" signal, distinct from `subtree-ts'
+                ; (regexp-both, the day view's key)
+  ntype         ; 'task | 'journal | 'knowledge — the content-derived
+                ; note type; nil on items built outside the scan
                 ; (treated as task by the classify routing)
-  ;; R59 scan-time slots (cache v5):
+  ;; Scan-time slots, cache v5:
   childp        ; t when the subtree contains a child heading — half of
                 ; the container signal (`org-air-query-container-item-p');
                 ; nil on items built outside the scan (never containers)
   own-active-ts ; epoch float of the first ACTIVE <ts> in the heading's
                 ; OWN body (the region above its first child) — the
                 ; own-scoped twin of the deliberately SUBTREE-wide
-                ; `active-ts' (R54 stale eligibility): a child's date
-                ; belongs to the child's row and must not make the
-                ; parent test "dated".  For a leaf, ≡ `active-ts'.
-  ;; R61 scan-time slots (cache v6) — the review harvest, bounded to the
+                ; `active-ts': a child's date belongs to the child's row
+                ; and must not make the parent test "dated".  For a
+                ; leaf, ≡ `active-ts'.
+  ;; Scan-time slots, cache v6 — the review harvest, bounded to the
   ;; heading's OWN body and capped by `org-air-log-cap':
   clocks        ; closed CLOCK intervals of the heading's own body,
                 ; newest-first list of (START . END) INTEGER epoch pairs
@@ -304,34 +300,35 @@ Needs-attention bucket."
   logs          ; LOGBOOK stamps, newest-first list of (EPOCH . KIND):
                 ; KIND `done'/`todo' (a state change classified against
                 ; the buffer's live `org-done-keywords' at scan time —
-                ; the file's own vocabulary under the R57-1 merged
-                ; default) or nil (a plain "- Note taken on" stamp —
-                ; an activity signal only, never state inference)
+                ; the file's own vocabulary over the merged default) or
+                ; nil (a plain "- Note taken on" stamp — an activity
+                ; signal only, never state inference)
   created       ; INTEGER epoch of the `:CREATED:' property, or nil
   rtrunc        ; t when either list above hit `org-air-log-cap' —
                 ; truncation is never silent (the review "⚠" marker)
-  ;; R93 scan-time slot (cache v7) — the RECENCY fact:
+  ;; Scan-time slot, cache v7 — the RECENCY fact:
   updated)      ; INTEGER epoch of the NEWEST INACTIVE [timestamp] in the
                 ; heading's OWN body, or nil when it carries no history
                 ; at all.  One bounded `org-ts-regexp-inactive' pass over
-                ; the region the R61 harvest already walks, so it
+                ; the region the review harvest already walks, so it
                 ; subsumes LOGBOOK state changes and notes, CLOCK-out
                 ; ends, `CLOSED:' and `:CREATED:' as well as free-form
                 ; body stamps — every shape Org writes when something
                 ; HAPPENED.  Active <timestamps> are deliberately EXCLUDED
                 ; (a plan is not an update).  Stamps dated after the scan
                 ; day are ignored (a note ABOUT the future is not an
-                ; update).  The `attention' bucket's clock (R93); nil
-                ; falls back to the file mtime in classify, never here.
+                ; update).  This is the `attention' bucket's clock, and
+                ; nil means UNKNOWN: classify never substitutes the file
+                ; mtime for it.
 
 (defun org-air-query-container-item-p (item)
-  "Non-nil when ITEM is a pure CONTAINER heading (R59).
+  "Non-nil when ITEM is a pure CONTAINER heading.
 Slot-only and knob-gated: `childp' set by the scan, no TODO keyword, no
 own scheduled/deadline (the heading's planning line), no own-body active
 timestamp (`own-active-ts' — deliberately NOT the subtree-wide
 `active-ts': a child's date belongs to the child's row), and not
 explicitly overridden to `task' (an `ORG_AIR_TYPE'/`#+type:'/tag
-override wins, same philosophy as every R54 override).  Items built
+override wins, same philosophy as every note-type override).  Items built
 outside the scan have nil slots and are never containers — the
 conservative default: when in doubt, render."
   (and org-air-skip-container-headings
@@ -350,14 +347,14 @@ conservative default: when in doubt, render."
        (string-match-p "\\.org\\(?:\\.gpg\\)?\\'" file)))
 
 (defvar org-air-query--exclude-warned nil
-  "Invalid `org-air-exclude-regexps' entries already warned about (R60-2).
+  "Invalid `org-air-exclude-regexps' entries already warned about.
 Session-scoped: each distinct broken regexp (e.g. \"[\", a typo
 mid-edit) is reported through ONE `message' — never a signal, never
 echo-area spam — then silently dropped from the compiled set, so a
-broken exclude can never kill the board (R53 never-error).")
+broken exclude can never kill the board.")
 
 (defun org-air-query--excluded-p (path regexps)
-  "Return non-nil when any of REGEXPS matches PATH (R60-2).
+  "Return non-nil when any of REGEXPS matches PATH.
 Matching is case-SENSITIVE (`case-fold-search' bound nil): path
 matching must not depend on the ambient fold, or the same config would
 behave differently in batch vs a user session.  PATH arrives pre-shaped
@@ -368,16 +365,16 @@ works at both levels.  Pure string work, zero I/O."
     (seq-some (lambda (re) (string-match-p re path)) regexps)))
 
 (defun org-air-query--exclude-context ()
-  "Compile `org-air-exclude-regexps' ONCE per enumeration (R60-2).
-Returns nil when the knob is nil or every entry is invalid — every
-call site then takes the pre-R60 code path byte-for-byte (in
-particular `directory-files-recursively' keeps its literal nil
-PREDICATE).  Otherwise a list (REGEXPS INBOX INBOX-PATHS): the
+  "Compile `org-air-exclude-regexps' ONCE per enumeration.
+Returns nil when the knob is nil or every entry is invalid — every call
+site then takes the plain enumeration path (in particular
+`directory-files-recursively' keeps its literal nil PREDICATE).
+Otherwise a list (REGEXPS INBOX INBOX-PATHS): the
 validated regexps; the truename-normalised absolute
 `org-air-inbox-file' (the `org-air-query--inbox-file-p' normalisation;
 nil when no inbox is configured) backing the file-level inbox guard;
 and the inbox path's spellings (expanded + truename) backing the
-directory ancestor guard.  Never-error (R53): an invalid regexp is
+directory ancestor guard.  Never-error: an invalid regexp is
 dropped from the compiled set and warned about once per session via
 `org-air-query--exclude-warned'."
   (let ((regexps nil))
@@ -397,9 +394,9 @@ dropped from the compiled set and warned about once per session via
               (and raw (delete-dups (list raw inbox))))))))
 
 (defun org-air-query--exclude-file-p (file exclude)
-  "Return non-nil when FILE is dropped by the compiled EXCLUDE context (R60-2).
+  "Return non-nil when FILE is dropped by the compiled EXCLUDE context.
 FILE is absolute and PRE-truename — exclusion is BY NAME: it matches
-what the user sees and configured; the R53 symlink-only truename dedupe
+what the user sees and configured.  The symlink-only truename dedupe
 stays downstream and untouched.  The inbox guard wins over everything:
 a FILE that truename-equals `org-air-inbox-file' is never dropped,
 however the regexps read, so the capture target stays reachable (a
@@ -411,13 +408,13 @@ that actually MATCHED an exclude)."
                         (nth 1 exclude))))))
 
 (defun org-air-query--exclude-dir-p (dir exclude)
-  "Return non-nil when directory DIR must be PRUNED under EXCLUDE (R60-2).
+  "Return non-nil when directory DIR must be PRUNED under EXCLUDE.
 DIR is the absolute path `directory-files-recursively' hands its
 PREDICATE (no trailing slash); it is matched in DIRECTORY-NAME form
 \(`file-name-as-directory') so \"/archive/\" and \"\\\\.git/\" match the
 way users write them.  Pruning refuses descent entirely — an excluded
-tree is never even enumerated (the R53 scale win: a 5000-file archive/
-costs zero stats, zero sorts, zero list allocation).  The ancestor
+tree is never even enumerated, so a 5000-file archive/ costs zero
+stats, zero sorts and zero list allocation.  The ancestor
 guard: a directory on the spine above `org-air-inbox-file' is never
 pruned (one `string-prefix-p' per inbox spelling, no I/O), so an inbox
 inside an excluded tree still gets enumerated while the file-level
@@ -431,9 +428,9 @@ pruning win in that one pathological layout."
 (defun org-air-query--expand-source (source &optional exclude)
   "Expand SOURCE, which may be a file or directory, to Org files.
 EXCLUDE is the compiled `org-air-query--exclude-context', nil for none
-— and with nil the body is the pre-R60 path byte-for-byte (PREDICATE
-stays literal nil).  With a context (R60-2): a directory source PRUNES
-matching subdirectories via the PREDICATE (refused descent, never
+— and with nil the PREDICATE stays literal nil.  With a context: a
+directory source PRUNES matching subdirectories via the PREDICATE
+\(refused descent, never
 post-filtered — an excluded archive/ is never walked) and post-filters
 the returned FILES (the belt for file-level regexps pruning cannot
 see); a directory source that ITSELF matches is silenced whole (the
@@ -461,7 +458,7 @@ over everything."
      (t nil))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R97 D2 — the inbox must live INSIDE the scan set.
+;;;; The inbox must live INSIDE the scan set.
 ;;;; ---------------------------------------------------------------------
 ;;
 ;; `org-air-capture' writes to `org-air-inbox-file'; the board reads
@@ -483,7 +480,7 @@ reads as the directory the user meant."
         (not (string-match-p "\\.org\\(\\.gpg\\)?\\'" path)))))
 
 (defun org-air-inbox-effective-file ()
-  "Return the absolute file `org-air-capture' writes to, or nil (R97 D2).
+  "Return the absolute file `org-air-capture' writes to, or nil.
 `org-air-inbox-file' when the user set one.  Otherwise DERIVED from
 `org-air-files' so the default is coherent by construction: `inbox.org'
 inside the first configured directory, or beside the first configured
@@ -505,7 +502,7 @@ set, instead of writing a note no board will ever show."
                (file-name-directory path))))))))
 
 (defun org-air-inbox-file-scanned-p (file)
-  "Return non-nil when FILE lies inside org-air's scan set (R97 D2).
+  "Return non-nil when FILE lies inside org-air's scan set.
 True when FILE is an `org-air-files' member outright, or lives under a
 directory member of it.  Answers the containment question WITHOUT
 running a scan and without requiring FILE to exist yet, so the capture
@@ -528,22 +525,24 @@ verb can check its target before creating it."
 
 (defun org-air-query-files ()
   "Return all existing Org files configured in `org-air-files'.
-R97 D2 deliberately does NOT fold the inbox in here: `org-air-files'
-\(minus `org-air-exclude-regexps', plus the inbox exemption) stays the
-complete and honest answer to \"what does the board read\".  Coherence
-is achieved at the other end instead — the inbox DEFAULT is derived
-from `org-air-files' (`org-air-inbox-effective-file') and
-`org-air-capture' refuses an explicit inbox outside the scan set
+The inbox is deliberately NOT folded in here: `org-air-files' (minus
+`org-air-exclude-regexps', plus the inbox exemption) stays the complete
+and honest answer to \"what does the board read\".  Coherence is achieved
+at the other end instead — the inbox DEFAULT is derived from
+`org-air-files' (`org-air-inbox-effective-file') and `org-air-capture'
+refuses an explicit inbox outside the scan set
 \(`org-air-inbox-file-scanned-p').
-R53 P1d: order-preserving hash-table dedupe; `file-truename' is paid ONLY
-for actual symlinks (`file-symlink-p' pre-check) so a 5000-file tree
+
+Order-preserving hash-table dedupe; `file-truename' is paid ONLY for
+actual symlinks (`file-symlink-p' pre-check) so a 5000-file tree
 enumerates in milliseconds while a symlinked duplicate still dedupes to
 its target (measured 0.647s -> 0.044s at 5006 files).
-R60-2: the `org-air-exclude-regexps' context is compiled ONCE here and
-passed down explicitly, so every consumer (board scan, refile targets,
-revisit queue, denote index) sees ONE coherent excluded set.  Exclusion
-is BY NAME, applied pre-truename at enumeration — the symlink-only
-dedupe below stays untouched."
+
+The `org-air-exclude-regexps' context is compiled ONCE here and passed
+down explicitly, so every consumer (board scan, refile targets, revisit
+queue, denote index) sees ONE coherent excluded set.  Exclusion is BY
+NAME, applied pre-truename at enumeration — the symlink-only dedupe
+below stays untouched."
   (let ((seen (make-hash-table :test #'equal))
         (out nil)
         (exclude (org-air-query--exclude-context)))
@@ -575,7 +574,7 @@ dedupe below stays untouched."
       (file-name-base file)))
 
 (defvar org-air-query--scan-mtime nil
-  "The scanned file's modification time, bound per file by the scan (R53).
+  "The scanned file's modification time, bound per file by the scan.
 Lets `org-air-query--item-at-point' seed the `activity' slot's mtime
 fallback from the stat the scan already paid, instead of a per-item
 re-stat.")
@@ -635,12 +634,12 @@ move point or change bytes.  Callers must never pass inherited tags."
                                     (line-end-position))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R61-1 — the review harvest: same pass, own body, never-error, capped.
+;;;; The review harvest: same pass, own body, never-error, capped.
 ;;;; ---------------------------------------------------------------------
 
 (defconst org-air-query--clock-line-regexp
   "^[ \t]*CLOCK:[ \t]*\\[\\([^]\n]+\\)\\]\\(?:--\\[\\([^]\n]+\\)\\][ \t]*=>\\)?"
-  "Anchored CLOCK-line regexp of the R61-1 harvest.
+  "Anchored CLOCK-line regexp of the review harvest.
 Group 1 is the start stamp; group 2 (nil on a RUNNING clock) the end
 stamp.  The line shape is the contract, exactly like every other probe
 in `org-air-query--item-at-point' — no drawer parsing.")
@@ -648,18 +647,18 @@ in `org-air-query--item-at-point' — no drawer parsing.")
 (defconst org-air-query--log-line-regexp
   (concat "^[ \t]*- \\(?:State[ \t]+\"\\([^\"\n]+\\)\"\\|Note taken on\\)"
           ".*\\[\\([^]\n]+\\)\\]")
-  "Anchored LOGBOOK stamp regexp of the R61-1 harvest.
+  "Anchored LOGBOOK stamp regexp of the review harvest.
 Matches the DEFAULT `org-log-note-headings' state shape
 \(`- State \"KW\" … [TS]', group 1 = the quoted keyword) and the plain
 `- Note taken on [TS]' stamp (group 1 nil); group 2 is the timestamp.
-Known, accepted difference (R53 style): a user-customised state template
-that no longer matches this shape harvests nothing from those lines —
+Known, accepted limitation: a user-customised state template that no
+longer matches this shape harvests nothing from those lines —
 Completed then rides `CLOSED:' stamps (which `org-log-done' writes
 regardless), Time is unaffected, and no error or guess is produced.")
 
 (defun org-air-query--stamp-epoch (ts)
   "Parse Org timestamp string TS to an INTEGER epoch second, or nil.
-Never signals: an unparseable stamp folds to nil (the R61-1 skip rule).
+Never signals: an unparseable stamp folds to nil and is skipped.
 A date-only stamp reads as local midnight; epochs are fixnums through
 year 2100+ (measured), so the retained shapes carry no floats."
   (ignore-errors
@@ -671,42 +670,40 @@ year 2100+ (measured), so the retained shapes carry no floats."
                                             nil -1 nil)))))))
 
 (defvar org-air-query--scan-today nil
-  "Today's `YYYY-MM-DD' string, bound per scan (R93).
+  "Today's `YYYY-MM-DD' string, bound per scan.
 The future-stamp guard of the `updated' probe reads it instead of
 calling `format-time-string' once per heading; nil (outside a scan)
 makes the probe compute it itself.")
 
 (defconst org-air-query--planning-keyword-regexp
   "\\(?:^\\|[ \t]\\)\\(SCHEDULED\\|DEADLINE\\|CLOSED\\):"
-  "The three Org planning keywords, for the R94 plan-stamp exclusion.
+  "The three Org planning keywords, for the plan-stamp exclusion.
 Only the NEAREST one to the left of a stamp decides whose value that
 stamp is, so a mixed planning line (`CLOSED: [x] DEADLINE: [y]') is
 resolved keyword by keyword rather than line by line.
 
-R95: ANCHORED to a line start or whitespace.  Unanchored, the keyword
-matched the TAIL of a longer word, so a property whose name merely ENDS
-in one of them swallowed its own stamp:
+The leading anchor (line start or whitespace) is load-bearing.  Without
+it the keyword also matches the TAIL of a longer word, and a property
+whose name merely ENDS in one of them swallows its own stamp:
 
   :LAST_DEADLINE:  [2026-06-01 Mon 08:00]
   :ORIG_SCHEDULED: [2026-06-01 Mon 08:00]
 
 Both are ordinary property values — records of something that happened,
 written by Org exporters, `org-depend' and hand-rolled repeaters — and
-both were read as plans, wiping the heading's measured clock and pushing
-it into Untracked (found by the R94 review).  The shy group keeps the
-keyword in group 1 for `org-air-query--plan-stamp-p', and the mixed
-planning line still resolves keyword by keyword: the space before
-`DEADLINE:' satisfies the anchor.")
+both would read as plans, wiping the heading's measured clock and
+pushing it into Untracked.  The shy group keeps the keyword in group 1
+for `org-air-query--plan-stamp-p', and the mixed planning line still
+resolves keyword by keyword: the space before `DEADLINE:' satisfies the
+anchor.")
 
 (defun org-air-query--plan-stamp-p (pos)
-  "Non-nil when the stamp starting at POS is a SCHEDULED:/DEADLINE: value (R94).
+  "Non-nil when the stamp starting at POS is a SCHEDULED:/DEADLINE: value.
 Org accepts a PLANNING date written as an INACTIVE stamp
 \(`DEADLINE: [2026-06-14 Sun]'), which `org-ts-regexp-inactive' matches
-just like a log stamp.  R93 claimed the plan/update exclusion was
-mechanical — \"a SCHEDULED, a DEADLINE or a bare plan date can never move
-this clock\" — but that was only true of the `<…>' spelling: the bracket
-spelling read as BOTH a deadline (the row went to Overdue) and an update
-\(age 1).  One stamp, two meanings.
+just like a log stamp.  Excluding only the `<…>' spelling is not enough:
+the bracket spelling then reads as BOTH a deadline (the row goes to
+Overdue) and an update (age 1) — one stamp, two meanings.
 
 The nearest planning keyword to the LEFT of POS on the same line decides:
 `SCHEDULED:'/`DEADLINE:' own the stamp (a plan — skip it), `CLOSED:' owns
@@ -722,7 +719,7 @@ LOGBOOK stamp (keep it).  Match data is preserved for the caller's walk."
              t)))))
 
 (defun org-air-query--quoted-stamp-p (beg end)
-  "Non-nil when the stamp spanning [BEG, END) is wrapped in double quotes (R94).
+  "Non-nil when the stamp spanning [BEG, END) is wrapped in double quotes.
 Org's default `org-log-note-headings' quote the OLD value of whatever
 changed (`%S'):
 
@@ -741,18 +738,17 @@ asks the punctuation, not the wording.)"
        (eq (char-after end) ?\")))
 
 (defun org-air-query--newest-inactive-stamp (start bound)
-  "Return the newest non-future inactive stamp epoch in [START, BOUND) (R93).
-ONE bounded `org-ts-regexp-inactive' pass over the region the R61
+  "Return the newest non-future inactive stamp epoch in [START, BOUND).
+ONE bounded `org-ts-regexp-inactive' pass over the region the review
 harvest already walks — no second pass over the buffer, no file access.
 Every `[timestamp]' Org writes when something HAPPENED lives in that
 region: LOGBOOK `- State \"X\" … [TS]' / `- Note taken on [TS]' lines,
 `CLOCK: […]--[…]' ends, the `CLOSED:' planning stamp and the
 `:CREATED:' property, plus any stamp the user typed in the body.  Active
-`<timestamps>' are NOT matched by the regexp — a plan is not an update
-\(the R93 recency ruling).
+`<timestamps>' are NOT matched by the regexp — a plan is not an update.
 
-R94 closes the two holes in that ruling, both measured by the R93 review
-and both in the \"looks fresher than it is\" direction:
+Two further exclusions close the \"looks fresher than it is\" holes that
+the regexp alone leaves open:
 
   `org-air-query--plan-stamp-p'    an INACTIVE `SCHEDULED:'/`DEADLINE:'
                                    value is a plan, not an update
@@ -764,8 +760,7 @@ and both in the \"looks fresher than it is\" direction:
 
 Both are constant-cost per match (one bounded backward search on the
 current line, two `char-after'/`char-before' reads) and neither adds a
-pass or a file read.  The exclusion is now genuinely mechanical, which
-is what the R93 design and README already claimed.
+pass or a file read.
 
 Stamps are compared as STRINGS, which is exact for Org's own
 `YYYY-MM-DD Dow HH:MM' shape (the date sorts first and a given date
@@ -782,9 +777,9 @@ Returns an INTEGER epoch, or nil when the region holds no usable stamp."
         ;; Group 0 deliberately: whether `org-ts-regexp-inactive' group 1
         ;; includes the brackets has differed across Org versions, and
         ;; group 0 is the whole "[YYYY-MM-DD …]" in every one of them.
-        ;; The bounds are copied out BEFORE either R94 guard runs — both
-        ;; search, and `save-match-data' protects the walk, but the walk's
-        ;; own strings must be taken first (the R61 clobber rule).
+        ;; The bounds are copied out BEFORE either guard runs: both
+        ;; search, and `save-match-data' protects the walk, but the
+        ;; walk's own strings must be taken first.
         (let ((raw (match-string-no-properties 0))
               (mbeg (match-beginning 0))
               (mend (match-end 0)))
@@ -799,15 +794,15 @@ Returns an INTEGER epoch, or nil when the region holds no usable stamp."
     (and newest (org-air-query--stamp-epoch newest))))
 
 (defun org-air-query--harvest-at-point (child-pos end)
-  "Collect the R61-1 review facts for the heading at point.
+  "Collect the review facts for the heading at point.
 Scans the heading's OWN body — the region above CHILD-POS (its first
 child), bounded by the subtree END — with the two anchored line regexps,
 so a child's clocks are never credited to the parent (rollups would
 double-count).  Point sits on the heading in the positioned scan buffer;
-the buffer's live `org-done-keywords' (the file's own vocabulary under
-the R57-1 merged default) classifies state-change targets at scan time.
+the buffer's live `org-done-keywords' (the file's own vocabulary over
+the merged default) classifies state-change targets at scan time.
 Returns (CLOCKS LOGS CREATED RTRUNC UPDATED) — the four `org-air-item'
-review slots plus the R93 recency slot, integer epochs and interned
+review slots plus the recency slot, integer epochs and interned
 symbols only, each list newest-first and truncated to `org-air-log-cap'
 \(NEWEST kept; a cap hit sets RTRUNC).  UPDATED is
 `org-air-query--newest-inactive-stamp' over the same region — UNcapped
@@ -818,7 +813,7 @@ Per matched line the match strings are copied out BEFORE parsing:
 naive loop died with `args-out-of-range' after the first parse).
 NEVER-ERROR (the per-heading inner net): any signal degrades THIS
 heading to nil review slots — the item is still built, the file still
-scans, the R53 P1b outer net is not consumed, nothing is echoed."
+scans, the per-file outer net is not consumed, nothing is echoed."
   (condition-case nil
       (let ((bound (if child-pos (min child-pos end) end))
             (cap (max 1 org-air-log-cap))
@@ -827,9 +822,9 @@ scans, the R53 P1b outer net is not consumed, nothing is echoed."
           (forward-line 1)
           (let ((body-start (point)))
             (when (< body-start bound)
-              ;; R93: the RECENCY probe — one more bounded walk over the
-              ;; SAME region, reusing BODY-START/BOUND (zero extra
-              ;; structural work) and riding the same never-error net.
+              ;; The RECENCY probe: one more bounded walk over the SAME
+              ;; region, reusing BODY-START/BOUND (zero extra structural
+              ;; work) and riding the same never-error net.
               (setq updated (org-air-query--newest-inactive-stamp
                              body-start bound))
               (save-excursion
@@ -882,7 +877,7 @@ scans, the R53 P1b outer net is not consumed, nothing is echoed."
     (error (list nil nil nil nil nil))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R54-2 — the content-derived note-type model + denote READ compat.
+;;;; The content-derived note-type model + denote READ compat.
 ;;;; org-air reads denote's ON-DISK conventions only (ID file names,
 ;;;; `#+title'/`#+filetags' front matter, `denote:' links); it NEVER calls
 ;;;; a denote-* function and works with denote absent.
@@ -890,19 +885,18 @@ scans, the R53 P1b outer net is not consumed, nothing is echoed."
 
 (defconst org-air-query--denote-id-regexp
   "\\`\\([0-9]\\{8\\}T[0-9]\\{6\\}\\)"
-  "Anchored regexp capturing the denote identifier of a file NAME (R54-2).
-The view's F1 regexp promoted into the query layer, loosened to not
-require the `--' separator so a date-only journal name
-\(`20260715T000000.org') matches too.")
+  "Anchored regexp capturing the denote identifier of a file NAME.
+Deliberately does NOT require the `--' separator, so a date-only
+journal name (`20260715T000000.org') matches too.")
 
 (defun org-air-query--denote-file-id (file)
-  "Return FILE's denote identifier (\"YYYYMMDDTHHMMSS\"), or nil (R54-2)."
+  "Return FILE's denote identifier (\"YYYYMMDDTHHMMSS\"), or nil."
   (let ((base (file-name-nondirectory (or file ""))))
     (when (string-match org-air-query--denote-id-regexp base)
       (match-string 1 base))))
 
 (defun org-air-query--denote-id-time (id)
-  "Parse denote identifier ID to an epoch float, or nil (R54-2)."
+  "Parse denote identifier ID to an epoch float, or nil."
   (when (and (stringp id) (string-match-p "\\`[0-9]\\{8\\}T[0-9]\\{6\\}\\'" id))
     (ignore-errors
       (float-time
@@ -914,8 +908,8 @@ require the `--' separator so a date-only journal name
                     (string-to-number (substring id 0 4)))))))
 
 (defun org-air-query--denote-slug (file)
-  "Return FILE's raw denote title slug (hyphens kept), or nil (R54-2).
-Data-layer twin of the view's F1 de-slug: the part between the `--'
+  "Return FILE's raw denote title slug (hyphens kept), or nil.
+Data-layer twin of the view's de-slug: the part between the `--'
 separator and any `__tag' signature."
   (let ((base (file-name-nondirectory (or file ""))))
     (when (string-match (concat org-air-query--denote-id-regexp "--") base)
@@ -926,7 +920,7 @@ separator and any `__tag' signature."
         (unless (string-empty-p slug) slug)))))
 
 (defun org-air-query--denote-filename-tags (file)
-  "Return the `__tag_tag' keywords of FILE's denote name, or nil (R54-2).
+  "Return the `__tag_tag' keywords of FILE's denote name, or nil.
 Only the FALLBACK for files missing `#+filetags' front matter (denote
 keeps the two in sync, so this is rare)."
   (let ((base (file-name-sans-extension
@@ -938,7 +932,7 @@ keeps the two in sync, so this is rare)."
 (defun org-air-query--parse-type (value)
   "Normalise VALUE (a string or symbol) to a note type symbol, or nil.
 `note' and `knowledge' are synonyms; invalid values are IGNORED (fall
-through the R54-2 precedence chain), never an error."
+through the note-type precedence chain), never an error."
   (let ((sym (cond ((symbolp value) value)
                    ((stringp value) (intern (downcase (string-trim value))))
                    (t nil))))
@@ -949,7 +943,7 @@ through the R54-2 precedence chain), never an error."
       (_ nil))))
 
 (defun org-air-query--tag-type (tags)
-  "Return the type a tag in TAGS overrides to, or nil (R54-2 step 3).
+  "Return the type a tag in TAGS overrides to, or nil.
 First match in `org-air-note-type-tag-alist' wins (case-insensitive)."
   (cl-some (lambda (tag)
              (org-air-query--parse-type
@@ -957,14 +951,14 @@ First match in `org-air-note-type-tag-alist' wins (case-insensitive)."
            tags))
 
 (defun org-air-query--date-shaped-name-p (base)
-  "Non-nil when file name BASE is date-shaped (R54-2 journal heuristic).
+  "Non-nil when file name BASE is date-shaped (the journal heuristic).
 ISO (`2026-07-15'), compact (`20260715'), or a denote ID-only name."
   (or (string-match-p "\\`[0-9]\\{4\\}-[0-9]\\{2\\}-[0-9]\\{2\\}\\'" base)
       (string-match-p "\\`[0-9]\\{8\\}\\'" base)
       (string-match-p "\\`[0-9]\\{8\\}T[0-9]\\{6\\}\\'" base)))
 
 (defun org-air-query--date-shaped-title-p (title)
-  "Non-nil when TITLE is date-shaped (R54-2 journal heuristic).
+  "Non-nil when TITLE is date-shaped (the journal heuristic).
 ISO (`2026-07-15') or the denote-journal long form (`Tuesday 15 July
 2026')."
   (and (stringp title)
@@ -975,7 +969,7 @@ ISO (`2026-07-15') or the denote-journal long form (`Tuesday 15 July
               title)))))
 
 (defun org-air-query--journal-file-p (file title)
-  "Return non-nil when FILE (with `#+title' TITLE) is a journal (R54-2).
+  "Return non-nil when FILE (with `#+title' TITLE) is a journal.
 File-level, computed once per file: a date-shaped file name, a path
 component matching `org-air-journal-directory-regexp', or a date-shaped
 TITLE."
@@ -992,11 +986,11 @@ TITLE."
 A plist (:override TYPE :journal FLAG :title TITLE :tags TAGS :created
 FLOAT :ids IDS :links LINKS) computed ONCE per file by
 `org-air-query--file-signals' — not per heading — and threaded to
-`org-air-query--note-type' (R54-2; :ids/:links feed the R54-3 link
-graph).")
+`org-air-query--note-type'.  The :ids and :links keys feed the revisit
+link graph.")
 
 (defun org-air-query--note-link (target)
-  "Normalise raw bracket-link TARGET to a note-link string, or nil (R54-3).
+  "Normalise raw bracket-link TARGET to a note-link string, or nil.
 Only the three note-link kinds survive: `denote:ID', `id:UUID' and
 `file:' links landing on `.org' files (explicit `file:' prefix, or a
 bare untyped bracket target naming an .org file — Org's own file-link
@@ -1015,7 +1009,7 @@ is tolerated and stripped."
      (t nil))))
 
 (defun org-air-query--file-signals (file)
-  "Compute FILE's per-file type signals in the current scan buffer (R54-2).
+  "Compute FILE's per-file type signals in the current scan buffer.
 Bounded head-of-buffer regexps only (first 4KB): the `#+org_air_type:' /
 `#+type:' keyword override (the namespaced spelling authoritative when
 both are present), `#+title', `#+filetags', the journal heuristic and
@@ -1056,7 +1050,7 @@ plist documented on `org-air-query--scan-file-signals'."
                       (org-timestamp-to-time
                        (org-timestamp-from-string
                         (match-string-no-properties 1)))))))))
-          ;; R54-3 link graph: ONE bounded whole-buffer pass while the
+          ;; The link graph: ONE bounded whole-buffer pass while the
           ;; file is already in the work buffer — `:ID:' property values
           ;; (the id: link resolution targets) and the note-to-note
           ;; outbound links.  Scan-TIME extraction only; resolution is a
@@ -1085,43 +1079,42 @@ plist documented on `org-air-query--scan-file-signals'."
            :links links))))
 
 (defun org-air-query--note-type (todo scheduled deadline tags)
-  "Derive the note type for the heading at point (R54-2, USER-RULED).
+  "Derive the note type for the heading at point.
 Precedence: the inherited `ORG_AIR_TYPE' property, the file keyword
 override, an override tag (`org-air-note-type-tag-alist'), the TASK
 signal (a TODO keyword — done or not — OR scheduled OR deadline;
 nothing else — a bare active <ts> is a note fact, not a task), the
 journal file heuristic, else `org-air-plain-heading-type'.  TODO,
 SCHEDULED, DEADLINE and TAGS are the already-parsed heading signals.
-R77: under `org-air-task-requires-todo' the task signal narrows to the
-keyword ALONE (step 4) and the fall-through is `knowledge' (step 6 —
-the knob's total contract subsumes `org-air-plain-heading-type')."
+Under `org-air-task-requires-todo' the task signal narrows to the
+keyword ALONE and the fall-through is `knowledge' — that knob's total
+contract subsumes `org-air-plain-heading-type'."
   (or (org-air-query--parse-type
        (org-entry-get (point) "ORG_AIR_TYPE" t))
       (plist-get org-air-query--scan-file-signals :override)
       (org-air-query--tag-type tags)
-      ;; R77 step 4: the task signal — knob-gated to the keyword alone.
-      ;; Knob nil is byte-equivalent to the R54 disjunction.
+      ;; The task signal, knob-gated to the keyword alone.
       (and (or todo
                (and (not org-air-task-requires-todo)
                     (or scheduled deadline)))
            'task)
       (and (plist-get org-air-query--scan-file-signals :journal) 'journal)
-      ;; R77 step 6: with the knob ON the fall-through is `knowledge'
-      ;; even under the legacy `org-air-plain-heading-type' 'task —
-      ;; "task requires a keyword" wins the contradiction (D2).
+      ;; With the knob ON the fall-through is `knowledge' even under
+      ;; `org-air-plain-heading-type' 'task: "task requires a keyword"
+      ;; wins that contradiction.
       (if org-air-task-requires-todo 'knowledge org-air-plain-heading-type)))
 
 (defun org-air-query--file-ntype (signals items)
-  "Return the FILE-level type from SIGNALS and its heading ITEMS (R54-2).
+  "Return the FILE-level type from SIGNALS and its heading ITEMS.
 Override → tag override → journal → `task' iff EVERY NON-container
-heading item is a task (and there is at least one — the F7 mixed-file
+heading item is a task (and there is at least one — the mixed-file
 rule: a pure GTD file stays off the note surfaces while a KB note
 containing one TODO stays a knowledge FILE) → else `knowledge'.
-R59: containers ABSTAIN — they are structure, so a GTD file organised
-as `* Projects' / `** TODO …' still votes `task'; the abstention is
-knob-gated inside `org-air-query-container-item-p', so
-`org-air-skip-container-headings' nil restores the pre-R59 vote
-verbatim."
+
+Containers ABSTAIN from the vote — they are structure, so a GTD file
+organised as `* Projects' / `** TODO …' still votes `task'.  The
+abstention is knob-gated inside `org-air-query-container-item-p', so
+`org-air-skip-container-headings' nil makes containers vote again."
   (or (plist-get signals :override)
       (org-air-query--tag-type (plist-get signals :tags))
       (and (plist-get signals :journal) 'journal)
@@ -1136,12 +1129,12 @@ verbatim."
       'knowledge))
 
 (defvar org-air-query--file-meta (make-hash-table :test #'equal)
-  "The per-file fact table: FILE → plist (R54-2, cache v4).
+  "The per-file fact table: FILE → plist (cache v4).
 Keys: `:title' (`#+title', else the denote slug, else nil — `:org-title'
 holds the raw `#+title' alone so display fallbacks stay exact), `:tags'
 \(`#+filetags', else the filename `__tags' fallback), `:ntype' (the
-FILE's type, F7 rule), `:mtime' and `:created' (epoch floats).  R54-3
-link-graph keys: `:ids' (the file's `:ID:' property values), `:links-raw'
+FILE's type), `:mtime' and `:created' (epoch floats).  The link-graph
+keys: `:ids' (the file's `:ID:' property values), `:links-raw'
 \(scan-time outbound note links, unresolved), `:links-out' (the resolved
 outbound list — FILE paths where resolvable, the raw link string where
 not: unresolvable intent counts outbound but creates no inbound) and
@@ -1153,24 +1146,24 @@ questions with ZERO file opens.")
 (defvar org-air-query--link-graph-dirty nil
   "Non-nil when file-meta gained scan entries since the last resolution.
 Set by `org-air-query--file-meta-record'; cleared by the pure
-`org-air-query--link-graph-finish' pass (R54-3).")
+`org-air-query--link-graph-finish' pass.")
 
 (defvar org-air-query--denote-id-index (make-hash-table :test #'equal)
-  "Index denote ID → FILE for the read-only `denote:' link shim (R54-2).
+  "Index denote ID → FILE for the read-only `denote:' link shim.
 Pure filename derivation, populated as the scan enumerates files and
 re-derived from the cache's `:file-meta' keys on hydration.")
 
 (defun org-air-query-file-meta (file)
-  "Return the recorded per-file plist for FILE, or nil (R54-2)."
+  "Return the recorded per-file plist for FILE, or nil."
   (gethash file org-air-query--file-meta))
 
 (defun org-air-query--index-denote-id (file)
-  "Record FILE under its denote identifier, when it carries one (R54-2)."
+  "Record FILE under its denote identifier, when it carries one."
   (when-let* ((id (org-air-query--denote-file-id file)))
     (puthash id file org-air-query--denote-id-index)))
 
 (defun org-air-query--file-meta-record (file signals items)
-  "Record FILE's per-file facts from SIGNALS and its heading ITEMS (R54-2)."
+  "Record FILE's per-file facts from SIGNALS and its heading ITEMS."
   (puthash file
            (list :title (or (plist-get signals :title)
                             (org-air-query--denote-slug file))
@@ -1185,7 +1178,7 @@ re-derived from the cache's `:file-meta' keys on hydration.")
                                                (file-attributes file))))))
                           (float-time mtime))
                  :created (plist-get signals :created)
-                 ;; R54-3: the raw link-graph facts; resolution is the
+                 ;; The raw link-graph facts; resolution is the
                  ;; finish-time pure pass (`--link-graph-finish').
                  :ids (plist-get signals :ids)
                  :links-raw (plist-get signals :links))
@@ -1193,7 +1186,7 @@ re-derived from the cache's `:file-meta' keys on hydration.")
   (setq org-air-query--link-graph-dirty t))
 
 (defun org-air-query--link-graph-finish ()
-  "Resolve the note-link graph over the in-memory file-meta table (R54-3).
+  "Resolve the note-link graph over the in-memory file-meta table.
 A PURE pass — zero file opens: builds the denote-ID / `:ID:' / normalised
 path indexes from the table itself, resolves every file's `:links-raw'
 into `:links-out' (resolved targets become FILE paths; an unresolvable
@@ -1242,7 +1235,7 @@ it at most once per dirty table (`org-air-query-link-graph-ensure')."
   (setq org-air-query--link-graph-dirty nil))
 
 (defun org-air-query-link-graph-ensure ()
-  "Run the link-graph resolution iff the table gained scans (R54-3).
+  "Run the link-graph resolution iff the table gained scans.
 Idempotent and cheap (one in-memory pass over the file-meta table);
 safe to call before any consumer read (the Revisit ORPHANS mode, the
 cache serialisation)."
@@ -1250,10 +1243,10 @@ cache serialisation)."
     (org-air-query--link-graph-finish)))
 
 (defun org-air-query-file-meta-alist (files)
-  "Return the file-meta entries for FILES as a printable alist (R54-2).
+  "Return the file-meta entries for FILES as a printable alist.
 The cache serialisation form: pruned to FILES, so vanished files never
-persist.  R54-3: the link graph is resolved first, so the persisted
-entries carry `:links-out'/`:links-in' and a warm ORPHANS render is
+persist.  The link graph is resolved first, so the persisted entries
+carry `:links-out'/`:links-in' and a warm ORPHANS render is
 data-pure with no resolution pass."
   (org-air-query-link-graph-ensure)
   (let (out)
@@ -1263,10 +1256,10 @@ data-pure with no resolution pass."
     (nreverse out)))
 
 (defun org-air-query-file-meta-hydrate (alist)
-  "Hydrate the file-meta table (and denote index) from cache ALIST (R54-2).
-R54-3: metas lacking the link shape (`:links-out') are skipped — a
-part-1 v4 cache would otherwise hydrate link-less metas that read as
-ALL-orphans and, worse, get re-persisted by the next warm cache write.
+  "Hydrate the file-meta table (and denote index) from cache ALIST.
+Metas lacking the link shape (`:links-out') are skipped: an older cache
+would otherwise hydrate link-less metas that read as ALL-orphans and,
+worse, get re-persisted by the next warm cache write.
 Skipping them hydrates an empty file-meta table instead: Revisit's
 ensure-data paces a fill (correct, never-hang); the board is untouched
 since items hydrate separately."
@@ -1276,25 +1269,24 @@ since items hydrate separately."
       (org-air-query--index-denote-id file))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R54-3 — the bounded VISIT LEDGER (opt-in after the D2 ruling).
+;;;; The bounded VISIT LEDGER (opt-in).
 ;;;; org-air records opens IT initiates (board S-RET / g RET, the pane
 ;;;; RET, revisit RET) — NEVER a global `find-file' hook: org-air does
 ;;;; not instrument buffers it does not own.
 ;;;; ---------------------------------------------------------------------
 
 (defvar org-air-query--visits (make-hash-table :test #'equal)
-  "The visit ledger: FILE → epoch float of the last org-air open (R54-3).
-Written only when `org-air-revisit-visit-ledger' is non-nil (the D2
-ruling demoted the ledger to OPT-IN; age is pure mtime by default).
-Persisted in the cache as `:visits' (alist) and hydrated back; BOUNDED:
-pruned to the enumerated file set at cache write, so its size can never
-exceed the configured file count.")
+  "The visit ledger: FILE → epoch float of the last org-air open.
+Written only when `org-air-revisit-visit-ledger' is non-nil; age is
+pure mtime by default.  Persisted in the cache as `:visits' (an alist)
+and hydrated back.  BOUNDED: pruned to the enumerated file set at cache
+write, so its size can never exceed the configured file count.")
 
 (defun org-air--note-visited (file)
-  "Record an org-air-initiated open of FILE in the visit ledger (R54-3).
-A no-op unless `org-air-revisit-visit-ledger' is non-nil (USER-RULED D2:
-last-modified is the default attention-age signal; the ledger is the
-opt-in refinement).  Called only from org-air's OWN open paths."
+  "Record an org-air-initiated open of FILE in the visit ledger.
+A no-op unless `org-air-revisit-visit-ledger' is non-nil: last-modified
+is the default attention-age signal and the ledger is the opt-in
+refinement.  Called only from org-air's OWN open paths."
   (when (and (bound-and-true-p org-air-revisit-visit-ledger)
              (stringp file) (not (string-empty-p file)))
     (puthash file (float-time) org-air-query--visits)))
@@ -1304,7 +1296,7 @@ opt-in refinement).  Called only from org-air's OWN open paths."
   (gethash file org-air-query--visits))
 
 (defun org-air-query-visits-alist (files)
-  "Return the visit ledger pruned to FILES as a printable alist (R54-3).
+  "Return the visit ledger pruned to FILES as a printable alist.
 The cache serialisation form — the prune IS the bound: entries for files
 no longer enumerated are dropped here and, since this feeds the write,
 never persist."
@@ -1315,7 +1307,7 @@ never persist."
     (nreverse out)))
 
 (defun org-air-query-visits-hydrate (alist)
-  "Hydrate the visit ledger from cache ALIST (R54-3).
+  "Hydrate the visit ledger from cache ALIST.
 An in-session visit newer than the cached epoch wins (`max') — a cache
 read must never clobber a fresher visit with a staler one."
   (pcase-dolist (`(,file . ,time) alist)
@@ -1324,7 +1316,7 @@ read must never clobber a fresher visit with a staler one."
                org-air-query--visits))))
 
 (defun org-air-query--denote-resolve (id)
-  "Resolve denote identifier ID to a configured file, or nil (R54-2).
+  "Resolve denote identifier ID to a configured file, or nil.
 An O(1) hit on the scan's ID index, else one bounded pass over the
 enumerated file list (a cold Emacs following a link before any scan)."
   (or (gethash id org-air-query--denote-id-index)
@@ -1333,7 +1325,7 @@ enumerated file list (a cold Emacs following a link before any scan)."
                   (ignore-errors (org-air-query-files)))))
 
 (defun org-air-query--denote-follow (link &optional _prefix)
-  "Follow a `denote:' LINK read-only against `org-air-files' (R54-2).
+  "Follow a `denote:' LINK read-only against `org-air-files'.
 Resolves the ID by filename convention (no denote required, no DB); a
 `::search' suffix is tolerated but ignored.  Authoring (creation,
 renaming, completion) stays denote's — this shim only keeps existing
@@ -1345,7 +1337,7 @@ links alive in a denote-less Emacs."
       (user-error "No note with denote ID %s under `org-air-files'" id))))
 
 (defun org-air-query-register-denote-link ()
-  "Register the read-only `denote:' follower IFF none exists (R54-2).
+  "Register the read-only `denote:' follower IFF none exists.
 When denote (or anything else) already claims the link type, org-air
 leaves it alone — never a `denote-*' call, works with denote absent."
   (unless (org-link-get-parameter "denote" :follow)
@@ -1356,13 +1348,13 @@ leaves it alone — never a `denote-*' call, works with denote absent."
 
 (defun org-air-query--item-at-point ()
   "Build an `org-air-item' for the heading at point.
-R53 P2: also records the scan-time slots (`kind'/`donep'/`activity'/
-`body-deadline') so classify/render never open the file again, and the
-marker slot is the durable (FILE . POS) cons (source buffers are never
-retained by scanning; live positions resolve on demand)."
+Also records the scan-time slots (`kind'/`donep'/`activity'/
+`body-deadline') so classify and render never open the file again, and
+the marker slot is the durable (FILE . POS) cons — source buffers are
+never retained by scanning; live positions resolve on demand."
   (let* ((file (or (buffer-file-name) ""))
-         ;; R90 final: one Org-native projection owns title/local/effective
-         ;; tags for query generation and source validation.  Literal suffixes
+         ;; ONE Org-native projection owns title/local/effective tags for
+         ;; query generation and source validation.  Literal suffixes
          ;; outside `org-tag-re' stay title bytes, exactly as Org reports.
          (projection (org-air-query--heading-projection))
          (title (plist-get projection :title))
@@ -1377,9 +1369,9 @@ retained by scanning; live positions resolve on demand)."
          (child-pos nil)
          (body-deadline nil)
          (harvest nil))
-    ;; R53 P2: the two bounded subtree probes, run HERE in the already-
-    ;; positioned scan buffer (they used to be per-item render-time file
-    ;; opens — the 186s warm-paint hang).
+    ;; The two bounded subtree probes, run HERE in the already-positioned
+    ;; scan buffer.  Doing them at render time instead means a file open
+    ;; per item — the measured 186s warm first paint.
     (save-excursion
       (let ((end (save-excursion (ignore-errors (org-end-of-subtree t t))
                                  (point))))
@@ -1391,11 +1383,11 @@ retained by scanning; live positions resolve on demand)."
                      (org-timestamp-to-time
                       (org-timestamp-from-string
                        (match-string-no-properties 0))))))))
-        ;; R54-1: the ACTIVE-only twin probe (`org-ts-regexp': planning
-        ;; lines included, inactive [..] excluded) — the stale-eligibility
-        ;; signal.  Distinct from `subtree-ts' (regexp-both), which the
-        ;; day view's Logged/created group needs and which must keep
-        ;; matching inactive stamps.
+        ;; The ACTIVE-only twin probe (`org-ts-regexp': planning lines
+        ;; included, inactive [..] excluded) — the "has a date" signal.
+        ;; Distinct from `subtree-ts' (regexp-both), which the day view's
+        ;; Logged/created group needs and which must keep matching
+        ;; inactive stamps.
         (save-excursion
           (when (re-search-forward org-ts-regexp end t)
             (setq active-ts-pos (match-beginning 0))
@@ -1405,7 +1397,7 @@ retained by scanning; live positions resolve on demand)."
                      (org-timestamp-to-time
                       (org-timestamp-from-string
                        (match-string-no-properties 0))))))))
-        ;; R59: the CHILD probe — with the subtree END already in hand,
+        ;; The CHILD probe: with the subtree END already in hand,
         ;; one bounded search from past the heading line; any
         ;; `org-outline-regexp-bol' match is a descendant (the first is
         ;; the heading's first child).  Same shape and cost class as the
@@ -1424,8 +1416,8 @@ retained by scanning; live positions resolve on demand)."
                         (org-timestamp-from-string
                          (format "<%s>"
                                  (match-string-no-properties 1))))))))))
-        ;; R61-1: the review harvest — SAME pass, same buffer, reusing END
-        ;; and `child-pos' so the own-body region costs zero extra
+        ;; The review harvest: SAME pass, same buffer, reusing END and
+        ;; `child-pos' so the own-body region costs zero extra
         ;; structural work.  Per-heading never-error (the inner net lives
         ;; inside the helper); capped by `org-air-log-cap'.
         (setq harvest (org-air-query--harvest-at-point child-pos end))))
@@ -1433,17 +1425,17 @@ retained by scanning; live positions resolve on demand)."
      :title title
      :tags tags
      :file file
-     ;; R53 P1: (FILE . POS), first-class everywhere since R26-8 — the
-     ;; scan retains NO buffer.  A file-less buffer (a test temp buffer)
-     ;; keeps the live marker so at-point flows still resolve.
+     ;; (FILE . POS), first-class everywhere: the scan retains NO buffer.
+     ;; A file-less buffer (a test temp buffer) keeps the live marker so
+     ;; at-point flows still resolve.
      :marker (if (string-empty-p file)
                  (copy-marker (point-marker))
                (cons file (point)))
      :todo todo
-     ;; R22-1: detect an EXPLICIT [#X] cookie via `org-priority-regexp'
-     ;; (group 2 = the letter, A..E), so [#B] is recorded even though its
-     ;; value equals `org-default-priority' (=?B); a cookie-LESS heading
-     ;; stays nil.  The old value-equals-default test dropped explicit [#B].
+     ;; Detect an EXPLICIT [#X] cookie via `org-priority-regexp' so [#B]
+     ;; is recorded even though its value equals `org-default-priority'
+     ;; (= ?B); a cookie-LESS heading stays nil.  A value-equals-default
+     ;; test cannot do this: it drops an explicit [#B].
      :priority (let ((heading (org-get-heading t t nil t)))
                  (when (string-match org-priority-regexp heading)
                    (org-get-priority heading)))
@@ -1467,12 +1459,12 @@ retained by scanning; live positions resolve on demand)."
                      (float-time mtime)))
      :body-deadline body-deadline
      :active-ts active-ts
-     ;; R54-2: the content-derived note type, computed here in the scan
-     ;; buffer over signals already in hand (the per-FILE signals are
-     ;; computed once per file, not per heading).
+     ;; The content-derived note type, computed here in the scan buffer
+     ;; over signals already in hand (the per-FILE signals are computed
+     ;; once per file, not per heading).
      :ntype (org-air-query--note-type todo scheduled deadline tags)
-     ;; R59: the two container signals.  `own-active-ts' costs ZERO
-     ;; extra regex work: the active-ts probe finds the subtree's FIRST
+     ;; The two container signals.  `own-active-ts' costs ZERO extra
+     ;; regex work: the active-ts probe finds the subtree's FIRST
      ;; active match, and matches are ordered — the own body carries one
      ;; iff that first match precedes the first child (for a leaf,
      ;; own-active-ts ≡ active-ts).
@@ -1481,31 +1473,31 @@ retained by scanning; live positions resolve on demand)."
                          (or (null child-pos)
                              (< active-ts-pos child-pos))
                          active-ts)
-     ;; R61-1: the four review slots (integer epochs + interned symbols
-     ;; only — data-pure period folds, zero render-time file opens).
+     ;; The four review slots (integer epochs and interned symbols only
+     ;; — data-pure period folds, zero render-time file opens).
      :clocks (nth 0 harvest)
      :logs (nth 1 harvest)
      :created (nth 2 harvest)
      :rtrunc (nth 3 harvest)
-     ;; R93: the recency fact.  nil means "this heading carries NO
-     ;; history at all"; classify then falls back to the file's
-     ;; scan-time mtime (`org-air-query-file-meta' `:mtime' — a hash
-     ;; lookup, never a stat), which is deliberately COARSE: one edit
-     ;; anywhere in the file refreshes every historyless heading in it.
+     ;; The recency fact.  nil means "this heading carries NO history at
+     ;; all" and stays UNKNOWN: classify never substitutes the file's
+     ;; mtime for it (see `org-air-classify-updated').  The file-level
+     ;; mtime survives only as the Untracked section's ranking floor
+     ;; (`org-air-classify-updated-floor').
      :updated (nth 4 harvest))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R53 P1/P1b — the never-error work-buffer scan.
+;;;; The never-error work-buffer scan.
 ;;;; ---------------------------------------------------------------------
 
 (defvar org-air-query--skip-log nil
-  "Per-scan list of (FILE . REASON) entries the scan skipped (R53 P1b).
+  "Per-scan list of (FILE . REASON) entries the scan skipped.
 Cleared at the start of every full scan (`org-air-query-skip-log-reset');
 listed by `org-air-scan-report'.  REASON is a symbol (`encrypted',
 `too-large', `slow') or an error string.")
 
 (defun org-air-query-skip-log-reset ()
-  "Clear the per-scan skip log (R53 P1b).  Called once per scan start."
+  "Clear the per-scan skip log.  Called once per scan start."
   (setq org-air-query--skip-log nil))
 
 (defun org-air-query--skip (file reason)
@@ -1516,7 +1508,7 @@ Never messages per file — the scan reports ONE summary line itself and
   nil)
 
 ;;;; ---------------------------------------------------------------------
-;;;; R97 D3 — a file the scan could not read must not be silently absent.
+;;;; A file the scan could not read must not be silently absent.
 ;;;; ---------------------------------------------------------------------
 ;;
 ;; The board presents itself as the complete answer to "what deserves my
@@ -1528,7 +1520,7 @@ Never messages per file — the scan reports ONE summary line itself and
 ;; reason means.
 
 (defcustom org-air-report-skipped-files t
-  "Whether org-air announces the files its scan could not read (R97 D3).
+  "Whether org-air announces the files its scan could not read.
 When non-nil a completed full scan that skipped any file echoes ONE
 summary line naming the count and the reasons, pointing at
 `org-air-scan-report'.  The line is emitted at most once per distinct
@@ -1538,7 +1530,7 @@ silence it; the skip log and `org-air-scan-report' are unaffected."
   :group 'org-air)
 
 (defvar org-air-query--skip-announced nil
-  "The skip set last announced by `org-air-query--announce-skips' (R97 D3).
+  "The skip set last announced by `org-air-query--announce-skips'.
 A sorted list of file names; an unchanged corpus announces only once.")
 
 (defconst org-air-query-skip-reason-explanations
@@ -1547,12 +1539,12 @@ open and decrypt the file and it is scanned in place")
     (unreadable . "unreadable: no read permission, vanished, or a dangling symlink")
     (too-large . "larger than `org-air-max-file-size'"))
   "Human explanations of the structured `org-air-query--skip-log' reasons.
-R97 D3: the README lists `.org.gpg' among the scanned extensions; the
-scan LISTS such a file and then declines to read it.  Both statements
-are now made in the same place a user looks.")
+The README lists `.org.gpg' among the scanned extensions, and the scan
+LISTS such a file and then declines to read it.  Both statements have to
+reach the user in the same place, or the file just looks missing.")
 
 (defun org-air-query-skip-summary ()
-  "Return a one-line summary of the last scan's skips, or nil (R97 D3)."
+  "Return a one-line summary of the last scan's skips, or nil."
   (when org-air-query--skip-log
     (let ((counts nil))
       (pcase-dolist (`(,_file . ,reason) org-air-query--skip-log)
@@ -1569,7 +1561,7 @@ are now made in the same place a user looks.")
                          ", ")))))
 
 (defun org-air-query--announce-skips ()
-  "Echo `org-air-query-skip-summary' once per distinct skip set (R97 D3)."
+  "Echo `org-air-query-skip-summary' once per distinct skip set."
   (when (and org-air-report-skipped-files org-air-query--skip-log)
     (let ((key (sort (mapcar #'car org-air-query--skip-log) #'string<)))
       (unless (equal key org-air-query--skip-announced)
@@ -1578,9 +1570,9 @@ are now made in the same place a user looks.")
 
 ;;;###autoload
 (defun org-air-scan-report ()
-  "List the files the last org-air scan skipped, and why (R53 P1b).
-R97 D3: each structured reason is spelled out under the list, so a user
-who notices a file missing from the board learns why in one place."
+  "List the files the last org-air scan skipped, and why.
+Each structured reason is spelled out under the list, so a user who
+notices a file missing from the board learns why in one place."
   (interactive)
   (if (null org-air-query--skip-log)
       (message "org-air: the last scan skipped no files")
@@ -1608,7 +1600,7 @@ who notices a file missing from the board learns why in one place."
         (pop-to-buffer (current-buffer))))))
 
 (defvar org-air-query--work-buffer nil
-  "The single reused scan work buffer, or nil (R53 P1).
+  "The single reused scan work buffer, or nil.
 A NORMAL-named buffer (org-ql drops space-prefixed ones), the mode
 `org-mode' initialised ONCE per session under the
 symbol `delay-mode-hooks' (mode hooks never run), element cache ON but
@@ -1616,7 +1608,7 @@ symbol `delay-mode-hooks' (mode hooks never run), element cache ON but
 of the shared buffer).  Killed by `org-air-query-teardown'.")
 
 (defun org-air-query--work-buffer ()
-  "Return the live scan work buffer, creating it on first use (R53 P1)."
+  "Return the live scan work buffer, creating it on first use."
   (unless (buffer-live-p org-air-query--work-buffer)
     (setq org-air-query--work-buffer (generate-new-buffer "*org-air scan*"))
     (with-current-buffer org-air-query--work-buffer
@@ -1625,15 +1617,15 @@ of the shared buffer).  Killed by `org-air-query-teardown'.")
   org-air-query--work-buffer)
 
 (defun org-air-query-teardown ()
-  "Kill the session's scan work buffer, if any (R53 P1)."
+  "Kill the session's scan work buffer, if any."
   (when (buffer-live-p org-air-query--work-buffer)
     (kill-buffer org-air-query--work-buffer))
   (setq org-air-query--work-buffer nil))
 
 (defun org-air-query--inbox-file-p (file)
-  "Return non-nil when FILE is the effective inbox file (P3 exclusion).
-R97 D2: reads `org-air-inbox-effective-file', so a DERIVED inbox is
-recognised exactly like an explicitly configured one."
+  "Return non-nil when FILE is the effective inbox file.
+Reads `org-air-inbox-effective-file', so a DERIVED inbox is recognised
+exactly like an explicitly configured one."
   (let ((inbox (org-air-inbox-effective-file)))
     (and inbox
          (equal (or (ignore-errors (file-truename (expand-file-name file)))
@@ -1641,7 +1633,7 @@ recognised exactly like an explicitly configured one."
                 (or (ignore-errors (file-truename inbox)) inbox)))))
 
 (defun org-air-query--file-item (file)
-  "Return a one-item list for FILE as a headingless note, or nil (R53 P3).
+  "Return a one-item list for FILE as a headingless note, or nil.
 Called with the scanned content in the current buffer AFTER the heading
 scan yielded nothing.  A REAL note — no headings, some non-blank content,
 no NUL byte in the first 1KB (binary junk never becomes a row), and not
@@ -1693,16 +1685,16 @@ fallback), tags from `#+filetags', group = parent directory name, marker
                        (float-time mtime))
            :body-deadline nil
            :active-ts nil
-           ;; R59: nil container signals — the predicate requires `kind'
+           ;; Nil container signals — the predicate requires `kind'
            ;; `heading' anyway, so a 'file item is never a container.
            :childp nil
            :own-active-ts nil
-           ;; R61-1: nil review slots — a file blob has no per-heading
-           ;; LOGBOOK; the review sections ignore 'file items entirely.
-           ;; R93: `updated' likewise — a 'file item routes to `notes'
-           ;; and never reaches the attention clock.
+           ;; Nil review slots — a file blob has no per-heading LOGBOOK,
+           ;; and the review sections ignore 'file items entirely.
+           ;; `updated' likewise: a 'file item routes to `notes' and
+           ;; never reaches the attention clock.
            :clocks nil :logs nil :created nil :rtrunc nil :updated nil
-           ;; R54-2: 'file items type from the FILE-level signals alone
+           ;; 'file items type from the FILE-level signals alone
            ;; (keyword/tag override → journal → knowledge); they route to
            ;; the 'notes bucket regardless, so this feeds the note
            ;; surfaces, not the board.
@@ -1710,19 +1702,19 @@ fallback), tags from `#+filetags', group = parent directory name, marker
                    org-air-query--scan-file-signals nil))))))))
 
 (defun org-air-query--scan-live-buffer (buffer file query)
-  "Scan the live user BUFFER visiting FILE with org-ql QUERY (R53 P1 rule 1).
+  "Scan the live user BUFFER visiting FILE with org-ql QUERY.
 Unsaved edits are respected; every item's marker/file slot is rewritten to
 FILE so the (FILE . POS) contract and the mtime bookkeeping stay coherent
 even when the buffer's own name differs (a symlinked visit)."
-  (let* (;; R53fix M2: same echo hygiene as the work-buffer path — a live
-         ;; headingless buffer must not re-spam org-ql's "No headings in
-         ;; buffer" message on every refresh.
+  (let* (;; Same echo hygiene as the work-buffer path: a live headingless
+         ;; buffer must not re-spam org-ql's "No headings in buffer"
+         ;; message on every refresh.
          (inhibit-message t)
          (message-log-max nil)
-         ;; R93: today's date string, computed ONCE per file instead of
-         ;; once per heading (the `updated' probe's future-stamp guard).
+         ;; Today's date string, computed ONCE per file instead of once
+         ;; per heading (the `updated' probe's future-stamp guard).
          (org-air-query--scan-today (format-time-string "%Y-%m-%d"))
-         ;; R54-2: the per-FILE type signals, computed ONCE per file.
+         ;; The per-FILE type signals, computed ONCE per file.
          (org-air-query--scan-file-signals
           (with-current-buffer buffer
             (org-air-query--file-signals file)))
@@ -1743,14 +1735,14 @@ even when the buffer's own name differs (a symlinked visit)."
           (org-air-query--file-item file)))))
 
 (defun org-air-query--scan-work-buffer (file query)
-  "Scan FILE in the reused work buffer with org-ql QUERY (R53 P1 rule 2).
+  "Scan FILE in the reused work buffer with org-ql QUERY.
 One `erase-buffer' + `insert-file-contents' per file into the session's
 single `org-mode' work buffer; the
 variable `buffer-file-name' is set for the file's extent (so Org's
 file-relative logic behaves) and always cleared again;
 `org-set-regexps-and-options' makes the file's own
-`#+TODO:' win, with the R57-1 MERGED default vocabulary otherwise (the
-user's global `org-todo-keywords' as the base + org-air's supplement —
+`#+TODO:' win, with the MERGED default vocabulary otherwise (the
+user's global `org-todo-keywords' as the base plus org-air's supplement —
 never a replacement; see `org-air-query--scan-todo-keywords').  Known,
 accepted difference: file-local variable BLOCKS are not processed here
 \(`#+…' keywords ARE); a file whose parsing genuinely depends on local
@@ -1759,11 +1751,11 @@ variables scans like the same Org file without them."
     (let ((buffer-undo-list t)
           (create-lockfiles nil)
           ;; Kills org-ql's per-file "No headings in buffer" echo spam ×N;
-          ;; the scan reports ONE summary line itself (R53 P1b).
+          ;; the scan reports ONE summary line itself.
           (inhibit-message t)
           (message-log-max nil)
           (org-todo-keywords (org-air-query--scan-todo-keywords))
-          ;; R93: the `updated' probe's future-stamp guard, once per file.
+          ;; The `updated' probe's future-stamp guard, once per file.
           (org-air-query--scan-today (format-time-string "%Y-%m-%d"))
           (org-air-query--scan-mtime
            (file-attribute-modification-time (file-attributes file))))
@@ -1773,8 +1765,8 @@ variables scans like the same Org file without them."
             (insert-file-contents file)
             (setq buffer-file-name file)
             (org-set-regexps-and-options)
-            ;; R54-2: the per-FILE type signals, computed ONCE per file
-            ;; and threaded to the per-heading action via the scan-scoped
+            ;; The per-FILE type signals, computed ONCE per file and
+            ;; threaded to the per-heading action via the scan-scoped
             ;; binding (like `org-air-query--scan-mtime').
             (let* ((org-air-query--scan-file-signals
                     (org-air-query--file-signals file))
@@ -1789,7 +1781,7 @@ variables scans like the same Org file without them."
         (set-buffer-modified-p nil)))))
 
 (defun org-air-query--scan-file (file &optional query)
-  "Return `org-air-item' records for FILE; NEVER signals (R53 P1/P1b).
+  "Return `org-air-item' records for FILE; NEVER signals.
 The one per-file scan entry: a live user buffer visiting FILE is scanned
 in place (rule 1, cheap `get-file-buffer' — never a `buffer-list' walk);
 otherwise the file scans in the single reused work buffer (rule 2).  The
@@ -1799,7 +1791,7 @@ live already-decrypted buffer scans normally), an over-
 `org-air-max-file-size' file is skipped `too-large', an unreadable /
 vanished / dangling-symlink file is skipped with its `file-error'.  ANY
 signal inside the body degrades to 0 items + one skip-log entry — a bad
-file can never abort the whole scan (the P1b never-error law).  QUERY is
+file can never abort the whole scan (the never-error law).  QUERY is
 the optional org-ql query (default: all headings).  A `quit' is NOT
 swallowed: aborting always works."
   (org-air-query--index-denote-id file)
@@ -1823,17 +1815,17 @@ swallowed: aborting always works."
   "Return `org-air-item' records matching org-ql QUERY.
 
 When QUERY is nil, return all headings from `org-air-files' (plus one
-bounded file-item per headingless note file, R53 P3).  R53 P1: the scan
-loops `org-air-query--scan-file' over the configured files — org-ql stays
-the only query engine, but it runs over buffers org-air manages, so no
-source buffer is ever retained and one bad file can never abort the scan.
-Item order is file order × buffer order, exactly as before."
+bounded file-item per headingless note file).  The scan loops
+`org-air-query--scan-file' over the configured files — org-ql stays the
+only query engine, but it runs over buffers org-air manages, so no
+source buffer is ever retained and one bad file can never abort the
+scan.  Item order is file order × buffer order."
   (let ((files (org-air-query-files)))
     (org-air-query-skip-log-reset)
     (let (items)
       (dolist (file files)
         (setq items (nconc items (org-air-query--scan-file file query))))
-      ;; R97 D3: a file that was listed but not read is announced once.
+      ;; A file that was listed but not read is announced once.
       (org-air-query--announce-skips)
       items)))
 
@@ -1842,7 +1834,7 @@ Item order is file order × buffer order, exactly as before."
 
 Like `org-air-query-items' but restricted to FILES (already-expanded Org
 file paths), so the query can be split into batches and run on an idle
-timer without blocking the frame (R19-1).  QUERY defaults to all
+timer without blocking the frame.  QUERY defaults to all
 headings.  Does NOT reset the skip log — the caller (the refresh machine)
 owns the per-scan log across its slices."
   (let (items)

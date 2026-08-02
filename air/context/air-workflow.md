@@ -2,20 +2,17 @@
 
 ## Overview
 
-<!-- TODO: Customize this section to describe your project's specific workflow -->
 Air implements a planning-first workflow where planning documents serve as the single source of truth for requirements and specifications. The workflow ensures that execution follows documented design and that progress is trackable through document states.
 
 ## Core Workflow Principles
 
 ### Filesystem as Database
-<!-- TODO: Adapt these principles to your project's workflow -->
 - All project planning lives in files and directories
 - No complex databases or external tools required
 - Works with any text editor and file explorer
 - Git integration provides optional versioning and timestamp tracking
 
 ### Planning-First Workflow
-<!-- TODO: Customize these steps based on your project's process -->
 1. **Plan First**: Create Air documents before executing work
 2. **Specify Completely**: Move documents to 'ready' state only when fully specified
 3. **Track Progress**: Use document states to monitor progress
@@ -66,8 +63,6 @@ dropped                           archive/
 4. **Set Initial State**: Start with `#+state: draft`
 5. **Add Metadata**: Include title and relevant tags
 
-<!-- TODO: Add project-specific document creation guidelines -->
-
 ### Required Document Structure
 
 Every Air document must include:
@@ -78,10 +73,7 @@ Every Air document must include:
 - **Proposal**: Detailed specification
 - **History**: Track of all work done
 
-<!-- TODO: Add or modify sections based on your project's needs -->
-
 ### Optional Sections
-<!-- TODO: Customize optional sections for your project -->
 - **Goals/Non-Goals**: Scope clarification
 - **Design Details**: Technical implementation specifics  
 - **Infrastructure Needed**: External dependencies
@@ -179,8 +171,6 @@ airctl context generate --all
 
 ## Collaboration Workflow
 
-<!-- TODO: Adapt collaboration workflow to your team structure -->
-
 ### For Team Members
 1. **Check Status**: Use `airctl status` to see current work
 2. **Read Specifications**: Review 'ready' documents before executing
@@ -208,8 +198,6 @@ airctl context generate --all
 - Edit context files directly when project conventions evolve
 
 ## Best Practices
-
-<!-- TODO: Add project-specific best practices -->
 
 ### Planning
 - Write Air documents before starting complex work

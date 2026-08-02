@@ -12,6 +12,14 @@ Air uses six predefined states for document lifecycle management:
 - **dropped**: No longer needed or abandoned
 - **unknown**: State cannot be determined from document metadata
 
+Two further parked states are in real use and org-air renders them as
+first-class: **out** (handed over / removed from this project) and **off**
+(paused indefinitely). org-air groups `dropped`, `canceled`, `cancelled`,
+`out` and `off` as the TERMINAL-NEGATIVE family
+(`org-air-project-dropped-states`); `complete` is deliberately not a
+member. A state org-air has never heard of is never folded and never
+hidden — it renders as its own section with an upcased token.
+
 ## Document Structure
 Recommended structure for Air documents:
 

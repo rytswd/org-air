@@ -1,11 +1,11 @@
 # Interface Design — org-air
 
-The visual design system as shipped through round-14. Inspiration:
-rougier's nano-emacs / svg-tag-mode / svg-lib; calm, typographic, modern.
+The visual design system as shipped. Inspiration: rougier's nano-emacs /
+svg-tag-mode / svg-lib; calm, typographic, modern.
 
-## Buffer-naming convention (stable; round-16 D-P2, round-28 R28-1)
-**Invariant (R28-1): every buffer org-air creates and shows in a window is
-named with the `*org-air` prefix** — no hidden-buffer leading space — so
+## Buffer-naming convention (stable, public)
+**Invariant: every buffer org-air creates and shows in a window is named
+with the `*org-air` prefix** — no hidden-buffer leading space — so
 users (and packages like dimmer, popper, shackle, `display-buffer-alist`)
 can match them all with one regexp — `\\*org-air`:
 
@@ -13,16 +13,18 @@ can match them all with one regexp — `\\*org-air`:
 |-------------------|---------------------------------------------------|--------------------------------|
 | `*org-air*`       | the board (`M-x org-air`)                          | main window                    |
 | `*org-air-project*` | the project / Air-docs view (`M-x org-air-project`) | main window                  |
-| `*org-air-rail*`  | the popped-out context rail (round-16 D-P1)        | right side window (on demand)  |
-| `*org-air-view*`  | the bottom source/entry view pane (round-16 D-P3)  | bottom side window (on demand) |
-| `*org-air-pane:TITLE*` | the EDITABLE indirect pane (round-19 R19-3)   | bottom pane window (on demand) |
+| `*org-air revisit*` | the Revisit view (`M-x org-air-revisit`)        | main window                    |
+| `*org-air review*`  | the Review view (`M-x org-air-review`)          | main window                    |
+| `*org-air-rail*`  | the popped-out context rail                        | side window (on demand)        |
+| `*org-air-view*`  | the read-only source/entry view pane               | bottom side window (on demand) |
+| `*org-air-pane:TITLE*` | the EDITABLE indirect pane                    | bottom pane window (on demand) |
 
 This naming is a **public contract**: it will not change without a major
 note. The doc-session and return-mode host buffers are the **user's** file
 buffers — never renamed, never excluded (dimming those is the user's own
 policy).
 
-**Shipped dimmer integration (R28-1, zero config):** when dimmer.el is
+**Shipped dimmer integration (zero config):** when dimmer.el is
 loaded, org-air registers `org-air-dimmer-buffer-p` on
 `dimmer-buffer-exclusion-predicates` (a soft dep — dimmer is never
 required; without dimmer the registration is dormant and creates no dimmer
@@ -33,24 +35,31 @@ stays a valid alternative:
   (add-to-list 'dimmer-buffer-exclusion-regexps "\\*org-air"))
 ```
 
-## Two views, one renderer
+## Four views, one renderer
 - **Board** (`M-x org-air`): the GTD dashboard.
 - **Project** (`M-x org-air-project`): the Air-docs viewer.
-Both render through the SAME core (`org-air-view--insert-row`, the inspector
-core, the svg layer, faces) so they cannot drift. Project-specific code is
-thin (doc→item mapping, bucket grouping, the two-line arrangement).
+- **Revisit** (`N`): evergreen knowledge notes, dustiest first.
+- **Review** (`W`): the period retrospective.
+All four render through the SAME core (`org-air-view--insert-row`, the
+inspector core, the rail descriptor, the sort/filter cores, the bookmark
+quartet, the svg layer, faces) so they cannot drift. The per-view code is
+thin: a row mapping, a rail descriptor and a section table.
 
-## Layout — two panes in one buffer
+## Layout — content pane plus rail
 `[ board/item pane ]  │  [ rail ]`
-- One buffer holds both panes + the divider inline (keeps it byte-testable).
-- **Rail order (top→bottom):** Calendar, Summary, **Inspector**, Filters,
-  Actions (Filters+Actions pinned to the foot; the inspector takes the
-  expanded middle).
+- `org-air-rail-placement` decides where the rail lives: `side-window`
+  (the default — a dedicated `*org-air-rail*` window) or `inline` (one
+  buffer holds both panes and the divider, which is what keeps the layout
+  byte-testable). Per-view overrides win when non-nil.
+- **Rail order (top→bottom):** Calendar, Filter, Summary, **Inspector**,
+  Actions. Filter sits above Summary so the active narrowing is read
+  BEFORE the counts it explains; the inspector takes a fixed reserved
+  middle and Actions is pinned to the foot.
 - **Responsive:** below `org-air-rail-min-width` (default 90) the rail is
   dropped and the board fills the full width (board-only) — so opening a
-  file in a narrow split never crowds. Re-renders on resize (round-9 C1).
+  file in a narrow split never crowds. Re-renders on resize.
 
-## The V6 alignment contract (load-bearing — never break)
+## The alignment contract (load-bearing — never break)
 Every row: title LEFT (flex, truncate-last), then a fixed-width right
 cluster of meta cells (date · tags · origin). Columns are computed from
 `string-width` (text layer) and stay pixel-locked. **svg pills must occupy
@@ -64,38 +73,42 @@ the item has a TODO keyword (the keyword column is reserved).
 - **Critical:** the pill image is clamped to the EXACT font line height with
   an integer baseline `:ascent` (`org-air-view--svg-line-image`) so it never
   grows the row — otherwise the row grows taller than the `│` glyph and the
-  divider gaps. (This was the round-13 fix; do not regress.)
+  divider gaps.
 - Calm look: soft radius (~`ch/6`), monochrome capsule (near-zero fill,
   hairline border), colour lives in the LABEL only (tag accent / date
   semantic hue). Date pills are padded to a UNIFORM width (the date column).
 - **Priority** = a tiny solid colour SQUARE (no letter/outline) in a fixed
-  ~2-col slot: A=red, B=orange, C=yellow-green (`org-air-priority-colors`).
+  2-col slot, warm to cool: A=red, B=orange, C=yellow-green, D=teal,
+  E=indigo (`org-air-priority-colors`).
 - Knobs: `org-air-pill-pad-cols`, `-radius`, `-fill-alpha`,
   `-border(-opacity)`, `-vinset`, `org-air-date-pill-align`,
   `org-air-priority-style`, `org-air-tag-style`/`-date-style` (pill|text).
 
-## Rail headers — prefix-svg markers (round-11/D-P6)
+## Rail headers — prefix-svg markers
 Section headers (`▌ Summary`, `▌ June 2026`, `▌ Inspector`, …) use a slim
 prefix-svg marker + clean label (`org-air-rail-header-style` marker|rule).
-The old hl-block card / `────` rule chrome is retired. TTY fallback = a
-plain prefix char.
+TTY fallback = a plain prefix char.
 
-## The divider (still being refined — see round-15)
-A single-buffer text `│` at `line-spacing 0` with line-clamped pills. Known
-fragility: box-drawing glyph coverage varies by font. Round-15 proposes the
-architecture decision (real side-window + `window-divider` vs a robust
-in-buffer rule) for a truly gap-free, sophisticated divider.
+## The divider
+Inline: a text `│` at `line-spacing 0` with line-clamped pills, pinned to
+one pixel-X per row with `display (space :align-to)`. Under
+`side-window` the divider is a real window border themed through
+`org-air-face-window-divider`. Known fragility of the inline form:
+box-drawing glyph coverage varies by font, and a non-zero
+`org-air-line-spacing` opens a gap the per-cell glyph cannot paint into.
 
-## The inspector (round-11..14)
+## The inspector
 A mid-rail block showing metadata for the highlighted line, live-updating as
 point moves (buffer-local `post-command-hook` → **debounced**, redraw only
-when the inspected item changes, marker-region delete+reinsert — NEVER a
-full re-render on motion). **Must be inert when `noninteractive`** (else
-batch/regen deadlocks — round-13 hardening). Fields: title, state+priority,
-origin/file, tags, Scheduled, Deadline (+◆ overdue), Created, Closed,
-Repeat (`every 1w → next Mon 22 Jun`), Bucket/stale-days; nil lines omitted.
-Generalised core (`inspector-active/-property/-fields-function/-initial-fn`)
-so the project view hosts a doc-field inspector with the same machinery.
+when the inspected thing changes, marker-region delete+reinsert — NEVER a
+full re-render on motion). **Must be inert when `noninteractive`**, else
+batch and regen deadlock. Fields: title, state+priority, tags, then
+origin/file, Scheduled, Deadline (+◆ overdue), Created, Updated (the
+measured stamp, or the `~file` lower bound), Repeat
+(`every 1w → next Mon 22 Jun`) and the derived Bucket; nil lines omitted.
+The generalised core
+(`inspector-active/-property/-fields-function/-initial-fn`) lets every
+non-board view host its own fields with the same machinery.
 
 ## Calendar
 Month grid with due (◆) / scheduled (●) / created (·) marks, today
@@ -106,9 +119,9 @@ All colour in `org-air-faces.el`; light/dark aware; svg colours derive from
 faces and re-render on theme change. Inspector field labels are mid-tier
 readable (WCAG-AA), values keep their semantic faces.
 
-## Repeats (round-14, read-only)
+## Repeats (read-only)
 Org repeaters (`.+1d`/`++1w`) on scheduled/deadline are detected (via Org's
 own `org-get-repeat` — not reimplemented) and shown as a `↻` marker in the
 date cluster + an inspector `Repeat` line. The custom working-day-aware
-advance (`:AIR_REPEAT: workday`, skip weekends) is DEFERRED — lean on Org's
-defaults, fill the gap only when needed.
+advance (`:AIR_REPEAT: workday`, skip weekends) is DEFERRED — lean on
+Org's defaults, fill the gap only when needed.

@@ -10,22 +10,22 @@
 
 ;;; Commentary:
 
-;; Inbox-first capture and the ONE-SHOT refile for org-air (R64): a
+;; Inbox-first capture and the ONE-SHOT refile for org-air: a
 ;; transient destination+metadata form (single confirm, live preview)
 ;; over a non-interactive engine that sets destination AND tags/
 ;; category/schedule/todo/priority in ONE call, with NESTED outline-path
 ;; targets whose missing parents are created on the fly by Org's own
 ;; refile machinery (org-refile.el / org.el — never org-agenda).
 ;;
-;; R66: refiling to a brand-new or frontmatter-less target under an Air
+;; Refiling to a brand-new or frontmatter-less target under an Air
 ;; tree synthesises Air frontmatter (a derived `#+title:', `#+state:'
 ;; from `org-air-refile-new-file-state', `#+FILETAGS:' from the moved
 ;; heading's effective tags) at the file top before the paste, and a
 ;; brand-new target's missing directory chain is created on execute —
-;; both inside the R64 disk-atomic transaction: a failed refile leaves
+;; both inside the disk-atomic transaction: a failed refile leaves
 ;; no half-written file and mints no new file at all.
 ;;
-;; R67: the transient is the board's general per-item EDITOR — the
+;; The transient is the board's general per-item EDITOR — the
 ;; destination is one OPTIONAL field.  With a destination, execute is
 ;; today's ONE engine call; without one, the changed metadata applies
 ;; IN PLACE at the item's source heading (`org-air-inbox--apply-item-
@@ -43,16 +43,16 @@
 (require 'transient)
 (require 'org-air-query)
 
-;; R97 D1/D5 — preconditions for the refile engine and its transient form.
+;; Preconditions for the refile engine and its transient form.
 
 (defun org-air-inbox--require-board ()
-  "Refuse unless the current buffer is an org-air board (R97 D1).
+  "Refuse unless the current buffer is an org-air board.
 The refile editor is the board's `e' verb; its non-interactive engine
 API (`org-air-refile-item' with arguments) is unaffected."
   (org-air-require-surface "an org-air board" "org-air" 'org-air-view-mode))
 
 (defun org-air-inbox--require-form ()
-  "Refuse unless the transient refile editor form is live (R97 D5).
+  "Refuse unless the transient refile editor form is live.
 The `org-air-refile-form-*' suffixes are internals of
 `org-air-refile-transient'; run standalone from \\[execute-extended-command]
 they used to signal a raw `wrong-type-argument' off the empty form
@@ -71,12 +71,12 @@ transient decides to run the suffix."
 (declare-function org-air-view--refresh-stale-item-guard "org-air-view" (item))
 
 (defun org-air-inbox--board-buffer ()
-  "Return the live board buffer, or nil (R53 P4)."
+  "Return the live board buffer, or nil."
   (and (boundp 'org-air-view-buffer-name)
        (get-buffer org-air-view-buffer-name)))
 
 (defun org-air-inbox--board-files ()
-  "Return the board's last-enumerated file list, or nil (R53 P4).
+  "Return the board's last-enumerated file list, or nil.
 The refile pickers must never re-walk 5000 files at menu time: the board
 already holds the enumeration as its mtime baseline
 \(`org-air-view--items-mtimes', hydrated from the persisted cache's
@@ -85,7 +85,7 @@ already holds the enumeration as its mtime baseline
     (mapcar #'car (buffer-local-value 'org-air-view--items-mtimes board))))
 
 (defun org-air-inbox--board-items ()
-  "Return the in-memory board items, else the persisted cache's (R53 P4).
+  "Return the in-memory board items, else the persisted cache's.
 NEVER a fresh `org-air-query-items' — the Tags…/Category… vocabularies
 used to trigger a FULL synchronous rescan at menu time (the 271s class
 when cold).  nil when neither the board nor the cache has items; the
@@ -97,14 +97,13 @@ completion then simply offers no pre-seeded vocabulary."
 
 (defun org-air-inbox--require-coherent-inbox ()
   "Return the capture target, or refuse when the board could not show it.
-R97 D2 (silent capture loss): `org-air-capture' used to write to
-`org-air-inbox-file' whatever it was, so an inbox outside
-`org-air-files' produced a note on disk AND an honest \"Inbox zero\"
-board.  The write is now conditional on the scan being able to see it:
-with nothing configured at all, and with an explicit inbox outside the
-scan set, this signals a `user-error' that names the fix.  Refuses
-BEFORE any file is created and before any prompt (the caller reads the
-title only after this returns)."
+The write is conditional on the scan being able to SEE the target:
+writing to `org-air-inbox-file' whatever it is produces a note on disk
+AND an honest \"Inbox zero\" board — silent capture loss.  With nothing
+configured at all, and with an explicit inbox outside the scan set, this
+signals a `user-error' that names the fix.  Refuses BEFORE any file is
+created and before any prompt (the caller reads the title only after
+this returns)."
   (let ((file (org-air-inbox-effective-file)))
     (unless file
       (user-error "Nothing to capture into: set `org-air-files' first"))
@@ -127,9 +126,9 @@ ever created outside the scan set."
 ;;;###autoload
 (defun org-air-capture (&optional title body)
   "Capture a new inbox item with TITLE and optional BODY.
-The target is `org-air-inbox-effective-file'.  R97 D2: the coherence of
-that target with `org-air-files' is checked BEFORE the title prompt, so
-a misconfigured inbox costs one `user-error' instead of a lost note."
+The target is `org-air-inbox-effective-file'.  Its coherence with
+`org-air-files' is checked BEFORE the title prompt, so a misconfigured
+inbox costs one `user-error' instead of a lost note."
   (interactive (progn (org-air-inbox--require-coherent-inbox) nil))
   (let* ((title (or title (read-string "Capture title: ")))
          (body (or body
@@ -149,11 +148,11 @@ a misconfigured inbox costs one `user-error' instead of a lost note."
 
 (defun org-air-inbox--target-position (file heading)
   "Return insertion point for FILE under optional HEADING.
-R53 P3 contract (\"refile to file top\"): with HEADING nil — which is
-what `org-air-inbox--read-heading' yields for a HEADINGLESS note file —
+With HEADING nil — which is what `org-air-inbox--read-heading' yields
+for a HEADINGLESS note file —
 the insertion point is the file end, i.e. directly under the `#+title'
 content, so headingless notes are structurally valid refile targets.
-R64: the refile path no longer inserts at this point verbatim (it
+The refile path no longer inserts at this point verbatim (it
 re-levels via `org-paste-subtree'); this resolver stays for its
 remaining callers."
   (with-current-buffer (find-file-noselect file)
@@ -170,7 +169,7 @@ remaining callers."
        (point-marker)))))
 
 (defun org-air-inbox--file-headings (file)
-  "Return FILE's heading titles (top-level + nested) as plain strings (R24-1).
+  "Return FILE's heading titles (top-level + nested) as plain strings.
 Plain text (no fontification) so the completion vocabulary never carries an
 org heading face; the order is buffer order so the list reads top-to-bottom."
   (when (and file (file-readable-p (expand-file-name file)))
@@ -183,11 +182,11 @@ org heading face; the order is buffer order so the list reads top-to-bottom."
          (nreverse out))))))
 
 (defun org-air-inbox--read-heading (file)
-  "Read an optional target HEADING in FILE via completion (R24-1, legacy).
+  "Read an optional target HEADING in FILE via completion (legacy).
 Candidates are FILE's real headings plus a leading `(file end)' default;
 `(file end)' / empty / RET => nil (append at file end).  Returns nil with
-NO prompt when FILE has no headings.  R64: the board's refile form reads
-a nested PATH instead (`org-air-inbox--read-target-path'); this flat
+NO prompt when FILE has no headings.  The board's refile form reads a
+nested PATH instead (`org-air-inbox--read-target-path'); this flat
 picker survives for its remaining callers."
   (let ((headings (org-air-inbox--file-headings file)))
     (when headings
@@ -206,7 +205,7 @@ picker survives for its remaining callers."
   "Return an org-air item at point in either dashboard or Org buffer."
   (or (get-text-property (point) 'org-air-item)
       (org-air-item-create
-       ;; R23-1: strip properties off the at-point title (this item is built
+       ;; Strip properties off the at-point title (this item is built
        ;; inside a fontified Org buffer, so `org-get-heading' carries `face
        ;; org-level-1') so the moved item's row stays calm post-refile.
        :title (substring-no-properties (org-get-heading t t t t))
@@ -220,7 +219,7 @@ picker survives for its remaining callers."
        :group nil)))
 
 (defun org-air-inbox--target-files (item)
-  "Return the real, expanded Org files for refile targets (R19-2).
+  "Return the real, expanded Org files for refile targets.
 Uses `org-air-query-files' (which RECURSES configured directories), so a
 `⌂' candidate is always an actual file — the move bug was that
 `org-air-files' may hold DIRECTORIES that never match a basename.  Falls
@@ -230,11 +229,11 @@ back to ITEM's own file when nothing is configured."
       (list (org-air-item-file item))))
 
 (defun org-air-inbox--file-candidates (files)
-  "Return `⌂ <name>' refile candidates for FILES, disambiguating clashes (R19-2).
+  "Return `⌂ <name>' refile candidates for FILES, disambiguating clashes.
 When two files share a basename, the candidate shows a parent-dir/name tail
-so each `⌂' entry maps to exactly one file.  R53 P4: basenames are counted
-in ONE hash pass (the old per-file `seq-count' was O(n²) — measured 3.0s
-at 5006 files, now 0.013s), so the picker opens in <100ms."
+so each `⌂' entry maps to exactly one file.  Basenames are counted in ONE
+hash pass — a per-file `seq-count' here is O(n²), measured 3.0s against
+0.013s at 5006 files — so the picker opens in <100ms."
   (let ((counts (make-hash-table :test #'equal)))
     (dolist (file files)
       (let ((base (file-name-nondirectory file)))
@@ -251,12 +250,12 @@ at 5006 files, now 0.013s), so the picker opens in <100ms."
             files)))
 
 (defun org-air-inbox--edit-tags (item)
-  "Read a REPLACEMENT tag list for ITEM, pre-filled with its current tags (R19-2).
+  "Read a REPLACEMENT tag list for ITEM, pre-filled with its current tags.
 Uses `completing-read-multiple' over the tag vocabulary seeded with the
 item's existing tags (joined by `,') so the user SEES the full set and can
-add OR remove; the returned list replaces the tags.  R53 P4: the
-vocabulary reads the IN-MEMORY board items (or the persisted cache) —
-never a fresh scan at menu time."
+add OR remove; the returned list replaces the tags.  The vocabulary
+reads the IN-MEMORY board items (or the persisted cache) — never a fresh
+scan at menu time."
   (let ((current (org-air-item-tags item))
         (vocab (delete-dups (seq-mapcat #'org-air-item-tags
                                         (org-air-inbox--board-items)))))
@@ -265,14 +264,14 @@ never a fresh scan at menu time."
      (when current (mapconcat #'identity current ",")))))
 
 (defun org-air-inbox--edit-categories (item)
-  "Read a pre-filled category list for ITEM (R20-4a).
+  "Read a pre-filled category list for ITEM.
 Uses `completing-read-multiple' seeded with the item's current category (its
 `org-air-item-group') over the group vocabulary so a single pick is the
 common case (add/remove from there).  Multiple
 picks are allowed: the caller makes the FIRST the `:CATEGORY:' and adds any
-extras as tags, so nothing the user typed is lost.  R53 P4: the vocabulary
-reads the IN-MEMORY board items (or the persisted cache) — never a fresh
-scan at menu time."
+extras as tags, so nothing the user typed is lost.  The vocabulary reads
+the IN-MEMORY board items (or the persisted cache) — never a fresh scan
+at menu time."
   (let ((current (org-air-item-group item))
         (vocab (delete-dups (delq nil (mapcar #'org-air-item-group
                                               (org-air-inbox--board-items))))))
@@ -281,7 +280,7 @@ scan at menu time."
      (when (and current (not (string-empty-p current))) current))))
 
 (defun org-air-inbox--decode-file-choice (choice item)
-  "Resolve a `⌂ …' refile CHOICE for ITEM to a real target file path (R19-2).
+  "Resolve a `⌂ …' refile CHOICE for ITEM to a real target file path.
 `⌂ other file…' prompts via `read-file-name'; otherwise CHOICE is matched
 against the same disambiguated `org-air-inbox--target-files' candidates the
 prompt offered, so the chosen entry maps back to the actual expanded file
@@ -295,7 +294,7 @@ rather than the item's own file by accident — the original move bug."
           (org-air-item-file item)))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R64-2 — nested destinations: pick, complete, create-on-execute.
+;;;; Nested destinations: pick, complete, create-on-execute.
 ;;;; ---------------------------------------------------------------------
 
 (defvar org-air-inbox--refile-last nil
@@ -304,8 +303,8 @@ The transient form's `l' recall and the `f' picker's default read it —
 the \"file the sibling too\" case is three keys.")
 
 (defun org-air-inbox--read-target-file (item)
-  "Read the destination FILE for ITEM — stage 1 of the R64-2 picker.
-The R19-2/R53 cached `⌂' picker reused verbatim: candidates come from
+  "Read the destination FILE for ITEM — stage 1 of the picker.
+The cached `⌂' picker: candidates come from
 `org-air-inbox--target-files' (board enumeration or persisted cache,
 NEVER a fresh scan at menu time) through the one-pass
 `org-air-inbox--file-candidates' disambiguation, plus the
@@ -324,10 +323,10 @@ the last EXECUTED destination's file, so `f RET' re-picks it."
 
 (defun org-air-inbox--read-move-target (item)
   "Read a (FILE . HEADING) move target for ITEM (legacy two-step shape).
-Stage 1 is `org-air-inbox--read-target-file' (the R64-3 `f' infix
+Stage 1 is `org-air-inbox--read-target-file' (the `f' infix
 reader); the optional flat `Under heading:' completion survives for its
-remaining callers — the board's refile form reads a nested PATH instead
-\(R64-2)."
+remaining callers — the board's refile form reads a nested PATH
+instead."
   (let* ((file (org-air-inbox--read-target-file item))
          (heading (org-air-inbox--read-heading file)))
     (cons file (unless (and heading (string-empty-p heading)) heading))))
@@ -337,9 +336,8 @@ remaining callers — the board's refile form reads a nested PATH instead
 Built from `org-refile-get-targets' with `org-refile-targets' let-bound
 to FILE alone (`:maxlevel' 9) and `org-refile-use-outline-path' t —
 Org's proven path builder, scoped so it opens exactly ONE buffer (the
-destination file the refile is about to open anyway).  R53 holds: the
-5000-file world is never walked at menu time.  nil when FILE is not
-readable."
+destination file the refile is about to open anyway), so the 5000-file
+world is never walked at menu time.  nil when FILE is not readable."
   (when (and file (file-readable-p (expand-file-name file)))
     (let* ((file (expand-file-name file))
            (org-refile-targets `((,file :maxlevel . 9)))
@@ -380,11 +378,11 @@ the segments past it are the ones a refile will create, in order."
     (- n existing)))
 
 (defun org-air-inbox--resolve-path (input table)
-  "Parse the typed destination path INPUT against TABLE (R64-2).
+  "Parse the typed destination path INPUT against TABLE.
 TABLE is the one-file `org-air-inbox--path-table' alist (plain path
 strings are tolerated).  Returns a plist (:olp SEGMENTS :new N) — the
 segments to file under and the count of segments a refile will CREATE.
-Empty INPUT means file end (:olp nil), the R53 headingless-note answer;
+Empty INPUT means file end (:olp nil), the headingless-note answer;
 a trailing `/' is tolerated (the `org-refile--get-location'
 normalization).  INPUT is matched as a TABLE entry FIRST — so an
 existing heading whose NAME contains `/' stays addressable — and split
@@ -406,7 +404,7 @@ is deferred to execute."
                   :new (org-air-inbox--path-new-count table segments))))))))
 
 (defun org-air-inbox--read-target-path (file)
-  "Read the outline PATH within FILE — stage 2 of the R64-2 picker.
+  "Read the outline PATH within FILE — stage 2 of the picker.
 A single-shot `completing-read' (`require-match' nil,
 `completion-ignore-case' t — Org's own choice) over FILE's real target
 table; typing beyond the existing tree means CREATE, empty input / RET
@@ -421,26 +419,26 @@ means file end.  Returns the `org-air-inbox--resolve-path' plist
     (org-air-inbox--resolve-path input table)))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R66 — step 0: Air frontmatter synthesis for new/frontmatter-less
+;;;; Step 0: Air frontmatter synthesis for new/frontmatter-less
 ;;;; targets, plus the v0.2 target-directory creation fold-in.
 ;;;; ---------------------------------------------------------------------
 
 (defcustom org-air-refile-synthesize-frontmatter t
-  "When the refile engine synthesises Air frontmatter into a target (R66-2).
+  "When the refile engine synthesises Air frontmatter into a target.
 Fires only for a target buffer with no `#+title:' keyword before its
 first heading — which a brand-new file trivially is; an already-titled
 target is always left byte-for-byte as-is.  t (the default) gates the
 synthesis on the target lying under an Air-managed tree
 \(`org-air-inbox--air-tree-p'), so ordinary org notes outside Air stay
 bare; `always' synthesises for every new/frontmatter-less target; nil
-never synthesises (the bare pre-R66 write everywhere)."
+never synthesises — a bare write everywhere."
   :type '(choice (const :tag "In Air trees (default)" t)
                  (const :tag "Every new/frontmatter-less target" always)
                  (const :tag "Never" nil))
   :group 'org-air)
 
 (defcustom org-air-refile-new-file-state "draft"
-  "The `#+state:' value a synthesised refile target receives (R66-1).
+  "The `#+state:' value a synthesised refile target receives.
 A freshly refiled item is un-triaged planning material, hence the
 \"draft\" default; users who treat refile-out-of-inbox as commitment
 set \"ready\"."
@@ -450,9 +448,9 @@ set \"ready\"."
   :group 'org-air)
 
 (defun org-air-inbox--air-tree-p (file)
-  "Return non-nil when FILE lies under an Air-managed tree (R66-2).
+  "Return non-nil when FILE lies under an Air-managed tree.
 Cheap O(path-depth) stats, run once per refile EXECUTE and never at
-prompt time (R53 — no scan, no enumeration):
+prompt time (no scan, no enumeration):
 `locate-dominating-file' over exactly the `org-air-detect-air-project'
 marker test (an `air-config.toml' file or an `air/' subdirectory —
 inlined so this file grows no hard org-air-project.el requirement),
@@ -475,9 +473,9 @@ the bare write, never an error."
            t))))
 
 (defun org-air-inbox--derive-title ()
-  "Return the Air `#+title:' derived from the heading at point (R66-1).
+  "Return the Air `#+title:' derived from the heading at point.
 Org's OWN parsers, no hand-rolled heading regexp: `org-get-heading'
-strips the TODO keyword (THIS buffer's merged R57 vocabulary — the
+strips the TODO keyword (THIS buffer's merged vocabulary — the
 user's globals + the file's own `#+TODO:' line win), the `[#A]'
 priority cookie, the trailing tag list and the COMMENT keyword in one
 call; the statistics cookies are then removed via org-element
@@ -500,8 +498,8 @@ cookie leaves.  May return the empty string (degenerate headings like
       (org-element-interpret-data (org-element-property :title dummy))))))
 
 (defun org-air-inbox--item-derived-title (item)
-  "Derive the synthesised `#+title:' for ITEM in its SOURCE buffer (R66-1).
-The R57 point: the TODO strip must read the source buffer's own merged
+  "Derive the synthesised `#+title:' for ITEM in its SOURCE buffer.
+The point: the TODO strip must read the source buffer's own merged
 vocabulary, so the derivation runs at the item's heading in its own
 file — the same `org-back-to-heading' resolution the cut path performs
 \(one extra read, zero extra file visits)."
@@ -517,7 +515,7 @@ file — the same `org-back-to-heading' resolution the cut path performs
 The moved heading's EFFECTIVE tags — the refile TAGS argument when
 non-nil (`:none' means empty), else ITEM's own tags (what the
 transient preview shows) — MINUS `inbox': leaving the inbox is what
-refiling is (the same rule as the R64 form pre-fill).  Order is
+refiling is (the same rule as the form pre-fill).  Order is
 preserved; nil (the empty set) means the line is omitted entirely."
   (remove "inbox"
           (cond ((eq tags :none) nil)
@@ -526,7 +524,7 @@ preserved; nil (the empty set) means the line is omitted entirely."
 
 (defun org-air-inbox--target-titled-p ()
   "Return non-nil when the current buffer already carries a `#+title:'.
-The idempotence check of the R66 synthesis, against the BUFFER — not
+The idempotence check of the synthesis, against the BUFFER — not
 the disk, so a retry after a failed refile finds its own unsaved
 residue and never writes the block twice: the
 `org-air-project--read-keyword' regexp idiom, wide buffer, bounded to
@@ -555,7 +553,7 @@ drawer's `:end'."
        (point-min)))))
 
 (defun org-air-inbox--synthesize-frontmatter (item target-file tags)
-  "Step 0 of the refile engine: give TARGET-FILE Air frontmatter (R66-1).
+  "Step 0 of the refile engine: give TARGET-FILE Air frontmatter.
 When the synthesis rule fires — `org-air-refile-synthesize-frontmatter'
 non-nil, TARGET-FILE's buffer has no `#+title:' yet (a brand-new file
 trivially so), and the value is `always' or the target lies under an
@@ -566,7 +564,7 @@ base when the derivation is empty), `#+state:' from
 effective TAGS (omitted when empty), followed by ONE blank line (the
 `--ensure-file' shape).  BUFFER ONLY, never a save: the target's disk
 state still changes solely via the ONE `save-buffer' at the end of the
-successful R64 transaction, so a failed refile to a brand-new target
+successful transaction, so a failed refile to a brand-new target
 creates NO file at all.  Return non-nil when a block was written."
   (when (and org-air-refile-synthesize-frontmatter
              (or (eq org-air-refile-synthesize-frontmatter 'always)
@@ -588,7 +586,7 @@ creates NO file at all.  Return non-nil when a block was written."
            t))))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R64-1 — the non-interactive engine: ensure-olp + re-leveled paste.
+;;;; The non-interactive engine: ensure-olp + re-leveled paste.
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-inbox--heading-stars (pos)
@@ -623,13 +621,14 @@ order wins.  Returns the heading position, or nil."
 
 (defun org-air-inbox--ensure-olp (file olp)
   "Ensure the outline path OLP (list of heading titles) exists in FILE.
-R64-1: resolved root-down — each segment must sit directly under its
+Resolved root-down — each segment must sit directly under its
 parent (first match in buffer order); a MISSING segment is created by
 Org's own `org-refile-new-child', handed a synthetic (NAME FILE RE POS)
 parent target, so Org does the level math (`org-get-valid-level'),
 end-of-subtree placement and blank-line handling — org-air writes no
 star arithmetic of its own.  Created parents are plain headings (no
-TODO keyword, no timestamp): R59 containers, never board rows.  Returns
+TODO keyword, no timestamp), so they are containers, never board rows.
+Returns
 \(MARKER . LEVEL) of the final segment's heading in FILE's buffer, or
 nil when OLP is nil."
   (when olp
@@ -652,12 +651,12 @@ nil when OLP is nil."
 (defun org-air-inbox--resolve-target (file target-heading)
   "Resolve TARGET-HEADING in FILE to a (MARKER . LEVEL) parent, or nil.
 nil (or empty-string) TARGET-HEADING returns nil: the item appends at
-file END — the R53 P3 headingless-note contract.  A STRING resolves
-like the pre-R64 refile (first `org-complex-heading-regexp-format'
-match in buffer order, any depth); a MISSING string is CREATED at top
-level as a one-segment path — the silent file-end fallback is retired
-as a defect.  A LIST of strings is an outline path handed to
-`org-air-inbox--ensure-olp' (missing segments created root-down)."
+file END — the headingless-note contract.  A STRING resolves to the
+first `org-complex-heading-regexp-format' match in buffer order, at any
+depth; a MISSING string is CREATED at top level as a one-segment path,
+never silently appended at file end.  A LIST of strings is an outline
+path handed to `org-air-inbox--ensure-olp' (missing segments created
+root-down)."
   (cond
    ((null target-heading) nil)
    ((stringp target-heading)
@@ -678,7 +677,7 @@ as a defect.  A LIST of strings is an outline path handed to
 (defun org-air-refile-item (&optional item target-file target-heading tags
                                       scheduled category todo priority
                                       deadline note)
-  "Move ITEM to TARGET-FILE — the one-shot refile engine (R64-1).
+  "Move ITEM to TARGET-FILE — the one-shot refile engine.
 
 Interactively (the board's `e') this opens the transient
 destination+metadata form `org-air-refile-transient': one interaction
@@ -687,7 +686,7 @@ executes ONE call of this engine.  Non-interactively ITEM and
 TARGET-FILE are required.
 
 TARGET-HEADING accepts three shapes: nil appends at file end (top
-level, the R53 headingless-note contract); a STRING is a one-segment
+level, the headingless-note contract); a STRING is a one-segment
 path (existing headings resolve first-match as before, a missing one is
 now CREATED at top level); a LIST of strings is an outline PATH whose
 missing segments are created root-down via `org-refile-new-child' —
@@ -702,20 +701,17 @@ SCHEDULED is an Org timestamp/shift string (empty clears the schedule);
 TODO (a keyword string) and PRIORITY (a character, or string of one)
 are applied via `org-todo' / `org-priority' — nil leaves each
 untouched; a ?\\s PRIORITY removes the carried cookie at the moved
-heading (org's own remove vocabulary, R76).  DEADLINE (R67-3)
-mirrors SCHEDULED via `org-deadline':
-an Org timestamp/shift string stamps a deadline, the empty string
-clears one, nil leaves it untouched — a trailing additive parameter,
-so every pre-R67 caller passes unchanged.  NOTE (R71-2) replays that
-precedent: a non-empty string is appended as a dated Org log note at
+heading (org's own remove vocabulary).  DEADLINE mirrors SCHEDULED via
+`org-deadline': an Org timestamp/shift string stamps a deadline, the
+empty string clears one, nil leaves it untouched.  NOTE follows the
+same shape: a non-empty string is appended as a dated Org log note at
 the MOVED heading in the TARGET buffer (after the metadata block,
 inside the same transaction, before the ONE transactional save) via
 `org-air-inbox--append-log-note' — the drawer decision is the WRITE
 TARGET file's own `org-log-into-drawer' / `#+STARTUP: logdrawer'
-\(the R67-4 write-target law); nil or the empty string writes no
-note, so every pre-R71 caller passes unchanged.
+\(the write-target law); nil or the empty string writes no note.
 
-R66: step 0 first ensures TARGET-FILE's directory chain exists, and —
+Step 0 first ensures TARGET-FILE's directory chain exists, and —
 gated by `org-air-refile-synthesize-frontmatter' — a brand-new or
 `#+title:'-less target gets Air frontmatter synthesised at its top
 \(`org-air-inbox--synthesize-frontmatter': derived `#+title:',
@@ -726,7 +722,7 @@ byte-for-byte as-is, and a failed refile still creates no file."
    (progn (org-air-inbox--require-board)
           (list 'org-air-inbox--form-dispatch))
    org-air-view-mode)
-  ;; R90: the board's `e' is deliberately single-item while a hidden
+  ;; The board's `e' is deliberately single-item while a hidden
   ;; source-key selection exists.  Guard before opening the transient or
   ;; touching either source/target file; direct engine API calls are kept.
   (when (and (eq item 'org-air-inbox--form-dispatch)
@@ -737,23 +733,22 @@ byte-for-byte as-is, and a failed refile still creates no file."
     (unless (and item target-file)
       (error "ITEM and TARGET-FILE are required (org-air-refile-item)"))
     (let* ((target-file (expand-file-name target-file))
-           ;; R66 step 0, BEFORE `--resolve-target' (the pos-1 marker
-           ;; hazard: a marker does not advance past an insertion AT its
-           ;; own position, so frontmatter written after resolution
-           ;; would leave a fresh file's parent marker on the `#+title:'
-           ;; line).  First the v0.2 directory fold-in (R66-3, mirrors
-           ;; `--ensure-file'; EXECUTE-time only — a failed refile's
-           ;; empty chain is inert residue, spec Decision 4), then the
-           ;; frontmatter synthesis (R66-1/-2; buffer only, no save —
+           ;; Step 0, BEFORE `--resolve-target'.  A marker does not
+           ;; advance past an insertion AT its own position, so
+           ;; frontmatter written after resolution would leave a fresh
+           ;; file's parent marker on the `#+title:' line.  First the
+           ;; directory chain (mirrors `--ensure-file'; EXECUTE-time
+           ;; only — a failed refile's empty chain is inert residue),
+           ;; then the frontmatter synthesis (buffer only, no save —
            ;; disk atomicity stays with the ONE transactional
            ;; `save-buffer' below).  Both run before the cut, so any
-           ;; failure here aborts with the item untouched (R64 safety).
+           ;; failure here aborts with the item untouched.
            (parent (progn
                      (make-directory (file-name-directory target-file) t)
                      (org-air-inbox--synthesize-frontmatter
                       item target-file tags)
-                     ;; ensure-olp NEXT (R64 spec order): creation
-                     ;; re-resolves by NAME, the (MARKER . LEVEL) parent
+                     ;; ensure-olp NEXT: creation re-resolves by NAME,
+                     ;; the (MARKER . LEVEL) parent
                      ;; survives the same-file cut, and OLP parents
                      ;; created on a fresh file land BELOW the block.
                      (org-air-inbox--resolve-target target-file
@@ -761,7 +756,7 @@ byte-for-byte as-is, and a failed refile still creates no file."
            (text nil)
            (src-buf nil)
            (src-beg nil))
-      ;; cut (R26-8: a cache-hydrated item carries (FILE . POS), not a marker)
+      ;; cut (a cache-hydrated item carries (FILE . POS), not a marker)
       (with-current-buffer (org-air-inbox--source-buffer item)
         (save-excursion
           (goto-char (let ((m (org-air-item-marker item)))
@@ -780,7 +775,7 @@ byte-for-byte as-is, and a failed refile still creates no file."
             (delete-region begin end)
             (save-buffer))))
       ;; paste, re-leveled: last child of the parent (or file end, level 1).
-      ;; TRANSACTIONAL (R64 harden + fix2): between the cut above and the
+      ;; TRANSACTIONAL: between the cut above and the
       ;; target's `save-buffer' the item exists ONLY in TEXT.  The whole
       ;; post-cut window — paste + EVERY metadata step (todo / priority /
       ;; tags / category / schedule / deadline) + the save — runs inside ONE
@@ -815,7 +810,7 @@ byte-for-byte as-is, and a failed refile still creates no file."
                              (org-paste-subtree level paste-text)
                              (goto-char insert-pos)
                              (org-back-to-heading t)
-                             ;; R68-3: the board-context logging
+                             ;; The board-context logging
                              ;; discipline around the metadata block —
                              ;; the todo/schedule/deadline mutators run
                              ;; in a TARGET buffer the user never sees,
@@ -847,25 +842,20 @@ byte-for-byte as-is, and a failed refile still creates no file."
                                  (if (string-empty-p deadline)
                                      (org-deadline '(4))
                                    (org-deadline nil deadline))))
-                             ;; R68-2: flush the pending (downgraded)
+                             ;; Flush the pending (downgraded)
                              ;; log record INSIDE the transaction,
                              ;; before the ONE save — the state line
                              ;; lands in the saved bytes and rolls back
                              ;; with everything else on a signal.
-                             ;; Relocated here (R71 Decision 4,
-                             ;; behaviour-neutral: same transaction,
-                             ;; still before the save) so it provably
-                             ;; runs BEFORE the note — the probed
-                             ;; globals-overwrite hazard:
-                             ;; `org-add-log-setup' would clobber the
-                             ;; shared `org-log-note-*' globals of a
-                             ;; pending downgraded record, and the note
-                             ;; writer's own dequeue would silently
-                             ;; drop it.
+                             ;; The flush MUST run BEFORE the note:
+                             ;; `org-add-log-setup' clobbers the shared
+                             ;; `org-log-note-*' globals of a pending
+                             ;; downgraded record, and the note writer's
+                             ;; own dequeue would then silently drop it.
                              (org-air-inbox--flush-pending-log-note)
-                             ;; R71-2: the explicit NOTE at the MOVED
+                             ;; The explicit NOTE at the MOVED
                              ;; heading — the write-target buffer's own
-                             ;; `org-log-into-drawer' governs (R67-4);
+                             ;; `org-log-into-drawer' governs;
                              ;; still inside the atomic-change-group,
                              ;; so a signal rolls the note back with
                              ;; everything else.
@@ -887,14 +877,13 @@ byte-for-byte as-is, and a failed refile still creates no file."
                   (save-buffer))))
             (set-marker src-beg nil)
             (when (car-safe parent) (set-marker (car parent) nil)))))
-      ;; R73-2/-3: the STRUCTURAL ring record — after the transaction
-      ;; landed (an error above propagates before this line), before the
-      ;; echo.  `u' after a refile now SAYS what happened instead of
-      ;; silently undoing an unrelated older disposition; the record is
-      ;; observability only, never a second mutation path (Decision 6:
-      ;; a source-side undo beside the moved copy would be a silent
-      ;; duplicate).  fboundp-guarded: the ring lives in org-air-view.el
-      ;; (the exact shape of the triage-source recording).
+      ;; The STRUCTURAL ring record — after the transaction landed (an
+      ;; error above propagates before this line), before the echo, so
+      ;; `u' after a refile SAYS what happened instead of silently
+      ;; undoing an unrelated older disposition.  Observability only,
+      ;; never a second mutation path: a source-side undo beside the
+      ;; moved copy would be a silent duplicate.  fboundp-guarded — the
+      ;; ring lives in org-air-view.el.
       (when (and (fboundp 'org-air-view--edit-ring-push)
                  (buffer-live-p src-buf))
         (org-air-view--edit-ring-push
@@ -922,29 +911,28 @@ byte-for-byte as-is, and a failed refile still creates no file."
           (org-air-refresh))))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R64-3 / R67 — the transient editor: metadata + OPTIONAL destination,
+;;;; The transient editor: metadata + OPTIONAL destination,
 ;;;; one confirm.
 ;;;; ---------------------------------------------------------------------
 
 (defvar org-air-inbox--refile-form nil
-  "The transient editor form state (R64-3 / R67), a plist.
+  "The transient editor form state, a plist.
 Keys: `:item' (the org-air item being edited), `:file' / `:olp' /
 `:new' (the OPTIONAL destination + to-create count — set means execute
 REFILES, nil means it edits IN PLACE), `:tags' (pre-filled from the
-item MINUS `inbox') with the R67-2 companions `:tags-dirty' (set by
+item MINUS `inbox') with the companions `:tags-dirty' (set by
 every path that mutates `:tags' — an untouched field writes nothing in
 place) and `:tags-stripped' (the recorded `inbox' strip, re-attached by
 the in-place leg so an in-place edit never graduates an inbox item),
 and the dirty-only fields `:category', `:scheduled'
 \(+ `:schedule-label'), `:deadline' (+ `:deadline-label'), `:todo',
-`:priority' \(an honest TRI-STATE, R76: nil = leave the item's own
-value untouched — writes nothing; a CHAR = set that priority; ?\\s =
-CLEAR — remove the cookie at apply, org's own remove vocabulary,
-armed only when the item factually has a cookie; R82's forward-
-WRAPPING `,' cycle now drives this tri-state — one slot per press,
-no prompt), and
-`:note' (R71-1 — the drafted dated-log-note text; nil = no note,
-the form never holds \"\").")
+`:priority' \(an honest TRI-STATE: nil = leave the item's own value
+untouched — writes nothing; a CHAR = set that priority; ?\\s = CLEAR —
+remove the cookie at apply, org's own remove vocabulary, armed only
+when the item factually has a cookie.  The forward-WRAPPING `,' cycle
+drives this tri-state — one slot per press, no prompt), and
+`:note' (the drafted dated-log-note text; nil = no note, the form
+never holds \"\").")
 
 (defun org-air-inbox--form-get (key)
   "Return KEY's value from the transient refile form state."
@@ -956,9 +944,9 @@ the form never holds \"\").")
         (plist-put org-air-inbox--refile-form key value)))
 
 (defun org-air-inbox--form-init (item)
-  "Seed the transient editor form state from ITEM (R64-3 / R67 pre-fills).
+  "Seed the transient editor form state from ITEM.
 Tags pre-fill MINUS `inbox' — leaving the inbox is what refiling is,
-and the strip is RECORDED on `:tags-stripped' so the R67-1 in-place
+and the strip is RECORDED on `:tags-stripped' so the in-place
 leg can re-attach it (an in-place tag edit never silently graduates an
 inbox item).  Destination starts EMPTY (the last-used file would be a
 silent wrong default — `l' recalls it); an empty destination means
@@ -989,7 +977,7 @@ invert that scale back to the letter; a raw character passes through."
           (t nil))))
 
 (defun org-air-inbox--target-todo-keywords (file)
-  "Return the DESTINATION FILE's own merged todo vocabulary (R57).
+  "Return the DESTINATION FILE's own merged todo vocabulary.
 Read inside that file's buffer, so the user's globals + per-file
 `#+TODO:' win; when the buffer is first opened here, the merged
 scan-time default (`org-air-query--scan-todo-keywords') is let-bound so
@@ -1004,18 +992,18 @@ an undeclared file still sees org-air's supplement — the user's global
         (copy-sequence org-todo-keywords-1)))))
 
 (defun org-air-inbox--read-todo-keyword (file &optional current)
-  "Complete a TODO keyword over FILE's own merged vocabulary (R68-1).
-The R67 `k'-field reader EXTRACTED, not forked — the ONE shared
+  "Complete a TODO keyword over FILE's own merged vocabulary.
+The `k'-field reader EXTRACTED, not forked — the ONE shared
 completion-over-target-vocab path behind both the board's `T'
 \(`org-air-item-cycle-todo') and `org-air-refile-form-todo'.  The
 collection is FILE's buffer-local `org-todo-keywords-1' via
-`org-air-inbox--target-todo-keywords' (R57: the user's globals + the
-file's `#+TODO:' line win; dir-locals apply because that helper reads
+`org-air-inbox--target-todo-keywords' (the user's globals plus the
+file's `#+TODO:' line, which wins; dir-locals apply because that helper reads
 inside `find-file-noselect's fully-initialised buffer), with the
 global `org-todo-keywords-1' as the fallback when FILE is unreadable.
 CURRENT pre-fills as the completion default.  Returns the chosen
 keyword string, or nil for an empty choice.  `require-match' stays
-nil (the R67 field's shape): a free-typed keyword the file never
+nil (the field's shape): a free-typed keyword the file never
 declares is rejected by `org-todo' itself with an honest `user-error'
 \(\"State X not valid in this file\") — an error message, not a trap."
   (let* ((vocab (or (org-air-inbox--target-todo-keywords file)
@@ -1033,7 +1021,7 @@ declares is rejected by `org-todo' itself with an honest `user-error'
     (cons org-priority-highest org-priority-lowest)))
 
 (defun org-air-inbox--priority-cycle-next (current range)
-  "Return the priority slot AFTER CURRENT over RANGE — PURE (R82).
+  "Return the priority slot AFTER CURRENT over RANGE — PURE.
 The forward-WRAPPING ring the `,' field walks, one slot per press, with
 NO prompt and NO read.  RANGE is a (HIGH . LOW) char pair
 \(`org-air-inbox--target-priority-range' shape; HIGH <= LOW as codes).
@@ -1042,7 +1030,7 @@ symbol `none' (the cleared/untouched slot — nil is read as `none' too).
 Returns the NEXT slot: a CHAR in [HIGH..LOW], or the symbol `none'.  The
 ring is  none -> HIGH -> HIGH+1 -> ... -> LOW -> none -> ...  so every
 priority AND the cleared slot stay reachable in <= range+1 presses
-\(R76's up-reachability by WRAPAROUND, not a prompt).  An OUT-OF-RANGE
+— up-reachability by WRAPAROUND, not a prompt.  An OUT-OF-RANGE
 or nil CURRENT restarts the ring at HIGH — the first press lands the top
 priority (a stale pick from a since-narrowed destination self-heals)."
   (let ((high (car range))
@@ -1056,20 +1044,20 @@ priority (a stale pick from a since-narrowed destination self-heals)."
 (defconst org-air-inbox--schedule-options
   '(("today" . ".") ("tomorrow" . "+1d") ("this week" . "+1w")
     ("someday" . someday) ("other date…" . other) ("clear" . ""))
-  "The R64-3 `s' quick-pick: label → Org shift string or action symbol.
-`someday' keeps its R20-4 meaning (adds the `someday' tag + clears the
+  "The `s' quick-pick: label → Org shift string or action symbol.
+`someday' keeps its meaning (adds the `someday' tag + clears the
 schedule); `other date…' runs `org-read-date'.")
 
 (defconst org-air-inbox--deadline-options
   '(("today" . ".") ("tomorrow" . "+1d") ("this week" . "+1w")
     ("other date…" . other) ("clear" . ""))
-  "The R67-3 `d' quick-pick: label → Org shift string or action symbol.
-The `s' list minus its schedule-specific `someday' leg (R20-4 is
-schedule vocabulary — tag + cleared SCHEDULE — and does not transfer
-to deadlines); `other date…' runs `org-read-date'.")
+  "The `d' quick-pick: label → Org shift string or action symbol.
+The `s' list minus its schedule-specific `someday' leg, which is
+schedule vocabulary — a tag plus a cleared SCHEDULE — and does not
+transfer to deadlines; `other date…' runs `org-read-date'.")
 
 (defun org-air-inbox--form-write-target ()
-  "Return the file the form's EXECUTE will write in (R67-4).
+  "Return the file the form's EXECUTE will write in.
 The chosen destination when set; otherwise the item's OWN file — the
 in-place leg writes there, so the `k'/`,' vocabulary must read the
 same buffer the apply-time `org-todo'/`org-priority' will run in
@@ -1082,10 +1070,10 @@ apply-time failures)."
         (and file (not (string-empty-p file)) file))))
 
 (defun org-air-inbox--form-effective-tags ()
-  "Return (WRITE-P . TAGS) — the ONE R67-2 effective-tags rule.
+  "Return (WRITE-P . TAGS) — the ONE effective-tags rule.
 Used by the preview AND both execute legs (WYSIWYG by construction):
-with a destination the collected `:tags' apply verbatim (today's
-refile semantics — the `inbox' strip IS the graduation); without one,
+with a destination the collected `:tags' apply verbatim — the `inbox'
+strip IS the graduation; without one,
 a dirty tag edit applies the collected list PLUS the recorded
 `:tags-stripped' `inbox' tag appended at the END (an in-place edit
 never graduates an inbox item; `delete-dups' covers the user re-adding
@@ -1111,7 +1099,7 @@ TAGS then previews the item's own list."
      (org-time-string-to-time (org-read-date nil nil spec)))))
 
 (defun org-air-inbox--form-note-label (note)
-  "Return the drafted NOTE's one-line field/preview label (R71-1).
+  "Return the drafted NOTE's one-line field/preview label.
 The FIRST line of NOTE, truncated to width 24 via
 `truncate-string-to-width' with an \"…\" ellipsis; the ellipsis is
 ALSO appended when further lines follow untruncated, so a short first
@@ -1132,9 +1120,9 @@ two render identically by construction (WYSIWYG)."
 (defun org-air-inbox--form-creates ()
   "Return the create-list annotation for the form's destination, or nil.
 The \"(creates: …)\" suffix lists what EXECUTE will mint: `new file'
-when the chosen `:file' does not exist yet (R66-3 — one `file-exists-p'
-stat over the collected value; no buffer, no mutation, the R64
-defer-everything rule holds), then exactly the missing path segments in
+when the chosen `:file' does not exist yet (one `file-exists-p' stat
+over the collected value; no buffer, no mutation — the form defers
+every side effect to EXECUTE), then exactly the missing path segments in
 creation order; nil (no annotation) means everything exists."
   (let* ((file (org-air-inbox--form-get :file))
          (olp (org-air-inbox--form-get :olp))
@@ -1149,7 +1137,7 @@ creation order; nil (no annotation) means everything exists."
       (format "  (creates: %s)" (mapconcat #'identity parts ", ")))))
 
 (defun org-air-inbox--form-heading ()
-  "Return the transient's header: the short truncated editor prompt (R67-4)."
+  "Return the transient's header: the short truncated editor prompt."
   (let ((item (org-air-inbox--form-get :item)))
     (if item
         (format "Edit \"%s\""
@@ -1158,12 +1146,12 @@ creation order; nil (no annotation) means everything exists."
       "Edit")))
 
 (defun org-air-inbox--form-preview ()
-  "Render the live preview group (R64-3 / R67-4).
+  "Render the live preview group.
 Pure string formatting over the collected values — no buffer access, so
 the form stays instant.  Line 1: basename › path (or the in-place
 placeholder) › the heading line as it will be written (todo, priority,
-title, the R67-2 EFFECTIVE tags) + the `(creates: …)' annotation;
-line 2: SCHEDULED / DEADLINE / `:CATEGORY:' when set, plus the R71-1
+title, the EFFECTIVE tags) + the `(creates: …)' annotation;
+line 2: SCHEDULED / DEADLINE / `:CATEGORY:' when set, plus the
 `note: <first line>…' trailing segment when a note is drafted (the
 shared `org-air-inbox--form-note-label' truncation — the field row
 and this segment render the same label by construction)."
@@ -1175,7 +1163,7 @@ and this segment render the same label by construction)."
              (tags (cdr (org-air-inbox--form-effective-tags)))
              (todo (or (org-air-inbox--form-get :todo)
                        (org-air-item-todo item)))
-             ;; R76 tri-state: the ?\s CLEAR sentinel previews as
+             ;; Tri-state: the ?\s CLEAR sentinel previews as
              ;; no-cookie — exactly what RET will write (WYSIWYG),
              ;; never a raw "[# ]".
              (pri (let ((p (org-air-inbox--form-get :priority)))
@@ -1216,7 +1204,7 @@ and this segment render the same label by construction)."
                 (unless (string-empty-p extra) (concat "\n " extra)))))))
 
 (transient-define-suffix org-air-refile-form-file ()
-  "Pick the destination FILE (the cached R19-2/R53 `⌂' picker)."
+  "Pick the destination FILE (the cached `⌂' picker)."
   :transient t
   :description (lambda ()
                  (org-air-inbox--form-field
@@ -1277,7 +1265,7 @@ and this segment render the same label by construction)."
               0)))))
 
 (transient-define-suffix org-air-refile-form-tags ()
-  "Edit the replacement tag list (CRM over the R53 cached vocabulary)."
+  "Edit the replacement tag list (CRM over the cached vocabulary)."
   :transient t
   :description (lambda ()
                  (org-air-inbox--form-field
@@ -1338,8 +1326,8 @@ and this segment render the same label by construction)."
          (spec (cdr (assoc choice org-air-inbox--schedule-options))))
     (cond
      ((eq spec 'someday)
-      ;; R20-4 semantics kept: the `someday' tag + a cleared schedule;
-      ;; the preview shows both effects.
+      ;; `someday' means the `someday' tag plus a cleared schedule; the
+      ;; preview shows both effects.
       (org-air-inbox--form-put :scheduled "")
       (org-air-inbox--form-put :schedule-label "someday (+ #someday, cleared)")
       (org-air-inbox--form-put
@@ -1361,7 +1349,7 @@ and this segment render the same label by construction)."
          (if resolved (format "%s (%s)" choice resolved) choice)))))))
 
 (transient-define-suffix org-air-refile-form-deadline ()
-  "Pick the deadline: today / tomorrow / this week / date / clear (R67-3).
+  "Pick the deadline: today / tomorrow / this week / date / clear.
 Mirrors the `s' schedule field minus its schedule-specific `someday'
 leg; applied via `org-deadline' in BOTH execute legs (refile and
 in-place)."
@@ -1372,16 +1360,14 @@ in-place)."
                   (or (org-air-inbox--form-get :deadline-label)
                       (let ((item (org-air-inbox--form-get :item)))
                         ;; `org-air-item-deadline' is the struct
-                        ;; accessor, full stop.  Until R96 view.el ALSO
-                        ;; defined an interactive command of that name
-                        ;; (the R67 Decision-4 collision), so this call
-                        ;; had to stay STATIC — only cl-defstruct's
-                        ;; compiler macro kept it reading the slot.  R96
-                        ;; renamed the command to
-                        ;; `org-air-item-set-deadline': the function
-                        ;; cell now holds the accessor, so a `funcall'
-                        ;; here would be correct too.  Static anyway —
-                        ;; it is also the faster form.
+                        ;; accessor.  It once collided with an
+                        ;; interactive command of the same name in
+                        ;; view.el, which the lint dupdef rule now
+                        ;; forbids; the command is
+                        ;; `org-air-item-set-deadline'.  Keep this call
+                        ;; STATIC: cl-defstruct's compiler macro inlines
+                        ;; it to an `aref', which is both correct and
+                        ;; the faster form.
                         (and item
                              (stringp (org-air-item-deadline item))
                              (org-air-item-deadline item))))))
@@ -1407,7 +1393,7 @@ in-place)."
          (if resolved (format "%s (%s)" choice resolved) choice)))))))
 
 (transient-define-suffix org-air-refile-form-todo ()
-  "Pick the TODO keyword from the WRITE TARGET's own vocabulary (R57/R67-4).
+  "Pick the TODO keyword from the WRITE TARGET's own vocabulary.
 The destination file when one is set, else the item's OWN file — the
 file the write will land in, so completion and the apply-time
 `org-todo' agree by construction."
@@ -1421,7 +1407,7 @@ file the write will land in, so completion and the apply-time
   (interactive nil org-air-view-mode)
   (org-air-inbox--require-form)
   (let ((item (org-air-inbox--form-get :item)))
-    ;; R68-1: behaviour byte-for-byte through the extracted shared
+    ;; Behaviour byte-for-byte through the extracted shared
     ;; reader (the r67-7 vocabulary pin holds) — the board `T' and this
     ;; suffix are ONE completion-over-target-vocab path now.
     (org-air-inbox--form-put
@@ -1432,16 +1418,16 @@ file the write will land in, so completion and the apply-time
 
 (transient-define-suffix org-air-refile-form-priority ()
   "CYCLE the priority one slot forward over the WRITE TARGET's range —
-one key, NO prompt (R82).  The destination file when one is set, else
-the item's OWN file (R67-4).  The ring wraps
+one key, NO prompt.  The destination file when one is set, else
+the item's OWN file.  The ring wraps
 none -> A -> B -> ... -> E -> none  (the write target's own range), so
 every priority AND the cleared slot stay reachable; `,' advances ONE
-slot per press with no minibuffer.  The cleared slot arms R76's `?\\s'
+slot per press with no minibuffer.  The cleared slot arms the `?\\s'
 clear sentinel when the item HAS a cookie (a real removal at apply),
 else leaves the field untouched (a cookie-less item has nothing to
 remove).  RET (execute) applies; the field/preview repaint each press."
   :transient t
-  :description (lambda ()                       ; UNCHANGED from R76
+  :description (lambda ()
                  (org-air-inbox--form-field
                   "priority"
                   (let ((c (or (org-air-inbox--form-get :priority)
@@ -1466,15 +1452,15 @@ remove).  RET (execute) applies; the field/preview repaint each press."
                         (own own)
                         (t 'none)))
          (next (org-air-inbox--priority-cycle-next current range)))
-    ;; state-aware `none' arming (R76 Decision 4, verbatim): `?\s' only
-    ;; when the item factually has a cookie to remove — else nil (back to
-    ;; untouched); a char stores directly.
+    ;; State-aware `none' arming: `?\s' only when the item factually
+    ;; has a cookie to remove — else nil (back to untouched); a char
+    ;; stores directly.
     (if (eq next 'none)
         (org-air-inbox--form-put :priority (and own ?\s))
       (org-air-inbox--form-put :priority next))))
 
 (defun org-air-inbox--flush-pending-log-note ()
-  "Synchronously store a pending timestamp-style Org log record (R68-2).
+  "Synchronously store a pending timestamp-style Org log record.
 `org-add-log-setup' DEFERS its record to `post-command-hook' — wrong
 twice over for a board-context write: inside `org-air-process-inbox'
 the whole guided loop is ONE command, so the hook cannot run between
@@ -1490,18 +1476,18 @@ function stores IMMEDIATELY: `org-store-log-note' inserts via MARKER
 window-configuration save/restore brackets the call, leaving an
 interactive frame exactly as it was.  The `how' gate is
 belt-and-braces: a genuinely interactive pending `note' (impossible
-under the R68 downgrade, conceivable from an outer context) is LEFT
+under the downgrade, conceivable from an outer context) is LEFT
 for the command loop — this helper never opens an interaction and
 never hijacks one.  Callers run it AFTER the mutators and BEFORE the
-save, so the log line is part of the SAME saved bytes (and the R53
-scan sees the complete edit at the next refresh)."
+save, so the log line is part of the SAME saved bytes and the scan
+sees the complete edit at the next refresh."
   (when (and (memq 'org-add-log-note post-command-hook)
              (memq org-log-note-how '(time state)))
     (let ((this-command org-log-note-this-command))
       (org-add-log-note))))
 
 (defun org-air-inbox--append-log-note (text)
-  "Append TEXT as a dated Org log note at the heading at point (R70-2).
+  "Append TEXT as a dated Org log note at the heading at point.
 The synchronous emulation of `org-add-log-note's finishing branch,
 with the note buffer PRE-FILLED instead of user-edited — org still
 owns the formatting (the dated `- Note taken on [ts] \\\\' line +
@@ -1515,17 +1501,17 @@ on %t\" template) and the effective time, and queues
 `org-add-log-note' on `post-command-hook' — immediately dequeued here
 \(+ `org-log-setup' cleared), taking over its ONLY remaining job, so
 the full-frame `*Org Note*' buffer can never trap against an
-undisplayed source (the R68 trap class).
+undisplayed source (the trap class).
 `org-log-note-window-configuration' / `org-log-note-return-to' are
 pre-set so `org-store-log-note's unconditional epilogue restore is a
 no-op bracket; `current-prefix-arg' / `org-note-abort' are its two
 abort gates, let-bound nil so a stray prefix argument can never
 silently drop the note.  The note buffer is a `generate-new-buffer'
 — `org-store-log-note' KILLS it, so `with-temp-buffer' would
-double-kill.  Disjoint from the R68 logging discipline by
+double-kill.  Disjoint from the logging discipline by
 construction: an explicit `org-add-log-setup' never consults
 `org-inhibit-logging', and the hook is already clean afterwards, so
-the R68 flush no-ops — an EXPLICIT user note is applied, never
+the flush no-ops — an EXPLICIT user note is applied, never
 downgraded or suppressed."
   (org-add-log-setup 'note nil nil 'note)
   (remove-hook 'post-command-hook #'org-add-log-note)
@@ -1539,14 +1525,14 @@ downgraded or suppressed."
     (with-current-buffer buf (org-store-log-note))))
 
 (defun org-air-inbox--apply-item-edits (item edits)
-  "Apply EDITS to ITEM's source heading IN PLACE — the R67-1 editor leg.
+  "Apply EDITS to ITEM's source heading IN PLACE — the editor leg.
 EDITS is a plist of exactly the CHANGED fields: `:todo', `:priority'
 \(char or one-char string; ?\\s removes the cookie — org's own remove
-vocabulary, passed through byte-unchanged, R76), `:tags' (guarded by
+vocabulary, passed through byte-unchanged), `:tags' (guarded by
 `:tags-p' t — the
 value may be nil, which CLEARS), `:scheduled' / `:deadline' (Org
 date/shift strings; \"\" clears via the \='(4) prefix), `:category',
-and `:note' (R71-2 — a dated Org log note appended at the heading via
+and `:note' (a dated Org log note appended at the heading via
 `org-air-inbox--append-log-note', drawer per the SOURCE file's own
 `org-log-into-drawer'; nil or \"\" writes no note).  Returns the list
 of applied field symbols in application order (the completion message
@@ -1554,22 +1540,23 @@ enumerates them).
 
 Inlines `org-air-view--at-item-source's semantics — its home file
 requires this one, a hard require back would be circular: the
-mid-refresh stale guard when loaded, the R26-8 marker-or-(FILE . POS)
+mid-refresh stale guard when loaded, the marker-or-(FILE . POS)
 position, `org-back-to-heading' under `org-with-wide-buffer', and the
 triage-undo source recording (the board's `u' covers an in-place edit
 like every other single-field verb).  NOT the refile engine: no cut,
 no paste, no target resolution, no frontmatter synthesis, no directory
 creation — the mutators run at the source heading in the engine's
 order (todo → priority → tags → category → schedule → deadline)
-inside ONE `atomic-change-group' with ONE `save-buffer' after (the
-R64 discipline scaled down): any signal rolls back every in-buffer
-change and propagates — the file is never saved, bytes identical.
-The R70 standalone note wrapper (`org-air-inbox--add-item-note')
-folded into this function's `:note' leg (R71 Decision 3): a
+inside ONE `atomic-change-group' with ONE `save-buffer' after — the
+refile engine's discipline scaled down.  Any signal rolls back every
+in-buffer change and propagates: the file is never saved, bytes
+identical.
+The standalone note wrapper (`org-air-inbox--add-item-note')
+folded into this function's `:note' leg: a
 note-only edit is `(:note \"…\")' through the same path, same
 discipline — one code shape for every in-place confirm.
 
-R68-3: mirrors the board-context logging discipline of
+Mirrors the board-context logging discipline of
 `org-air-view--at-item-source' (whose semantics this function inlines
 by design) — `org-inhibit-logging' `note' + the reschedule/redeadline
 `note'→`time' downgrade around the mutators, and the synchronous
@@ -1577,8 +1564,8 @@ by design) — `org-inhibit-logging' `note' + the reschedule/redeadline
 the save — so a `@'-note keyword (or a `lognotereschedule' config)
 records a timestamped state line in the same save instead of trapping
 an `*Org Note*' prompt against the undisplayed source buffer.  The
-intra-transaction ORDER is part of the contract (R71 Decision 4,
-probed): mutators → flush → `:note' — the explicit note displaces the
+intra-transaction ORDER is part of the contract:
+mutators → flush → `:note' — the explicit note displaces the
 flush as the change group's LAST form; running the note's
 `org-add-log-setup' BEFORE the flush would overwrite the shared
 `org-log-note-*' globals of a pending downgraded record and its
@@ -1593,13 +1580,13 @@ record and note together (probed byte-exact)."
        (goto-char (let ((m (org-air-item-marker item)))
                     (if (markerp m) (marker-position m) (or (cdr-safe m) 1))))
        (org-back-to-heading t)
-       ;; R73fix (Decision 4 symmetry with `org-air-view--at-item-source'):
-       ;; the LEADING boundary — a preceding unboundaried same-buffer
+       ;; Symmetry with `org-air-view--at-item-source': the LEADING
+       ;; boundary — a preceding unboundaried same-buffer
        ;; Lisp/batch change must never merge into this edit's undo
        ;; group, so `u' reverts EXACTLY this edit.
        (undo-boundary)
        (atomic-change-group
-         ;; R68-3: the logging discipline around the mutator block —
+         ;; The logging discipline around the mutator block —
          ;; `(or … 'note)' preserves an outer t (full inhibition stays
          ;; full); the reschedule/redeadline knobs are read DIRECTLY by
          ;; `org--deadline-or-schedule' (it ignores `org-inhibit-logging'),
@@ -1632,14 +1619,13 @@ record and note together (probed byte-exact)."
                  (org-deadline '(4))
                (org-deadline nil deadline))
              (push 'deadline applied)))
-         ;; R68-2: the flush AFTER the mutators — the log line rides
-         ;; the same rollback AND the same save below.  R71 Decision 4
-         ;; pins it BEFORE the note (the probed globals-overwrite
-         ;; hazard: `org-add-log-setup' clobbers a pending downgraded
-         ;; record's shared globals and the note writer's dequeue
-         ;; drops it).
+         ;; The flush AFTER the mutators — the log line rides the same
+         ;; rollback AND the same save below.  It must run BEFORE the
+         ;; note: `org-add-log-setup' clobbers a pending downgraded
+         ;; record's shared globals and the note writer's dequeue then
+         ;; drops it.
          (org-air-inbox--flush-pending-log-note)
-         ;; R71-2: the explicit note is the change group's LAST form —
+         ;; The explicit note is the change group's LAST form —
          ;; re-anchored first (the mutators may drift point); drawer
          ;; per this SOURCE buffer's own `org-log-into-drawer'.
          (let ((note (plist-get edits :note)))
@@ -1649,7 +1635,7 @@ record and note together (probed byte-exact)."
              (push 'note applied)))))
       (save-buffer)
       (setq applied (nreverse applied))
-      ;; R73-2: the in-place ring record — after the save (a signalled
+      ;; The in-place ring record — after the save (a signalled
       ;; edit above rolled back and recorded nothing), desc from the
       ;; applied-fields list.  fboundp-guarded: the ring lives in
       ;; org-air-view.el (the exact shape the triage-source recording
@@ -1665,17 +1651,17 @@ record and note together (probed byte-exact)."
     applied))
 
 (transient-define-suffix org-air-refile-form-note ()
-  "Draft the dated log-note FIELD — the R71-1 action→field repurpose.
-A transient FIELD like its Metadata siblings, not the R70 immediate
+  "Draft the dated log-note FIELD — the action→field repurpose.
+A transient FIELD like its Metadata siblings, not the immediate
 action: reads the note text from the MINIBUFFER (multi-line ok —
 yank, \\`C-q C-j'; never org's interactive `*Org Note*' buffer, the
-exact R68 trap shape) PRE-FILLED with the pending value, so a
+exact trap this avoids) PRE-FILLED with the pending value, so a
 re-press RE-EDITS the same draft and EMPTY input CLEARS the field
 \(initial-input, deliberately NOT a default — a default would
 re-assert itself on empty RET, leaving the field no way out; the `k'
 todo field's empty-clears shape applied to free text).  Stores the
 dirty `:note' — the form never holds \"\", empty IS nil IS no note —
-and writes NOTHING at read time (the R64-2 prompt-time no-mutation
+and writes NOTHING at read time (the prompt-time no-mutation
 contract covers the note; \\`C-g' at the prompt keeps the previous
 value, \\`C-g'/`q' on the form ABANDON a drafted note).  The field
 REPLACES rather than journals: one RET writes at most ONE dated note
@@ -1696,18 +1682,18 @@ the engine's trailing NOTE parameter."
     (org-air-inbox--form-put :note (unless (string-empty-p text) text))))
 
 (transient-define-suffix org-air-refile-form-execute ()
-  "Execute the collected editor form — the R67-1 two-way dispatch.
+  "Execute the collected editor form — the two-way dispatch.
 With a destination (`:file' set): today's ONE `org-air-refile-item'
-engine call, byte-for-byte (R64/R66 — cut, paste, frontmatter
-synthesis, transactional save), plus the R67-3 trailing DEADLINE and
-the R71-2 trailing NOTE (applied at the MOVED heading; never part of
+engine call (cut, paste, frontmatter synthesis, transactional save),
+plus the trailing DEADLINE and
+the trailing NOTE (applied at the MOVED heading; never part of
 the `l' recall — per-confirm payload).  Without one: the changed
 fields apply IN PLACE at the item's source via
 `org-air-inbox--apply-item-edits' — a drafted `:note' is a REAL edit
 like any field, so a note-only form runs the applier (no move, no
 engine, nothing recorded for the `l' recall); a fully untouched form
 is a gentle no-op message — never an error, never a mutation.  ONE
-RET confirms edit + note together in BOTH legs (R71)."
+RET confirms edit + note together in BOTH legs."
   :description (lambda ()
                  (if (org-air-inbox--form-get :file) "refile" "edit in place"))
   (interactive nil org-air-view-mode)
@@ -1724,9 +1710,9 @@ RET confirms edit + note together in BOTH legs (R71)."
          (note (org-air-inbox--form-get :note)))
     (cond
      (file
-      ;; the refile leg — R64/R66 unchanged: same `(or tags :none)'
-      ;; call shape, same `--refile-last' recording (+ DEADLINE, and
-      ;; the R71-2 trailing NOTE — landed at the moved heading, never
+      ;; The refile leg: the `(or tags :none)' call shape and the
+      ;; `--refile-last' recording (+ DEADLINE, and
+      ;; the trailing NOTE — landed at the moved heading, never
       ;; recorded for `l').
       (org-air-refile-item item file olp
                            (or (cdr eff) :none)
@@ -1734,7 +1720,7 @@ RET confirms edit + note together in BOTH legs (R71)."
       (setq org-air-inbox--refile-last (cons file olp))
       (setq org-air-inbox--refile-form nil))
      (t
-      ;; the in-place leg — collect ONLY the dirty fields (R67-2).
+      ;; the in-place leg — collect ONLY the dirty fields.
       (let ((edits nil))
         (when todo (setq edits (plist-put edits :todo todo)))
         (when priority (setq edits (plist-put edits :priority priority)))
@@ -1745,7 +1731,7 @@ RET confirms edit + note together in BOTH legs (R71)."
           (setq edits (plist-put edits :category category)))
         (when scheduled (setq edits (plist-put edits :scheduled scheduled)))
         (when deadline (setq edits (plist-put edits :deadline deadline)))
-        ;; R71-2: a drafted note is a REAL edit — a note-only form
+        ;; A drafted note is a REAL edit — a note-only form
         ;; runs the applier; "Nothing to change" now fires only when
         ;; the form is truly untouched.
         (when note (setq edits (plist-put edits :note note)))
@@ -1764,19 +1750,19 @@ RET confirms edit + note together in BOTH legs (R71)."
 
 ;;;###autoload (autoload 'org-air-refile-transient "org-air-inbox" nil t)
 (transient-define-prefix org-air-refile-transient ()
-  "The per-item EDITOR with an OPTIONAL destination (R64-3 / R67).
+  "The per-item EDITOR with an OPTIONAL destination.
 Every field is visible with its current value, editable in any order;
 the Preview group re-renders live; RET means what its dynamic label
 says — with a destination it executes ONE `org-air-refile-item' call,
 without one it applies the changed metadata IN PLACE at the item's
 source (an untouched form is a gentle no-op); \\`C-g' / q abandon
 everything (no buffer was touched — every write is deferred to
-execute, R64-2, INCLUDING the `n' note field: the drafted note is
+execute, INCLUDING the `n' note field: the drafted note is
 stored, previewed, and only written by RET, so abandoning the form
 abandons the draft too).  Fields: tags / category / schedule /
 deadline / todo / priority / note (a dated LOGBOOK note, drawer per
 the write target) — ONE RET confirms edit + note together, in place
-or at the refiled heading (R71).  The `e' binding and the
+or at the refiled heading.  The `e' binding and the
 `org-air-refile-*' names stay — refiling is one optional field of
 the editor, not a separate mode."
   [:description org-air-inbox--form-heading

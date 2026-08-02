@@ -10,34 +10,33 @@
 
 ;;; Commentary:
 
-;; R61: ONE view answering "what happened over this week / month" — the
+;; ONE view answering "what happened over this week / month" — the
 ;; retrospective surface.  Four sections over the scan's per-heading
-;; review facts (the R61-1 harvest: CLOCK intervals, LOGBOOK stamps,
+;; review facts (the harvest: CLOCK intervals, LOGBOOK stamps,
 ;; `:CREATED:'): Completed / Time invested / Started / Carried over.
 ;; The third leg of the family: board = now, revisit = evergreen,
 ;; review = retrospect.
 ;;
-;; R63-2 layout: the per-item sections are FLAT (one row per item —
-;; bright title, compact date cell, inline tag pills, ONE origin through
-;; the board's shared F1 primitive); same-title/same-day MIRROR rows
+;; Layout: the per-item sections are FLAT (one row per item — bright
+;; title, compact date cell, inline tag pills, ONE origin through the
+;; board's shared origin primitive); same-title/same-day MIRROR rows
 ;; collapse to a canonical row with a `▤ N files' affordance
 ;; (`org-air-review-collapse-mirrors'); section headings wear the
 ;; board's icon + count-chip treatment; `f' is the Time-invested lens.
 ;;
-;; Period navigation (`<' / `>' / `.'; the R62-2 range ladder
+;; Period navigation (`<' / `>' / `.'; the range ladder
 ;; week ↔ fortnight ↔ month ↔ quarter ↔ year on `+'/`-'/`m') is a
 ;; RENDER state: a pure filter+fold over cached integer lists — zero
-;; file I/O, NEVER a rescan (the period parameters are deliberately not
-;; cache-key elements, R61-2).  Data arrives through the same never-blocking tiers
-;; as the Revisit view: warm borrow from a live board, cache hydrate,
-;; else the R56-paced cold fill (batch scans synchronously so ERT stays
-;; deterministic).
+;; file I/O, NEVER a rescan — the period parameters are deliberately NOT
+;; cache-key elements.  Data arrives through the same never-blocking
+;; tiers as the Revisit view: warm borrow from a live board, cache
+;; hydrate, else the paced cold fill (batch scans synchronously so ERT
+;; stays deterministic).
 ;;
-;; Kept out of the view file per the module split convention; the
-;; view/render machinery (shared V6 row primitive, rail descriptor,
-;; sort core, filter core, R58 bookmark quartet) is REUSED, never
-;; forked.  All R53 laws hold: never-hang, never-error, data-pure
-;; render, bounded memory.
+;; The view/render machinery (shared row primitive, rail descriptor,
+;; sort core, filter core, bookmark quartet) is REUSED from
+;; org-air-view.el, never forked.  The scan laws hold: never-hang,
+;; never-error, data-pure render, bounded memory.
 
 ;;; Code:
 
@@ -49,14 +48,14 @@
 (require 'org-air-view)
 (require 'org-air-calendar)
 
-;; R97 D1 — surface precondition for this module's commands.
+;; Surface precondition for this module's commands.
 
 (defun org-air-review--require-view ()
-  "Refuse unless the current buffer is the org-air review view (R97 D1)."
+  "Refuse unless the current buffer is the org-air review view."
   (org-air-require-surface "an org-air review view" "org-air-review"
                           'org-air-review-mode))
 
-;; R58: `bookmark-make-record-function' is bookmark.el's (not preloaded);
+;; `bookmark-make-record-function' is bookmark.el's (not preloaded);
 ;; the mode sets it buffer-locally without requiring bookmark at load.
 (defvar bookmark-make-record-function)
 
@@ -65,7 +64,7 @@
 ;;;; ---------------------------------------------------------------------
 
 (defcustom org-air-review-suspect-clock-hours 16
-  "Hours above which a single CLOCK interval is SUSPECT (R61-3).
+  "Hours above which a single CLOCK interval is SUSPECT.
 An interval longer than this is EXCLUDED from every total and surfaced
 on its own line under Time invested (\"⚠ N suspect clock(s), H:MM
 excluded\") with the owning headings listed — a forgotten 3-day clock
@@ -77,12 +76,12 @@ nil disables the rule entirely."
   :group 'org-air)
 
 (defcustom org-air-review-collapse-mirrors t
-  "When non-nil, MIRROR rows collapse to one row per real completion (R63-2c).
+  "When non-nil, MIRROR rows collapse to one row per real completion.
 The Air convention keeps a work item mirrored across files (a denote
 note plus `Active-Work.org' / `Active-Tasks.org' workspace copies, or
 an identically-titled task child under its work-item heading), every
 mirror DONE-logged at completion — real, distinct headings, not a
-harvest double count (investigated to a verdict, R63).  Rendered
+harvest double count.  Rendered
 literally they read as duplicated rows and inflate every count.  Under
 this knob rows sharing a normalised TITLE and a local calendar DAY
 merge into ONE row: the canonical item (tagged first, then
@@ -90,8 +89,8 @@ denote-identified, then snapshot order) owns the row's RET/S-RET/pane,
 the ×N chip counts the UNION of completion stamps deduped by epoch (a
 mirrored single completion shows NO chip; a genuine daily habit keeps
 its ×7), and members spanning N > 1 files read `▤ N files' in the
-origin cell.  Counts follow (header, section chips, rail Summary — the
-R61-4 law: totals honestly describe what is shown); Time invested is
+origin cell.  Counts follow (header, section chips, rail Summary —
+totals honestly describe what is shown); Time invested is
 NOT collapsed (time is attributed where it was clocked).  nil restores
 one row per heading.  Render state only — a flip repaints, never
 rescans."
@@ -99,7 +98,7 @@ rescans."
   :group 'org-air)
 
 (defcustom org-air-review-rail-placement nil
-  "REVIEW override for `org-air-rail-placement' (R62-1d).
+  "REVIEW override for `org-air-rail-placement'.
 nil (the default) inherits the shared `org-air-rail-placement'; `inline'
 or `side-window' pins the review view regardless of the shared default.
 Resolved through `org-air-rail--placement'."
@@ -108,52 +107,50 @@ Resolved through `org-air-rail--placement'."
   :group 'org-air)
 
 (defconst org-air-review--range-ladder '(week fortnight month quarter year)
-  "The FULL range ladder, narrowest → widest (R62-2).
+  "The FULL range ladder, narrowest → widest.
 The domain of `org-air-review--period-kind' and the natural rank order
 every ladder walk uses; `org-air-review-ranges' trims which rungs the
 keys visit, never what a bookmark may restore.")
 
 (defcustom org-air-review-ranges '(week fortnight month quarter year)
-  "The range rungs `+' / `-' / `m' walk, in ladder order (R62-2).
+  "The range rungs `+' / `-' / `m' walk, in ladder order.
 A list drawn from `week' / `fortnight' / `month' / `quarter' / `year'.
 Validated at use, never trusted raw: unknown symbols are dropped, an
 empty result degrades to (week month), and a current kind missing from
 the trimmed ladder still participates at its natural rank so the user
 is never trapped on an unreachable rung.  Render state only — like the
-kind and the anchor it is deliberately NOT a cache-key element (only
-scan-shaping knobs join the key, R61-2/R57)."
+kind and the anchor it is deliberately NOT a cache-key element; only
+scan-shaping knobs join that key."
   :type '(repeat (choice (const week) (const fortnight) (const month)
                          (const quarter) (const year)))
   :group 'org-air)
 
 (defconst org-air-review-buffer-name "*org-air review*"
-  "Name of the Review view buffer (R61-4).")
+  "Name of the Review view buffer.")
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Buffer state
 ;;;; ---------------------------------------------------------------------
 
 (defvar-local org-air-review--period-kind 'week
-  "Shown period kind, one of `org-air-review--range-ladder' (R62-2).
+  "Shown period kind, one of `org-air-review--range-ladder'.
 `week' (ISO, the default) / `fortnight' / `month' / `quarter' / `year';
 walked by `+' / `-' (one rung, clamped) and `m' (full cycle).")
 
 (defvar-local org-air-review--period-anchor nil
-  "Integer epoch anchoring the shown period, or nil (R61-3).
+  "Integer epoch anchoring the shown period, or nil.
 nil means \"the CURRENT period\", recomputed each render — the default
 surface tracks today across midnight for free.  Navigation normalises
 the anchor to the shown period's START epoch.")
 
 (defvar-local org-air-review--rollup 'day
   "Active rollup basis: `day' (default) / `tag' / `directory' / `origin'.
-Cycled by `f' and applied to TIME INVESTED alone (R63-2a re-ruling of
-R61-3's grouping half): the per-item sections are FLAT — one row per
-item, chronology carried by the R22-3 sort and the date cell — so `f'
-is exactly what its aggregation half always was, the Time-invested
-lens.")
+Cycled by `f' and applied to TIME INVESTED alone: the per-item sections
+are FLAT — one row per item, chronology carried by the sort and the
+date cell — so `f' is purely the Time-invested lens.")
 
 (defvar-local org-air-review--items nil
-  "The item snapshot this review buffer folds over (R61-4).
+  "The item snapshot this review buffer folds over.
 Filled by `org-air-review--ensure-data' (warm borrow / cache hydrate /
 paced cold fill); items are immutable to review (read-only share).")
 
@@ -167,13 +164,13 @@ paced cold fill); items are immutable to review (read-only share).")
   "Width of the most recent Review render (the resize-refresh guard).")
 
 (defvar-local org-air-review--fill-token 0
-  "Monotonic token guarding the cold-fill pacer's slices (R61-4).")
+  "Monotonic token guarding the cold-fill pacer's slices.")
 
 (defvar-local org-air-review--fill-queue nil
-  "Files the in-flight cold fill has not scanned yet (R61-4).")
+  "Files the in-flight cold fill has not scanned yet.")
 
 (defvar-local org-air-review--fill-total 0
-  "Total file count of the in-flight cold fill (R61-4).")
+  "Total file count of the in-flight cold fill.")
 
 (defvar-local org-air-review--fill-timer nil
   "The single repeating wall-clock pacer of the cold fill, or nil.")
@@ -182,10 +179,10 @@ paced cold fill); items are immutable to review (read-only share).")
   "Float time of the last progressive cold-fill repaint, or nil.")
 
 (defvar-local org-air-review--fill-items nil
-  "Items the in-flight cold fill has collected so far (R61-4).")
+  "Items the in-flight cold fill has collected so far.")
 
 (defvar-local org-air-review--bookmark-locator nil
-  "Armed point locator of an in-flight bookmark restore, or nil (R61-6).
+  "Armed point locator of an in-flight bookmark restore, or nil.
 The review twin of `org-air-view--bookmark-locator': a plist
 \(:item (FILE . POS) :title TITLE) consumed at the render tail; stays
 armed across the paced cold-fill's progressive paints until the row
@@ -193,7 +190,7 @@ appears or the fill goes idle (one-shot either way).")
 
 ;;;; ---------------------------------------------------------------------
 ;;;; The period engine — pure functions, unit-testable without a buffer
-;;;; (R61-3).  ISO math rides the stock `cal-iso' oracle; boundaries are
+;;;;.  ISO math rides the stock `cal-iso' oracle; boundaries are
 ;;;; built with `encode-time' on LOCAL calendar dates, so a DST-crossing
 ;;;; period has 23/25-hour days and stays exact by construction.
 ;;;; ---------------------------------------------------------------------
@@ -207,7 +204,7 @@ appears or the fill goes idle (one-shot either way).")
 (defconst org-air-review--fortnight-phase
   (calendar-absolute-from-gregorian '(1 5 1970))
   "Absolute (fixed) day number of Monday 1970-01-05 — the fortnight phase.
-R62-2: fortnights are FIXED-PHASE Monday-anchored 14-day blocks over
+Fortnights are FIXED-PHASE Monday-anchored 14-day blocks over
 `calendar-absolute-from-gregorian' day numbers, so every fortnight is
 exactly two consecutive ISO weeks and there is NO year seam.  The
 \"obvious\" ISO-year-local odd/even week pairing was RULED OUT: a
@@ -269,7 +266,7 @@ signals)."
 
 (defun org-air-review--effective-ranges (&optional kind)
   "Return the validated range ladder the keys walk, in natural rank order.
-R62-2: `org-air-review-ranges' filtered against the full
+`org-air-review-ranges' filtered against the full
 `org-air-review--range-ladder' (unknown symbols dropped, an empty
 result degrading to (week month)); a non-nil KIND absent from the
 trimmed ladder is spliced in at its natural rank, so an off-ladder
@@ -325,7 +322,7 @@ DST-crossing period yields 23/25-hour days that still sum exactly."
     (nreverse out)))
 
 (defun org-air-review--hhmm (secs)
-  "Format SECS (integer seconds) as the H:MM print shape (R61-3).
+  "Format SECS (integer seconds) as the H:MM print shape.
 Section sums stay exact integer arithmetic; H:MM appears only here, at
 print time."
   (format "%d:%02d" (/ secs 3600) (/ (% secs 3600) 60)))
@@ -336,8 +333,8 @@ print time."
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-review--fold-item-p (item)
-  "Non-nil when ITEM participates in the PER-ITEM sections (R61-3).
-`file' items (a blob has no per-heading LOGBOOK) and R59 pure containers
+  "Non-nil when ITEM participates in the PER-ITEM sections.
+`file' items (a blob has no per-heading LOGBOOK) and pure containers
 are skipped in Completed / Started / Carried over; Time invested
 deliberately folds EVERY heading's own-body clocks instead — time is
 attributed where it was clocked."
@@ -389,10 +386,10 @@ so stamps win to avoid double counting)."
           (and (>= closed p0) (< closed p1) (list closed))))))
 
 (defun org-air-review--done-at-p (item time currentp)
-  "Non-nil when ITEM counts as DONE strictly before epoch TIME (R61-3).
+  "Non-nil when ITEM counts as DONE strictly before epoch TIME.
 In order: the newest `done'/`todo' stamp < TIME decides; else a CLOSED
 stamp < TIME means done; else, when CURRENTP (the shown period is the
-current one), the live `donep' slot; else NOT done — the R59 house
+current one), the live `donep' slot; else NOT done — the house
 default (when in doubt, render): an unlogged, uncloseable item with
 activity shows as carried rather than silently vanishing."
   (let ((verdict 'unknown))
@@ -447,7 +444,7 @@ truncated headings never claim Started through the fallback."
                  (car earliest))))))))
 
 (defun org-air-review--carried-p (item p0 p1 currentp)
-  "Non-nil when ITEM is CARRIED OVER in [P0, P1) (R61-3).
+  "Non-nil when ITEM is CARRIED OVER in [P0, P1).
 Activity in the period AND still not-done at the period's end;
 CURRENTP gates the live-`donep' tier of the done-at inference.  An item
 completed after the period's end correctly reads as carried here."
@@ -455,7 +452,7 @@ completed after the period's end correctly reads as carried here."
        (not (org-air-review--done-at-p item p1 currentp))))
 
 (defun org-air-review--abandoned-p (item p0 p1)
-  "Return ITEM's DROP epoch when ABANDONED within [P0, P1), else nil (R84).
+  "Return ITEM's DROP epoch when ABANDONED within [P0, P1), else nil.
 Non-nil (the newest in-period closing epoch) exactly when ITEM's FINAL
 keyword is a cancelled/abandoned spelling (`org-air-view--dropped-keyword-p'
 over `org-air-item-todo') AND it CLOSED in-period (a done-kind or CLOSED
@@ -471,7 +468,7 @@ disagree about \"did it close in-period\"."
        (car (org-air-review--completed-stamps item p0 p1))))
 
 (defun org-air-review--section-data (items p0 p1 currentp)
-  "Fold ITEMS into the four review sections for [P0, P1) (R61-3).
+  "Fold ITEMS into the four review sections for [P0, P1).
 CURRENTP marks the shown period as the current one (the live-`donep'
 tier).  One pass, slots only.  Returns a plist:
 `:completed' ((ITEM LATEST COUNT STAMPS) …), `:time-items'
@@ -497,7 +494,7 @@ tier).  One pass, slots only.  Returns a plist:
                 suspect-secs (+ suspect-secs secs))
           (push item suspect-items)))
       (when (org-air-review--fold-item-p item)
-        ;; R84 D2c: abandonment routes FIRST — a dropped item lands in
+        ;; Abandonment routes FIRST — a dropped item lands in
         ;; `:dropped' ONLY (never Completed/Started/Carried), so the
         ;; report never double-lies (dropped ≠ done) and the header's
         ;; "N done" stays honest.  The time fold ABOVE is ungated, so a
@@ -524,19 +521,18 @@ tier).  One pass, slots only.  Returns a plist:
           :dropped (nreverse dropped))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Rollup (the lens) — one basis, applied coherently (R61-3).
+;;;; Rollup (the lens) — one basis, applied coherently.
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-review--rollup-labels (item basis)
   "Return ITEM's rollup label list under BASIS (`tag'/`directory'/`origin').
 A multi-tag heading contributes to EACH of its tag rows — the tag
 rollup is a lens; the section's headline total comes from the item
-fold, never from summing rollup rows.  R63-2c: the `origin' branch
-resolves through the board's shared F1 `org-air-view--origin' (the
-denote-aware title, honouring `org-air-origin-style'), never the raw
-ID filename."
+fold, never from summing rollup rows.  The `origin' branch resolves
+through the board's shared `org-air-view--origin' (the denote-aware
+title, honouring `org-air-origin-style'), never the raw ID filename."
   (pcase basis
-    ;; R69-5: prefix-deduped chip label (a literal `#nix' tag rolls up
+    ;; Prefix-deduped chip label (a literal `#nix' tag rolls up
     ;; as `#nix', never `##nix'); label-only — fold/totals untouched.
     ('tag (or (mapcar #'org-air-view--tag-chip-label
                       (org-air-item-tags item))
@@ -579,7 +575,7 @@ the other bases sort by SECS descending."
 (defun org-air-review--sort-rows (rows)
   "Return the per-item ROWS ((ITEM EPOCH …) …) under the shared sort.
 Key `date' (default) orders by the row's period epoch, `title'
-alphabetically; `O' reverses (the R22-3 shared core)."
+alphabetically; `O' reverses (the shared core)."
   (let* ((key (or org-air-view--sort-key 'date))
          (desc (eq org-air-view--sort-direction 'descending))
          (sorted
@@ -593,13 +589,13 @@ alphabetically; `O' reverses (the R22-3 shared core)."
                   (lambda (a b) (< (nth 1 a) (nth 1 b)))))))
     (if desc (nreverse sorted) sorted)))
 
-;; R63-2a: `org-air-review--group-rows' is DELETED — the per-item
+;; `org-air-review--group-rows' is DELETED — the per-item
 ;; sections are FLAT under every basis (one row per item; the `day'
 ;; group lines duplicated the date cell, the `origin' group lines were
 ;; the screenshot's fake headers).  `f' is the Time-invested lens only.
 
 ;;;; ---------------------------------------------------------------------
-;;;; Mirror collapse (R63-2c) — render-side, pure slot work.  The Air
+;;;; Mirror collapse — render-side, pure slot work.  The Air
 ;;;; convention mirrors one piece of work across files (denote note +
 ;;;; workspace copies + a same-titled task child), every mirror
 ;;;; DONE-logged; the harvest is correctly one-item-per-heading, so the
@@ -607,8 +603,8 @@ alphabetically; `O' reverses (the R22-3 shared core)."
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-review--item-id (item)
-  "Return ITEM's durable (FILE . POS) identity (R63-2c).
-The R53 marker-slot model: a scanned item's marker slot IS a
+  "Return ITEM's durable (FILE . POS) identity.
+The marker-slot model: a scanned item's marker slot IS a
 \(FILE . POS) cons; a live-capture marker degrades via
 `marker-position'; never signals."
   (let ((file (org-air-item-file item))
@@ -620,7 +616,7 @@ The R53 marker-slot model: a scanned item's marker slot IS a
           (t (cons file 1)))))
 
 (defun org-air-review--mirror-key (row)
-  "Return the mirror-collapse identity key of the per-item ROW (R63-2c).
+  "Return the mirror-collapse identity key of the per-item ROW.
 Normalised title — `(downcase (string-trim TITLE))' — crossed with the
 row epoch's LOCAL calendar day (%F).  Exact match only: no content
 similarity, no fuzzy titles (out of scope by design)."
@@ -628,7 +624,7 @@ similarity, no fuzzy titles (out of scope by design)."
         (format-time-string "%F" (nth 1 row))))
 
 (defun org-air-review--mirror-canonical (items)
-  "Return the CANONICAL item among the mirror ITEMS (R63-2c).
+  "Return the CANONICAL item among the mirror ITEMS.
 Deterministic precedence: (1) an item with non-empty tags, (2) an item
 in a denote-identified file (`org-air-query--denote-file-id'), (3)
 snapshot order (ITEMS arrive in snapshot order)."
@@ -639,7 +635,7 @@ snapshot order (ITEMS arrive in snapshot order)."
       (car items)))
 
 (defun org-air-review--collapse-rows (rows)
-  "Collapse same-title/same-day mirror ROWS into single rows (R63-2c).
+  "Collapse same-title/same-day mirror ROWS into single rows.
 ROWS are per-item fold rows (ITEM EPOCH [COUNT STAMPS]); rows sharing
 `org-air-review--mirror-key' merge into ONE row (ITEM EPOCH COUNT
 STAMPS MIRRORS): the canonical item, the NEWEST member epoch, the
@@ -680,10 +676,10 @@ downstream).  Total on already-validated rows, zero file opens; a nil
        (nreverse order)))))
 
 (defun org-air-review--collapse-data (data)
-  "Return DATA with the per-item sections mirror-collapsed (R63-2c).
+  "Return DATA with the per-item sections mirror-collapsed.
 Applied AFTER the fold and BEFORE sort/compose, so EVERY consumer —
 the section counts, the header's \"N done\", the rail Summary and the
-calendar marks — counts COLLAPSED rows (the R61-4 law: totals honestly
+calendar marks — counts COLLAPSED rows (the law: totals honestly
 describe what is shown).  Time invested is deliberately NOT collapsed:
 time is attributed where it was clocked."
   (if (not org-air-review-collapse-mirrors)
@@ -695,7 +691,7 @@ time is attributed where it was clocked."
     data))
 
 ;;;; ---------------------------------------------------------------------
-;;;; Data path (never-blocking, R53 laws inherited)
+;;;; Data path (never-blocking)
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-review--fill-disarm ()
@@ -705,7 +701,7 @@ time is attributed where it was clocked."
   (setq org-air-review--fill-timer nil))
 
 (defun org-air-review--fill-start ()
-  "Start the paced cold fill of the review item snapshot (R61-4).
+  "Start the paced cold fill of the review item snapshot.
 Revisit's pacer verbatim: token-guarded budgeted slices
 \(`org-air-refresh-slice-budget') on the repeating wall-clock pace
 \(`org-air-view--refresh-wallclock-pace'), collecting the items each
@@ -731,9 +727,9 @@ instead (deterministic ERT), so no timer is ever armed in batch."
                             org-air-review--fill-token)))))
 
 (defun org-air-review--fill-slice (buffer token)
-  "Drain one budgeted cold-fill slice for BUFFER under TOKEN (R61-4).
+  "Drain one budgeted cold-fill slice for BUFFER under TOKEN.
 Consumes queued files until `org-air-refresh-slice-budget' is exceeded
-\(minimum 1 — the R53 P1c shape); repaints progressively at most once
+\(minimum 1 — the shape); repaints progressively at most once
 per `org-air-cold-paint-interval'; a stale TOKEN or dead BUFFER is a
 silent no-op, so a superseded fill can never touch the view."
   (when (buffer-live-p buffer)
@@ -770,12 +766,12 @@ silent no-op, so a superseded fill can never touch the view."
   (org-air-review--fill-disarm))
 
 (defun org-air-review--ensure-data ()
-  "Make sure the item snapshot has data, never blocking the frame (R61-4).
+  "Make sure the item snapshot has data, never blocking the frame.
 In order: WARM borrow — the `*org-air*' board is live, its items were
 built under the live `org-air-view--cache-key' and its refresh machine
 is idle ⇒ snapshot its items (read-only share, zero I/O).  CACHE
 hydrate — `org-air-view--cache-read' under the SAME key ⇒ adopt
-`:items' (cons-marker slots, the R26-8 shape; one bounded disk read,
+`:items' (cons-marker slots, the shape; one bounded disk read,
 zero file opens).  COLD — pace the fill (interactive) or scan
 synchronously (batch only — deterministic ERT)."
   (when (null org-air-review--items)
@@ -802,17 +798,17 @@ synchronously (batch only — deterministic ERT)."
 
 ;;;; ---------------------------------------------------------------------
 ;;;; Visible items — filter + scope BEFORE the fold, so totals honestly
-;;;; describe what is shown (R61-4).
+;;;; describe what is shown.
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-review--visible-items ()
   "Return the item snapshot after the live filter and scope.
 The `/' filter matches title + file leaf + group + tags through the
-shared `org-air-view--tokens-pass-filter-p' (the R24-6 mini-language);
+shared `org-air-view--tokens-pass-filter-p' (the mini-language);
 `s' is the board's structural lens (`org-air-view--passes-scope-p').
-R72: the ITEM is threaded, so the date/status tokens (`is:overdue',
+The ITEM is threaded, so the date/status tokens (`is:overdue',
 `due:7d', …) read its planning slots — \"time spent on overdue items\"
-is one filter away, and filter-before-fold keeps totals honest (R61-4).
+is one filter away, and filter-before-fold keeps totals honest.
 Pure slot/string work — zero file opens."
   (seq-filter
    (lambda (item)
@@ -830,18 +826,18 @@ Pure slot/string work — zero file opens."
 ;;;; ---------------------------------------------------------------------
 
 (defconst org-air-review--trunc-marker "⚠ history truncated"
-  "The loud truncation phrase of the Time-invested note line (R61-1/T11).
+  "The loud truncation phrase of the Time-invested note line.
 Truncation is never silent: period totals older than the retained
-window under-report only on marked headings.  R63-2e: an `rtrunc'
-item's ROW carries the compact 2-col `⚠' in its date cell instead
+window under-report only on marked headings.  An `rtrunc' item's ROW
+carries the compact 2-col `⚠' in its date cell instead
 \(`org-air-review--row-date-text'); this full phrase stays on the note
 line (\"⚠ history truncated on N headings\").")
 
 (defun org-air-review--row-date-text (row)
   "Return the UNFACED date-cell text for the per-item ROW (ITEM EPOCH [N]).
 The stamp's day, the ×N count chip when the row folds N > 1 completions
-\(a daily habit reads \"×7\", not seven rows), and — R63-2e, compact —
-a 2-col `⚠' on an `rtrunc' item (\"Jul 16 ⚠\"); the loud explanation
+\(a daily habit reads \"×7\", not seven rows), and a compact
+2-col `⚠' on an `rtrunc' item (\"Jul 16 ⚠\"); the loud explanation
 stays on the Time-invested note line, so truncation is never silent
 without every row's date column carrying the slack."
   (let ((item (nth 0 row))
@@ -858,22 +854,22 @@ without every row's date column carrying the slack."
     (if (zerop n) ""
       (org-air-view--item-tagstr tags (min org-air-tags-inline-max n) n))))
 
-;; R63-2b: `org-air-review--origin-cell' is DELETED — it FORKED the
-;; board's F1 origin idiom with a raw `file-name-nondirectory', printing
+;; `org-air-review--origin-cell' is DELETED — it FORKED the
+;; board's origin idiom with a raw `file-name-nondirectory', printing
 ;; the machine Denote ID where the board prints the de-machined title.
 ;; The one shared primitive `org-air-view--item-origin-raw' (denote-aware,
 ;; honouring `org-air-origin-style' / `org-air-show-group' /
 ;; `org-air-origin-max-width') serves both views now.
 
 (defun org-air-review--mirror-origin (n)
-  "Return the `▤ N files' collapsed-mirror origin affordance (R63-2c)."
+  "Return the `▤ N files' collapsed-mirror origin affordance."
   (concat (org-air-view--svg-file-icon (org-air-view--glyph 'origin))
           " " (format "%d files" n)))
 
 (defun org-air-review--item-lines (rows)
   "Return `item' display specs for the per-item ROWS ((ITEM EPOCH …) …).
-R63-2: one flat row per item — title, compact date cell, tag pills and
-ONE unobtrusive origin through the board's shared F1 primitive.  A
+One flat row per item — title, compact date cell, tag pills and
+ONE unobtrusive origin through the board's shared origin primitive.  A
 collapsed mirror row whose members span N > 1 files reads `▤ N files'
 instead (naming one member file would misdescribe the row); its member
 list rides the spec's MIRRORS tail into the row's text properties."
@@ -893,13 +889,13 @@ list rides the spec's MIRRORS tail into the row's text properties."
 
 (defun org-air-review--compose-sections (data basis p0 p1)
   "Return the render-ready section table from DATA under BASIS.
-P0/P1 bound the period for the Time rollup.  R63-2a: the per-item
-sections are FLAT — one `item' spec per row under EVERY basis, no
-group lines (the `day' group lines duplicated the date cell; the
-`origin' ones were fake headers); BASIS drives the Time-invested
-aggregation alone.  Each entry is (SECTION TITLE COUNT LINES); LINES
-are display specs — (item ITEM DATE TAGS ORIGIN MIRRORS), (agg LABEL
-TEXT) or (note TEXT) — every cell a pure slot/string derivation
+P0/P1 bound the period for the Time rollup.  The per-item sections are
+FLAT — one `item' spec per row under EVERY basis, no group lines (a
+`day' group line duplicates the date cell, an `origin' one is a fake
+header); BASIS drives the Time-invested aggregation alone.  Each entry
+is (SECTION TITLE COUNT LINES); LINES are display specs — (item ITEM
+DATE TAGS ORIGIN MIRRORS), (agg LABEL TEXT) or (note TEXT) — every cell
+a pure slot/string derivation
 \(data-pure)."
   (let* ((completed (org-air-review--sort-rows (plist-get data :completed)))
          (clines (org-air-review--item-lines completed))
@@ -941,11 +937,10 @@ TEXT) or (note TEXT) — every cell a pure slot/string derivation
                            (org-air-review--item-lines started))
                      (list 'carried "Carried over" (length carried)
                            (org-air-review--item-lines carried)))))
-    ;; R84 D2d: the Dropped section appears ONLY when there IS an
-    ;; abandonment to own (the R83-D5 conditional-section precedent) — a
-    ;; drop-free period returns the SAME 4-entry table (byte-identical
-    ;; save the D1 pill); the four core sections are the review's fixed
-    ;; frame, Dropped is the conditional fifth.
+    ;; The Dropped section appears ONLY when there IS an abandonment to
+    ;; own: a drop-free period returns the SAME 4-entry table.  The four
+    ;; core sections are the review's fixed frame; Dropped is the
+    ;; conditional fifth.
     (if dropped
         (append rows (list (list 'dropped "Dropped" (length dropped)
                                  (org-air-review--item-lines dropped))))
@@ -953,9 +948,9 @@ TEXT) or (note TEXT) — every cell a pure slot/string derivation
 
 (defun org-air-review--insert-section-heading (section title count)
   "Insert SECTION's heading row through the board's shared treatment.
-R63-2d: the board's `org-air-view--insert-section-heading' — icon glyph
+The board's `org-air-view--insert-section-heading' — icon glyph
 \(`org-air-face-section-icon'; four new entries in the shared glyph
-table, degrading by the S5b tier) + TITLE (`org-air-face-section') +
+table, degrading by the glyph tier) + TITLE (`org-air-face-section') +
 COUNT chip (`org-air-face-count') + the `org-air-section-rule'-gated
 rule line — one idiom, no fork.  The line carries `org-air-section'
 SECTION so the TAB fold and the shared section-motion commands work
@@ -965,17 +960,17 @@ through the property machinery, exactly as before."
 (defun org-air-review--insert-body (sections collapsed scanning width)
   "Insert the four review SECTIONS at WIDTH — the bounded left pane.
 COLLAPSED lists folded section symbols (header only); SCANNING prefixes
-the cold fill's progress note.  Rows go through the shared V6
+the cold fill's progress note.  Rows go through the shared
 `org-air-view--insert-row' primitive carrying the SHARED `org-air-item'
 / `org-air-marker' text properties, so RET/S-RET, the pane,
 `org-air-view--find-property' and the bookmark consume chain work
 verbatim.  Fixed cluster widths are fitted over the displayed rows only
-\(the R17 title-protected fit)."
+\(the title-protected fit)."
   (when scanning
     (insert (org-air-view--item-margin)
             (propertize "Scanning your files…" 'face 'org-air-face-empty)
             "\n\n"))
-  ;; R63-2e: SPLIT cluster fits — the item rows' date column (dw) is
+  ;; SPLIT cluster fits — the item rows' date column (dw) is
   ;; fitted over ITEM rows only; the agg rows (Time invested) compose
   ;; their own two-column shape (label + text) with their own fit (aw).
   ;; Folding the agg text ("4:20 · 1 item" = 13 cols) into the item date
@@ -986,7 +981,7 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
         (dolist (line (nth 3 section))
           (pcase line
             (`(item ,item ,date ,tags ,origin ,_mirrors)
-             ;; R84 D1c: reserve the widest item-row priority-cell width
+             ;; Reserve the widest item-row priority-cell width
              ;; (a CONSTANT 2 cols in the default `square; 0/token under
              ;; `badge/`text) so a long title truncates in the right
              ;; place — the review's analogue of the board's slot reserve.
@@ -1030,7 +1025,7 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
                 (pcase line
                   (`(item ,item ,date ,tags ,origin ,mirrors)
                    (org-air-view--insert-row
-                    ;; R84 D1b: the review item row prepends the SAME
+                    ;; The review item row prepends the SAME
                     ;; priority cell as the board/day panes (the shared
                     ;; `org-air-view--priority-cell'); the agg/note arms
                     ;; keep the bare margin (no item, no priority).
@@ -1043,9 +1038,9 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
                     :origin-face 'org-air-face-origin
                     :widths (list dw tw ow)
                     ;; Review composes its OWN cluster field (own fit) —
-                    ;; the documented project-style exception (R40-2).
+                    ;; the documented project-style exception.
                     :own-fence t
-                    ;; R63-2c: the row's item/marker props carry the
+                    ;; The row's item/marker props carry the
                     ;; CANONICAL item (RET/S-RET/pane open it); the full
                     ;; member list rides `org-air-review-mirrors'.
                     :props (append
@@ -1055,7 +1050,7 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
                             (and mirrors
                                  (list 'org-air-review-mirrors mirrors)))))
                   (`(agg ,label ,text)
-                   ;; R63-2e: the agg row's own two-column shape — label
+                   ;; The agg row's own two-column shape — label
                    ;; flexes, text right-anchored at the agg fit (aw).
                    (org-air-view--insert-row
                     :prefix (org-air-view--item-margin)
@@ -1079,7 +1074,7 @@ verbatim.  Fixed cluster widths are fitted over the displayed rows only
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-review--calendar-marks (data p0 p1)
-  "Return the date-key → mark table for the period [P0, P1) (R61-5).
+  "Return the date-key → mark table for the period [P0, P1).
 Every day of the period marks `period' (space glyph, the period face on
 the day number); a period day carrying ≥1 completion from DATA marks
 `period-done' (the quiet dot in the same face).  Table-driven: two
@@ -1093,7 +1088,7 @@ entries in `org-air-calendar--mark', no renderer surgery."
     table))
 
 (defun org-air-review--insert-summary (data width)
-  "Insert the Review rail Summary from DATA fitted to WIDTH (R61-5).
+  "Insert the Review rail Summary from DATA fitted to WIDTH.
 The four section counts, the clocked total and the top three tags by
 clipped time — the \"which part needs more\" glance — in the revisit
 Summary's row idiom."
@@ -1108,7 +1103,7 @@ Summary's row idiom."
                           (cons "started" (length (plist-get data :started)))
                           (cons "carried"
                                 (length (plist-get data :carried))))
-                    ;; R84 D2e: the "dropped" count appears ONLY when the
+                    ;; The "dropped" count appears ONLY when the
                     ;; period HAS an abandonment (conditional, matching the
                     ;; section) — a drop-free rail is byte-identical.
                     (when (plist-get data :dropped)
@@ -1149,16 +1144,16 @@ Summary's row idiom."
     (("m" . "span")      ("+" . "widen")   ("-" . "narrow"))
     (("f" . "rollup")    ("/" . "filter")  ("g" . "refresh"))
     (("." . "today")     ("?" . "help")    ("q" . "quit")))
-  "Review rail Actions legend: four rows of (KEY . VERB) cells (R62-3).
+  "Review rail Actions legend: four rows of (KEY . VERB) cells.
 Every KEY must resolve to a real command in `org-air-review-mode-map'
-\(the round-26 legend-truth discipline — the compound \"+/-\" cell
-shape was rejected for exactly this reason; `=' stays a legend-less
-alias).  The renderer is row-count-generic.")
+\(the legend-truth discipline; a compound \"+/-\" cell is rejected for
+exactly that reason, and `=' stays a legend-less alias).  The renderer
+is row-count-generic.")
 
 (defun org-air-review--insert-actions (width)
   "Insert the Review rail Actions block fitted to content WIDTH.
 Same shape/keycap idiom as the board and revisit Actions blocks.
-R69-4: emits through the shared fit-driven `org-air-view--insert-verb-rows'
+Emits through the shared fit-driven `org-air-view--insert-verb-rows'
 \(3→2→1 columns; byte-identical where 3 columns fit)."
   (org-air-view--rail-header "Actions" width)
   (org-air-view--insert-verb-rows
@@ -1166,17 +1161,17 @@ R69-4: emits through the shared fit-driven `org-air-view--insert-verb-rows'
 
 (defun org-air-review--calendar-month (p0 p1)
   "Return the TIME the rail calendar centres on for the period [P0, P1).
-R62-2 refinement: TODAY's month when today falls inside the period — a
-current YEAR must not stare at January in July (the nil-anchor default
-surface tracks today, so its calendar should too); else P0's month, so
-`<'/`>' on a past period page by its start month as before."
+TODAY's month when today falls inside the period — a current YEAR must
+not stare at January in July, since the nil-anchor default surface
+tracks today; else P0's month, so `<'/`>' on a past period page by its
+start month."
   (let ((now (floor (float-time))))
     (seconds-to-time (if (and (>= now p0) (< now p1)) now p0))))
 
 (defun org-air-review--rail-descriptor (data p0 p1)
-  "Return the Review rail descriptor for DATA over [P0, P1) (R20-5 seam).
+  "Return the Review rail descriptor for DATA over [P0, P1).
 The calendar centres on the period's month — today's month when the
-period contains today (R62-2) — with the period highlighted (the
+period contains today — with the period highlighted (the
 precomputed MARKS table); the Summary reads the same DATA fold."
   (let ((marks (org-air-review--calendar-marks data p0 p1))
         (month (org-air-review--calendar-month p0 p1)))
@@ -1204,7 +1199,7 @@ the board reads it; else the live window body; else 80."
       80))
 
 (defun org-air-review--host-width ()
-  "Return the compose width, rail-geometry aware (the R27-2 discipline)."
+  "Return the compose width, rail-geometry aware (the discipline)."
   (if (and (not noninteractive)
            (not (integerp org-air-view-width))
            (org-air-rail--popped-p)
@@ -1214,7 +1209,7 @@ the board reads it; else the live window body; else 80."
     (org-air-review--render-width)))
 
 (defun org-air-review--sort-indicator ()
-  "Return the shared `↕ key dir' header badge (R22-3 core)."
+  "Return the shared `↕ key dir' header badge."
   (let ((key (or org-air-view--sort-key 'date))
         (dir (or org-air-view--sort-direction 'ascending)))
     (org-air-view--sort-indicator-text
@@ -1222,7 +1217,7 @@ the board reads it; else the live window body; else 80."
 
 (defun org-air-review--period-short-label (kind p0)
   "Return the short period name for KIND starting at P0 (\"W30 2026\").
-R62-2 shapes: week \"W30 2026\", fortnight \"W30–31 2026\" (a pair
+Shapes: week \"W30 2026\", fortnight \"W30–31 2026\" (a pair
 straddling an ISO year qualifies both: \"W52 2025–W1 2026\"), month
 \"July 2026\", quarter \"Q3 2026\", year \"2026\".  The fortnight's
 week numbers come from `org-air-review--iso-week' on P0 and on the
@@ -1252,7 +1247,7 @@ W52/W53 pairings label correctly by construction."
 
 (defun org-air-review--period-label (kind p0 p1)
   "Return the full header period label for KIND over [P0, P1).
-R62-2: month and year read as their short label; quarter adds the month
+Month and year read as their short label; quarter adds the month
 range (\"Q3 2026 · Jul – Sep\"); week and fortnight add the day range
 \(\"W30–31 2026 · Jul 20 – Aug 2\")."
   (pcase kind
@@ -1285,10 +1280,10 @@ range (\"Q3 2026 · Jul – Sep\"); week and fortnight add the day range
     (concat title (make-string pad ?\s) badge)))
 
 (defun org-air-review--two-pane-body (entries left-fn width)
-  "Return the composed rows-pane | rail body lines for ENTRIES (R61-4).
+  "Return the composed rows-pane | rail body lines for ENTRIES.
 LEFT-FN inserts the section pane at the width it is given; the rail
 \(fed ENTRIES through the descriptor) is sized to one windowful of the
-total WIDTH (the R49-4 rule), inspector-free."
+total WIDTH (the rule), inspector-free."
   (let* ((rail-width (org-air-view--rail-width width))
          (divider (org-air-view--divider))
          (item-width (max 20 (- width rail-width (string-width divider))))
@@ -1319,18 +1314,18 @@ total WIDTH (the R49-4 rule), inspector-free."
   (org-air-view--goto-row-title))
 
 (defun org-air-review--render ()
-  "Render the Review view into the current buffer (R61-4).
+  "Render the Review view into the current buffer.
 DATA-PURE: every section row and every rollup number is a fold over
 cached item slots — the render path opens no file, ever; period
 navigation and the rollup/threshold knobs repaint without touching
 `org-air-query--scan-file' at all.  Rail placement, popped side-window
 lifecycle and the foreign-rail sweep mirror the revisit view (one
 machinery, parameterised).
-R91/R92: every review repaint runs inside the shared scroll seam and
-PRESERVES the item or section the user is on — `g', `<' `>' `.' period
-nav, `m' range cycle, `+'/`-', `f' rollup, `/' filter, `s'/`S' scope and
-the shared `b' backlog verb all inherit it from here.  A mutation verb
-losing the row it just acted on was the worst of the landing defects."
+Every review repaint runs inside the shared scroll seam and PRESERVES
+the item or section the user is on — `g', `<' `>' `.' period nav, `m'
+range cycle, `+'/`-', `f' rollup, `/' filter, `s'/`S' scope and the
+shared `b' backlog verb all inherit that from here, so a mutation verb
+never loses the row it just acted on."
   (org-air-view--with-scroll-stable
     (org-air-review--render-body)))
 
@@ -1341,7 +1336,7 @@ losing the row it just acted on was the worst of the landing defects."
     (setq-local org-air-view--rail-popped-out
                 (eq (org-air-rail--placement 'review) 'side-window)))
   (let* ((inhibit-read-only t)
-         ;; R92: the item or section the user is on, named by IDENTITY
+         ;; The item or section the user is on, named by IDENTITY
          ;; (the item's (FILE . POS) marker, the section bucket) and taken
          ;; BEFORE the erase.
          (landing (unless org-air-view--landing-entry
@@ -1360,7 +1355,7 @@ losing the row it just acted on was the worst of the landing defects."
          (currentp (and (>= now p0) (< now p1)))
          (visible (org-air-review--visible-items))
          (data (org-air-review--section-data visible p0 p1 currentp))
-         ;; R63-2c: mirror collapse — after the fold, before every
+         ;; Mirror collapse — after the fold, before every
          ;; consumer, so counts (header / sections / rail Summary) and
          ;; the calendar marks all describe the COLLAPSED rows.
          (data (org-air-review--collapse-data data))
@@ -1379,7 +1374,7 @@ losing the row it just acted on was the worst of the landing defects."
                                                  scanning w))))
     (setq-local org-air-review--count done-count)
     ;; The rail back-pointer: a popped-out side rail renders THESE items
-    ;; through the descriptor (the R22-5 shared primitive); the calendar
+    ;; through the descriptor (the shared primitive); the calendar
     ;; follows the period's month.
     (setq-local org-air-view--items org-air-review--items)
     (setq-local org-air-view--cal-month
@@ -1402,13 +1397,13 @@ losing the row it just acted on was the worst of the landing defects."
       (funcall left-fn width))
     (goto-char (point-max))
     (when (and (bolp) (> (point-max) (point-min))) (delete-char -1))
-    ;; R92: put the user back on the item / section they were on; the
+    ;; Put the user back on the item / section they were on; the
     ;; first row is the fallback ONLY when that identity has genuinely
     ;; vanished (the period moved, the rollup basis changed, the filter
     ;; removed it).
     (org-air-view--landing-restore
      landing #'org-air-review--goto-first-row)
-    ;; R61-6: an armed bookmark locator owns the landing; it stays armed
+    ;; An armed bookmark locator owns the landing; it stays armed
     ;; while the paced cold fill is still running and clears on match or
     ;; fill-idle.
     (org-air-review--bookmark-consume)
@@ -1417,10 +1412,10 @@ losing the row it just acted on was the worst of the landing defects."
      ((eq org-air-view--orientation 'side-window)
       (org-air-rail--show (current-buffer) width))
      ((eq org-air-view--orientation 'board-only)
-      ;; R63-1a: the responsive teardown is an OWNER privilege — a
+      ;; The responsive teardown is an OWNER privilege — a
       ;; narrow NON-owner (or suspended) render must never delete
       ;; another view's live rail (the fourth gated tail).
-      ;; R58: an undisplayed (bookmark-restored) review view must not
+      ;; An undisplayed (bookmark-restored) review view must not
       ;; delete the displayed layout's windows.
       (when (and (org-air-rail--tail-owner-p (current-buffer))
                  (not (org-air-rail--undisplayed-host-p (current-buffer))))
@@ -1433,7 +1428,7 @@ losing the row it just acted on was the worst of the landing defects."
     (org-air-review--render)))
 
 (defun org-air-review--resize-refresh ()
-  "Re-render when the displaying window's width changed (the C1 path)."
+  "Re-render when the displaying window's width changed."
   (let ((width (org-air-review--host-width)))
     (unless (eql width org-air-review--rendered-width)
       (org-air-review--render-current))))
@@ -1445,7 +1440,7 @@ losing the row it just acted on was the worst of the landing defects."
 (defun org-air-review-period-prev ()
   "Show the previous period (key `<').
 One period back: the anchor normalises to the previous period's START
-epoch.  A pure repaint over cached data — NEVER a rescan (R61-3)."
+epoch.  A pure repaint over cached data — NEVER a rescan."
   (interactive nil org-air-review-mode)
   (org-air-review--require-view)
   (setq-local org-air-review--period-anchor
@@ -1474,11 +1469,11 @@ midnight for free."
   (org-air-review--render-current))
 
 (defun org-air-review--set-range (kind)
-  "Adopt range KIND and repaint, preserving the anchor (R62-3).
-The R61 anchor-day rule, uniform across all five rungs: the shown
+  "Adopt range KIND and repaint, preserving the anchor.
+The anchor-day rule, uniform across all five rungs: the shown
 period becomes KIND's period CONTAINING the anchor; a nil anchor stays
 nil (every rung tracks the current period by default).  A pure repaint
-over cached data — NEVER a rescan (the R61 law)."
+over cached data — NEVER a rescan (the law)."
   (setq-local org-air-review--period-kind kind)
   (org-air-review--render-current)
   (message "org-air review: by %s" kind))
@@ -1486,7 +1481,7 @@ over cached data — NEVER a rescan (the R61 law)."
 (defun org-air-review-range-widen ()
   "Widen the range one rung along the ladder (key `+', alias `=').
 week → fortnight → month → quarter → year over the effective
-`org-air-review-ranges' ladder (R62-3); CLAMPED at the widest rung with
+`org-air-review-ranges' ladder; CLAMPED at the widest rung with
 a bounded message — no wrap, so repeated presses park safely at year."
   (interactive nil org-air-review-mode)
   (org-air-review--require-view)
@@ -1498,7 +1493,7 @@ a bounded message — no wrap, so repeated presses park safely at year."
 
 (defun org-air-review-range-narrow ()
   "Narrow the range one rung along the ladder (key `-').
-The inverse of `org-air-review-range-widen' (R62-3); CLAMPED at the
+The inverse of `org-air-review-range-widen'; CLAMPED at the
 narrowest rung with a bounded message — no wrap."
   (interactive nil org-air-review-mode)
   (org-air-review--require-view)
@@ -1510,9 +1505,9 @@ narrowest rung with a bounded message — no wrap."
       (message "org-air review: narrowest range (%s)" kind))))
 
 (defun org-air-review-cycle-range ()
-  "Cycle the range ladder with wrap-around (key `m') (R62-3).
+  "Cycle the range ladder with wrap-around (key `m').
 week → fortnight → month → quarter → year → week over the effective
-`org-air-review-ranges' ladder.  Generalises the R61 week↔month toggle
+`org-air-review-ranges' ladder.  Generalises the week↔month toggle
 \(one ladder, three verbs: `+'/`-' directional, `m' rotary) — with the
 ladder knob trimmed to (week month) the cycle IS the old toggle."
   (interactive nil org-air-review-mode)
@@ -1524,13 +1519,13 @@ ladder knob trimmed to (week month) the cycle IS the old toggle."
 
 (define-obsolete-function-alias 'org-air-review-toggle-kind
   #'org-air-review-cycle-range "0.1.0"
-  "R62-3: the 2-state week↔month toggle generalised to the range ladder.")
+  "The 2-state week↔month toggle, generalised to the range ladder.")
 
 (defun org-air-review-cycle-rollup ()
   "Cycle the rollup basis: day → tag → directory → origin (key `f').
-The TIME-INVESTED lens (R63-2a): one buffer-local basis re-aggregating
+The TIME-INVESTED lens: one buffer-local basis re-aggregating
 the Time invested section — the per-item sections stay flat under
-every basis.  A pure repaint, never a rescan (R61-3)."
+every basis.  A pure repaint, never a rescan."
   (interactive nil org-air-review-mode)
   (org-air-review--require-view)
   (setq-local org-air-review--rollup
@@ -1555,7 +1550,7 @@ always safe, it never toggles blindly or hangs."
                   (if (memq section org-air-review--collapsed)
                       (delq section org-air-review--collapsed)
                     (cons section org-air-review--collapsed)))
-      ;; R92: the repaint AND the re-land on the toggled header run inside
+      ;; The repaint AND the re-land on the toggled header run inside
       ;; the shared scroll seam, so the header holds its screen line.
       ;; Measured before the fix, 10-row window: `window-start' 1394 -> 1
       ;; and the header from screen line 5 to 24 — off-screen.
@@ -1569,8 +1564,8 @@ always safe, it never toggles blindly or hangs."
 
 (defun org-air-review-filter (tags)
   "Filter the Review view to TAGS (the shared filter core, key `/').
-Matches title/tags/origin in memory through the R24-6 `#tag'/free-text
-mini-language — plus the R72 date/status tokens (`is:overdue', `due:7d',
+Matches title/tags/origin in memory through the `#tag'/free-text
+mini-language — plus the date/status tokens (`is:overdue', `due:7d',
 …), which read the real item snapshots' planning slots; filter applies
 BEFORE the fold, so totals honestly describe what is shown."
   (interactive
@@ -1674,7 +1669,7 @@ on budgeted wall-clock slices, repainting progressively); in batch
       (org-air-view--goto-row-title))))
 
 (defun org-air-review-quit ()
-  "Quit the Review view progressively — one surface per press (R28-2).
+  "Quit the Review view progressively — one surface per press.
 A live bottom pane closes first; the next press tears down a popped-out
 rail and quits back to the previous view (the shared quit convention)."
   (interactive nil org-air-review-mode)
@@ -1722,7 +1717,7 @@ rail and quits back to the previous view (the shared quit convention)."
      (org-air-revisit . "revisit dusty notes")
      (org-air-review-quit . "quit")
      (org-air-help . "this help")))
-  "REVIEW help groups: (TITLE . ((COMMAND . DESCRIPTION) …)) (R50-2).
+  "REVIEW help groups: (TITLE . ((COMMAND . DESCRIPTION) …)).
 Key text is NEVER stored here — it derives at render time from the
 live keymaps (the legend-truth discipline).")
 
@@ -1732,18 +1727,18 @@ live keymaps (the legend-truth discipline).")
 
 (defvar org-air-review-mode-map
   (let ((map (make-sparse-keymap)))
-    ;; A THIN child of the shared view-core map (R18 D-P3): RET pane,
+    ;; A THIN child of the shared view-core map: RET pane,
     ;; o/O sort, `|' rail, `\' clear, M-/ combinator, j/k line motion all
     ;; inherit.  PARENT stays at defvar time — always, even with the knob
-    ;; nil (R35-1).
+    ;; nil.
     (set-keymap-parent map org-air-view-core-map)
     map)
   "Keymap for `org-air-review-mode'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
-;; R35-1: the REVIEW default keys (installer-owned).  `<'/`>'/`.' are the
+;; The REVIEW default keys (installer-owned).  `<'/`>'/`.' are the
 ;; board calendar idiom transposed to PERIOD navigation (one unit of the
-;; active range); `+'/`=' widen and `-' narrow the R62-2 range ladder,
+;; active range); `+'/`=' widen and `-' narrow the range ladder,
 ;; `m' cycles it; `f' cycles the rollup basis; `/' + `s'/`S' reuse the
 ;; shared filter/scope machinery; S-RET the other-window visit; `P'/`N'
 ;; the symmetric view switches.
@@ -1763,7 +1758,7 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
   "=" #'org-air-review-range-widen
   "-" #'org-air-review-range-narrow
   "f" #'org-air-review-cycle-rollup
-  ;; R83: `b' toggles the backlog tag on the review row's item — the same
+  ;; `b' toggles the backlog tag on the review row's item — the same
   ;; installer-owned defer verb the board carries (audited FREE here too).
   "b" #'org-air-item-backlog
   "/" #'org-air-review-filter
@@ -1777,9 +1772,9 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 (defvar org-air-review-leader-map
   (make-sparse-keymap)
-  "Leader prefix map for the Review content buffer (R30-2).
+  "Leader prefix map for the Review content buffer.
 Installed at `org-air-leader-key' on `org-air-review-mode-map'.
-Keys installed by `org-air--install-default-keybindings' (R35-1).")
+Keys installed by `org-air--install-default-keybindings'.")
 
 (org-air--register-default-keys 'org-air-review-leader-map
   "|" #'org-air-rail-toggle
@@ -1791,22 +1786,22 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
                                   'org-air-review-leader-map)
 
 (define-derived-mode org-air-review-mode special-mode "Org-Air-Review"
-  "Major mode for the Review (retrospective) view (R61-4)."
-  ;; R35-1: reconcile the shared maps on the first review buffer.
+  "Major mode for the Review (retrospective) view."
+  ;; Reconcile the shared maps on the first review buffer.
   (org-air--sync-default-keybindings)
   (setq-local truncate-lines t)
   (setq-local cursor-type 'box)
   (setq-local line-spacing org-air-line-spacing)
   (org-air-view--install-modeline)
-  ;; R61-6: the Review view is bookmarkable — a FULL record: period kind +
+  ;; The Review view is bookmarkable — a FULL record: period kind +
   ;; anchor, rollup, filter, scope, sort plus the item-at-point locator.
   ;; Restored by `org-air-review-bookmark-jump'.
   (setq-local bookmark-make-record-function
               #'org-air-review--bookmark-make-record)
-  ;; Responsive re-render on resize (the round-9 C1 path).
+  ;; Responsive re-render on resize .
   (setq-local org-air-layout-refresh-function
               #'org-air-review--resize-refresh)
-  ;; R22-3: seed the SHARED sort spec so the inherited o/O drive the
+  ;; Seed the SHARED sort spec so the inherited o/O drive the
   ;; date/title cycle (default: date ascending — chronological within the
   ;; period).
   (setq-local org-air-view--sort-keys '(date title))
@@ -1815,19 +1810,19 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
     (setq-local org-air-view--sort-key 'date))
   (unless org-air-view--sort-direction
     (setq-local org-air-view--sort-direction 'ascending))
-  ;; R22-2b/R29-2: point normalization onto row titles; inert in batch.
+  ;; Point normalization onto row titles; inert in batch.
   (unless noninteractive
     (add-hook 'pre-command-hook #'org-air-view--pre-command-snapshot nil t)
     (add-hook 'post-command-hook #'org-air-view--normalize-point nil t))
   ;; A dying review buffer takes its pacer AND its popped rail with it.
   (add-hook 'kill-buffer-hook #'org-air-review--fill-teardown nil t)
   (add-hook 'kill-buffer-hook #'org-air-rail--teardown nil t)
-  ;; R24-5: the shared cooperative rail reconciler; inert under batch.
+  ;; The shared cooperative rail reconciler; inert under batch.
   (unless noninteractive
     (add-hook 'window-configuration-change-hook
               #'org-air-rail--reconcile nil t))
-  ;; R27-4: the shared evil integration (motion state + overriding map);
-  ;; fboundp-gated soft dep, skipped with the R35-1 knob off.
+  ;; The shared evil integration (motion state + overriding map);
+  ;; fboundp-gated soft dep, skipped with the knob off.
   (when org-air-use-default-keybindings
     (org-air-view--setup-evil 'org-air-review-mode
                               org-air-review-mode-map))
@@ -1836,47 +1831,47 @@ Keys installed by `org-air--install-default-keybindings' (R35-1).")
 
 ;;;###autoload
 (defun org-air-review ()
-  "Open the Review (retrospective) view (R61).
+  "Open the Review (retrospective) view.
 Answers \"what happened over this week / month\": items completed, time
 clocked (rolled up by tag / directory / origin), items started and work
 touched but not finished.  `<'/`>'/`.' navigate periods by ONE unit of
 the active range, `+'/`-' widen/narrow the range ladder
-\(week/fortnight/month/quarter/year, R62-2), `m' cycles it, `f' cycles
+\(week/fortnight/month/quarter/year), `m' cycles it, `f' cycles
 the rollup.  Reached from the board, the project and the revisit views
 via `W'; `q' returns to the previous view."
   (interactive)
   (let ((buffer (get-buffer-create org-air-review-buffer-name)))
     (with-current-buffer buffer
-      ;; R26-5 idempotent entry: initialise the mode only once — a
-      ;; re-entry re-renders in place (session state survives).
+      ;; Idempotent entry: initialise the mode only once — a re-entry
+      ;; re-renders in place, so session state survives.
       (unless (derived-mode-p 'org-air-review-mode)
         (org-air-review-mode)))
     (pop-to-buffer buffer)
     (org-air-review--open-core buffer t)))
 
 (defun org-air-review--open-core (buffer _display)
-  "Run the Review entry's data+render body in BUFFER (R58 factoring).
+  "Run the Review entry's data+render body in BUFFER.
 Prep + `org-air-review--ensure-data' (never-blocking: warm / cache
 hydrate / paced cold fill) + render — exactly the command's body; the
 command is prep + `pop-to-buffer' + this core.  The bookmark handler
 calls it with DISPLAY nil (undisplayed — the restorer owns the
-windows).  Ensures the mode idempotently (R26-5); never displays
+windows).  Ensures the mode idempotently; never displays
 BUFFER."
   (with-current-buffer buffer
     (unless (derived-mode-p 'org-air-review-mode)
       (org-air-review-mode))
     (org-air-review--ensure-data)
-    ;; R92: an ENTRY is an explicit jump — it owns its landing (the first
+    ;; An ENTRY is an explicit jump — it owns its landing (the first
     ;; item), exactly as board OPEN does.
     (let ((org-air-view--landing-entry t))
       (org-air-review--render))))
 
 ;;;; ---------------------------------------------------------------------
-;;;; R61-6 — Emacs bookmark support (see org-air-view.el's shared core).
+;;;; Emacs bookmark support (see org-air-view.el's shared core).
 ;;;; ---------------------------------------------------------------------
 
 (defun org-air-review--bookmark-name ()
-  "Return the review record's `defaults' candidates (R61-6).
+  "Return the review record's `defaults' candidates.
 Period-qualified first (\"org-air: review · W30 2026\"), then the
 generic \"org-air: review\"."
   (let ((bounds (org-air-review--bounds)))
@@ -1887,7 +1882,7 @@ generic \"org-air: review\"."
            "org-air: review"))))
 
 (defun org-air-review--bookmark-make-record ()
-  "Return the Emacs bookmark record for the Review buffer (R61-6).
+  "Return the Emacs bookmark record for the Review buffer.
 A FULL printable record: `org-air-period' — (KIND . ANCHOR) where
 ANCHOR is the period-start integer epoch, or the symbol `current' when
 the recorded period IS current at record time (RULED: an activities
@@ -1922,7 +1917,7 @@ signals (degrades to the bare header record)."
                                           (list "org-air: review")))))
 
 (defun org-air-review--bookmark-apply (record)
-  "Apply RECORD's org-air fields to the current Review buffer (R61-6).
+  "Apply RECORD's org-air fields to the current Review buffer.
 The review twin of `org-air-view--bookmark-apply': every field
 optional, unknown fields ignored, malformed values dropped
 \(forward-compatible best-effort).  A `current' (or absent) period
@@ -1932,7 +1927,7 @@ anchor restores tracking the LIVE current period."
         (filter (cdr (assq 'org-air-filter record)))
         (scope (cdr (assq 'org-air-scope record)))
         (sort (cdr (assq 'org-air-sort record))))
-    ;; R62-3: the KIND domain widened apply-side to the five ranges —
+    ;; The KIND domain widened apply-side to the five ranges —
     ;; deliberately NOT gated on `org-air-review-ranges' (a record must
     ;; restore on a machine whose ladder was trimmed; the knob governs
     ;; keys, not state validity).  An unknown kind (\='decade) still
@@ -1955,7 +1950,7 @@ anchor restores tracking the LIVE current period."
                   org-air-view--sort-direction (cdr sort)))))
 
 (defun org-air-review--bookmark-consume ()
-  "Land point on the bookmarked item row; never signals (R61-6).
+  "Land point on the bookmarked item row; never signals.
 The drift chain on the shared row properties: exact (FILE . POS) via
 `org-air-marker', then the item title.  With the paced cold fill still
 in flight a miss stays ARMED for the next progressive paint; otherwise
@@ -1988,7 +1983,7 @@ the slot clears and the render's first-row landing stands."
 
 ;;;###autoload
 (defun org-air-review-bookmark-jump (record)
-  "Handler for org-air Review bookmarks (R61-6).
+  "Handler for org-air Review bookmarks.
 Rebuilds `*org-air review*' from RECORD without displaying it (the
 bookmark caller owns display — the activities.el contract) through the
 existing never-blocking data path (warm / cache hydrate / paced cold
@@ -1998,7 +1993,7 @@ RECORD degrades to a plain Review open."
   (let ((buffer (get-buffer-create org-air-review-buffer-name)))
     (condition-case err
         (with-current-buffer buffer
-          ;; R26-5 idempotent entry guard — identical to the command's.
+          ;; Idempotent entry guard — identical to the command's.
           (unless (derived-mode-p 'org-air-review-mode)
             (org-air-review-mode))
           (org-air-review--bookmark-apply record)
@@ -2017,7 +2012,7 @@ RECORD degrades to a plain Review open."
 ;;;###autoload
 (put 'org-air-review-bookmark-jump 'bookmark-handler-type "org-air")
 
-;; R35-1: this file loads AFTER the load-time seed at the bottom of
+;; This file loads AFTER the load-time seed at the bottom of
 ;; org-air-project.el, so the review key registrations above missed that
 ;; sync.  Re-install once (idempotent) iff the defaults are currently ON,
 ;; so the review maps are populated under the default while a knob-off

@@ -28,7 +28,7 @@
 (declare-function svg-image "svg")
 
 (defcustom org-air-calendar-day-spacing 'auto
-  "Width of each calendar day cell (T3a, responsive per ruling pxvlzyov).
+  "Width of each calendar day cell.
 `auto' (default) uses a spaced 4-column cell only when the available rail
 width is wide enough (>= 30 cols, i.e. windows >= 120); otherwise it
 falls back to the compact 3-column cell so the narrow rail tier (95-119)
@@ -52,13 +52,13 @@ never clips the Sunday column.  An integer 3 or 4 forces that cell width."
          3))))
 
 (defcustom org-air-calendar-week-start 0
-  "First day of week for the org-air calendar (R8: default Sunday).
-0 means Sunday, 1 means Monday."
+  "First day of week for the org-air calendar.
+0 means Sunday (the default), 1 means Monday."
   :type '(choice (const :tag "Sunday" 0) (const :tag "Monday" 1))
   :group 'org-air)
 
 (defcustom org-air-calendar-center t
-  "When non-nil, centre the calendar grid block within the rail (D-P4).
+  "When non-nil, centre the calendar grid block within the rail.
 The whole grid block (header, weekday row, day rows, legend) shares one
 block width (the weekday-row width) and is prefixed by
 `lead = (max 0 (/ (- width row-width) 2))' spaces so it sits centred in
@@ -87,12 +87,12 @@ the available rail WIDTH.  Floors at 0 when WIDTH <= row-width (narrow rail
 
 (defun org-air-calendar--item-deadline-time (item)
   "Return ITEM's effective deadline as an Emacs time value, or nil.
-R53 P2: the heading's own deadline first, else the scan-time
-`body-deadline' slot (an epoch float — the first `DEADLINE:' in the
-subtree, recorded by the scan so the calendar NEVER opens a file: the
-old per-item `find-file-noselect' here ran for every item WITHOUT a
-deadline — nearly every item on a journal corpus).  A live-marker item
-built outside the scan keeps the original bounded subtree probe."
+The heading's own deadline first, else the scan-time `body-deadline'
+slot (an epoch float: the first `DEADLINE:' in the subtree, recorded by
+the scan so the calendar NEVER opens a file).  Probing the subtree here
+instead costs a `find-file-noselect' for every item WITHOUT a deadline
+— nearly every item on a journal corpus.  A live-marker item built
+outside the scan keeps the bounded subtree probe."
   (or (when-let* ((ts (org-air-item-deadline item)))
         (ignore-errors (org-timestamp-to-time ts)))
       (org-air-item-body-deadline item)
@@ -111,7 +111,7 @@ built outside the scan keeps the original bounded subtree probe."
                               (match-string-no-properties 1)))))))))))))
 
 (defun org-air-calendar--marked-days (items)
-  "Return hash of date key -> strongest mark kind for ITEMS (T3b).
+  "Return hash of date key -> strongest mark kind for ITEMS.
 Kinds are `deadline' or `scheduled'; precedence is deadline > scheduled
 so a day carrying both reads as a deadline."
   (let ((table (make-hash-table :test #'equal)))
@@ -125,7 +125,7 @@ so a day carrying both reads as a deadline."
           (puthash key 'scheduled table))))))
 
 (defun org-air-calendar--mark (kind)
-  "Return (GLYPH . FACE) for mark KIND (T3b), or nil for no mark."
+  "Return (GLYPH . FACE) for mark KIND, or nil for no mark."
   (pcase kind
     ('deadline (cons (org-air-calendar--glyph "◆" "!")
                      'org-air-face-calendar-deadline))
@@ -133,10 +133,9 @@ so a day carrying both reads as a deadline."
                       'org-air-face-calendar-scheduled))
     ('created (cons (org-air-calendar--glyph "∙" ".")
                     'org-air-face-calendar-created))
-    ;; R61-5: the review-period marks — table-driven, no renderer surgery.
-    ;; `period' highlights the day NUMBER (the face) with a SPACE glyph so
-    ;; the mark column carries no noise; `period-done' adds the quiet
-    ;; completion dot in the same period face.
+    ;; The review-period marks: `period' highlights the day NUMBER (the
+    ;; face) with a SPACE glyph so the mark column carries no noise;
+    ;; `period-done' adds the quiet completion dot in the same face.
     ('period (cons " " 'org-air-face-calendar-period))
     ('period-done (cons (org-air-calendar--glyph "∙" ".")
                         'org-air-face-calendar-period))
@@ -146,9 +145,9 @@ so a day carrying both reads as a deadline."
 
 (defvar org-air-calendar-day-keymap
   (make-sparse-keymap)
-  "Keymap active on a calendar day cell to focus its single-day view (R6).
+  "Keymap active on a calendar day cell to focus its single-day view.
 Keys (RET / mouse-1 -> `org-air-view-day') are installed by
-`org-air--install-default-keybindings' (R35.1), so the
+`org-air--install-default-keybindings', so the
 `org-air-use-default-keybindings' knob gates the calendar day cells too;
 registered from `org-air-view.el' (which requires this file).")
 
@@ -157,9 +156,9 @@ registered from `org-air-view.el' (which requires this file).")
   (if (display-graphic-p) gui tty))
 
 (defun org-air-calendar--today-svg (text)
-  "Return TEXT with a soft rounded svg today-cell background (D-P2.B).
-A tiny rounded-rect (\=:rx ch/6, reusing the D-P1 box-fit discipline) is
-drawn in the `org-air-face-calendar-today' background behind the centred
+  "Return TEXT with a soft rounded svg today-cell background.
+A tiny rounded-rect (\=:rx ch/6, the same box-fit discipline as the item
+pills) is drawn in the `org-air-face-calendar-today' background behind the
 day number.  On a non-graphical frame or when SVG is unavailable TEXT is
 returned unchanged so the existing today-cell BACKGROUND face is the
 mandatory fallback; the buffer text (the bytes) is never touched."
@@ -178,10 +177,10 @@ mandatory fallback; the buffer text (the bytes) is never touched."
                          "black"))
                  (radius (/ ch 6.0))
                  (fs (max 7 (round (* ch 0.7))))
-                 ;; R18 D-P1a: the today cell is a pure function of
-                 ;; (text, bg, fg, cw, ch); memoise the image via the view
-                 ;; layer's svg cache when it is loaded (the dashboard always
-                 ;; loads it), else build it directly.
+                 ;; The today cell is a pure function of
+                 ;; (text, bg, fg, cw, ch); memoise the image via the
+                 ;; view layer's svg cache when that is loaded (the
+                 ;; dashboard always loads it), else build it directly.
                  (build (lambda ()
                           (let ((svg (svg-create w h)))
                             (svg-rectangle svg 0.5 0.5
@@ -196,8 +195,8 @@ mandatory fallback; the buffer text (the bytes) is never touched."
                             (org-air-view--svg-image-cached
                              (list 'today text bg fg cw ch) build)
                           (funcall build))))
-            ;; R47-2 invariant: NO buffer position may carry both
-            ;; `mouse-face' and an image `display' — Emacs 30's
+            ;; INVARIANT: no buffer position may carry both `mouse-face'
+            ;; and an image `display' — Emacs 30's
             ;; DRAW_MOUSE_FACE SVG re-lookup (e69fafdb, bug#67794) would
             ;; synchronously re-rasterize this cell on every hover crossing
             ;; (and the hover face can't tint an image anyway).  The day
@@ -224,16 +223,17 @@ mandatory fallback; the buffer text (the bytes) is never touched."
   "Insert a compact month calendar for DATE marking dashboard ITEMS.
 WIDTH is the available content width; it selects the responsive day-cell
 width (3 vs 4 columns) when `org-air-calendar-day-spacing' is `auto'.
-INSET (D5b) is the content-spine indent in columns applied to the weekday
-row, the day grid and the legend so the calendar shares the rail's single
-left edge; the labelled-rule header itself spans the full WIDTH.
-MARKS (R20-5), when non-nil, is a precomputed date-key -> mark-kind table
-used instead of deriving the marks from ITEMS (so a non-board view can mark
+INSET is the content-spine indent in columns applied to the weekday row,
+the day grid and the legend so the calendar shares the rail's single
+left edge; the header itself spans the full WIDTH.
+MARKS, when non-nil, is a precomputed date-key -> mark-kind table used
+instead of deriving the marks from ITEMS (so a non-board view can mark
 by its own dates, e.g. the project's per-doc updated stamp)."
   (let* ((inset (or inset 0))
-         ;; D5b: the content spine eats INSET columns, so the day-cell
-         ;; width must be chosen from the width that REMAINS for the grid —
-         ;; otherwise a spaced (4-col) grid plus the inset overflows the rail.
+         ;; The content spine eats INSET columns, so the day-cell width
+         ;; must be chosen from the width that REMAINS for the grid —
+         ;; otherwise a spaced (4-col) grid plus the inset overflows the
+         ;; rail.
          (cell (org-air-calendar--cell-width (- (or width 0) inset)))
          (gap (if (>= cell 4) " " ""))
          (decoded (decode-time (or date (current-time))))
@@ -251,31 +251,30 @@ by its own dates, e.g. the project's per-doc updated stamp)."
          (weekday-row (if (>= cell 4)
                           (mapconcat (lambda (wd) (format "%-4s" wd))
                                      (org-air-calendar--weekdays) "")
-                        ;; Compact tier: exactly the pre-T3a 20-col row.
+                        ;; Compact tier: a 20-column row.
                         (string-join (org-air-calendar--weekdays) " ")))
          (row-width (string-width weekday-row))
-         ;; D-P4: when centring, the whole block (header included) shares
-         ;; the row-width and is prefixed by LEAD spaces; otherwise the D5b
-         ;; spine INSET left-packs it.
+         ;; When centring, the whole block (header included) shares the
+         ;; row-width and is prefixed by LEAD spaces; otherwise the spine
+         ;; INSET left-packs it.
          (center (and org-air-calendar-center width (> width row-width)))
          (lead (if center (max 0 (/ (- width row-width) 2)) inset))
          (pad-str (make-string (max 0 lead) ?\s))
-         ;; D-P5: the calendar header spans the FULL rail width (like every
+         ;; The calendar header spans the FULL rail width (like every
          ;; other section header), not the centred grid width.
          (header-width (or width row-width)))
     (let* ((nav (concat (org-air-calendar--glyph "‹" "<") " "
                         (org-air-calendar--glyph "›" ">")))
            (full-label (format "%s %d" (calendar-month-name month) year))
-           ;; Abbreviate the month before the nav truncates (round-9 rule,
-           ;; preserved); measured against the full header width now.
+           ;; Abbreviate the month before the nav truncates; measured
+           ;; against the full header width.
            (label (if (> (+ 4 (string-width full-label) 2 (string-width nav))
                          header-width)
                       (format "%s %d"
                               (substring (calendar-month-name month) 0 3) year)
                     full-label)))
-      ;; D-P6: clean prefix-marked header (no bg/overline/rule); D-P5: full
-      ;; rail width, nav right-anchored.  The grid + weekday row + legend
-      ;; below stay CENTRED (LEAD), only the header goes full-width.
+      ;; The header is full rail width with the nav right-anchored; the
+      ;; grid, weekday row and legend below stay CENTRED (LEAD).
       (if (eq org-air-rail-header-style 'rule)
           (insert (org-air-layout-labelled-rule
                    label header-width
@@ -288,9 +287,9 @@ by its own dates, e.g. the project's per-doc updated stamp)."
       (insert pad-str
               (propertize weekday-row 'face 'org-air-face-calendar-day-name)
               "\n"))
-    ;; T3a: per-day cell = "%2d" + marker (+ one breathing space when the
-    ;; rail is wide enough; responsive per `org-air-calendar-day-spacing').
-    ;; D5b: each grid row opens at the content spine (INSET).
+    ;; Per-day cell = "%2d" + marker (+ one breathing space when the rail
+    ;; is wide enough; see `org-air-calendar-day-spacing').  Each grid
+    ;; row opens at the content spine (INSET).
     (insert pad-str)
     (dotimes (_ first-day)
       (insert (make-string cell ?\s)))
@@ -306,9 +305,9 @@ by its own dates, e.g. the project's per-doc updated stamp)."
                     (mark (cdr mark))
                     (weekend 'org-air-face-calendar-weekend)
                     (t 'org-air-face-calendar-day))))
-        ;; R6: each day cell carries its date + a click/RET keymap so it
-        ;; can be focused into the single-day view.  D-P2.B: today also
-        ;; gets a soft rounded svg bg (GUI only; TTY keeps the bg face).
+        ;; Each day cell carries its date and a click/RET keymap so it
+        ;; can be focused into the single-day view.  Today also gets a
+        ;; soft rounded svg bg (GUI only; TTY keeps the bg face).
         (let ((cell-text (propertize (format "%2d" day)
                                      'face face
                                      'org-air-day (encode-time 0 0 0 day month year)
@@ -317,36 +316,36 @@ by its own dates, e.g. the project's per-doc updated stamp)."
           (insert (if todayp
                       (org-air-calendar--today-svg cell-text)
                     cell-text)))
-        ;; R7: today is a filled background on the day number — no ■ glyph.
+        ;; Today is a filled background on the day number — no ■ glyph.
         (insert (if mark (propertize (car mark) 'face (cdr mark)) " ")
                 gap)
         (when (= (org-air-calendar--column calendar-dow) 6)
           (insert "\n")
-          ;; D5b: open the next grid row at the content spine.
+          ;; Open the next grid row at the content spine.
           (when (< day last-day) (insert pad-str))))
       (setq day (1+ day)))
     (unless (bolp) (insert "\n"))
-    ;; D5c: separate the legend from the grid with one blank line, indent it
+    ;; Separate the legend from the grid with one blank line, indent it
     ;; to the spine, and space each glyph from its word.
     (insert "\n" pad-str)
-    ;; T3b/S9 (ruling tynxttsz): a per-tier SINGLE-LINE legend that doubles
-    ;; as a key.  Narrow tier (compact cell) drops `created' from the
-    ;; cramped key (the · mark still renders on the grid); the wide tier
-    ;; names all three.  Markers come from `org-air-calendar--glyph', the
-    ;; same source as the cells.
+    ;; A per-tier SINGLE-LINE legend that doubles as a key.  The narrow
+    ;; tier (compact cell) drops `created' from the cramped key (the ·
+    ;; mark still renders on the grid); the wide tier names all three.
+    ;; Markers come from `org-air-calendar--glyph', the same source as
+    ;; the cells.
     (insert (org-air-calendar--legend (>= cell 4)) "\n")))
 
 (defun org-air-calendar--legend-entry (gui tty face word)
-  "Return a legend key entry: GUI/TTY glyph in FACE, a space, then WORD (D5c)."
+  "Return a legend key entry: GUI/TTY glyph in FACE, a space, then WORD."
   (concat (propertize (org-air-calendar--glyph gui tty) 'face face)
           " "
           (propertize word 'face 'org-air-face-calendar-legend)))
 
 (defun org-air-calendar--legend (wide)
-  "Return the single-line calendar legend; WIDE names `created' too (T3b).
-D5c: each glyph is spaced from its word (\"◆ due\") and the entries are
-separated by a wider 4-space gap.  R7: today no longer appears in the
-legend — the filled today cell is its own unmistakable cue."
+  "Return the single-line calendar legend; WIDE names `created' too.
+Each glyph is spaced from its word (\"◆ due\") and the entries are
+separated by a wider 4-space gap.  Today is deliberately absent — the
+filled today cell is its own unmistakable cue."
   (let ((due (org-air-calendar--legend-entry
               "◆" "!" 'org-air-face-calendar-deadline "due"))
         (sched (org-air-calendar--legend-entry

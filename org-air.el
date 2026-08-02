@@ -48,15 +48,11 @@ nil (the default) DERIVES the inbox from `org-air-files' — see
 `org-air-inbox-effective-file' — so a capture always lands inside the
 corpus the board scans and always shows up on the board.
 
-R97 D2: before this the default was `org-air-inbox.org' under
-`user-emacs-directory', which is NOT inside `org-air-files' unless the
-user puts it there.  Following the README's plain-`require' snippet
-\(`org-air-files' only) therefore wrote every capture to a file the scan
-never read: the note was on disk and the board reported Inbox zero.  A
-derived default cannot do that, and an explicit value that lies outside
-the scan set is REFUSED by `org-air-capture' rather than silently lost.
-
-Set this explicitly to pin the inbox; it must be inside `org-air-files'."
+Set this explicitly to pin the inbox; the value must be inside
+`org-air-files'.  A file outside the scan set is REFUSED by
+`org-air-capture' rather than silently accepted: a capture written
+where the scan never reads leaves the note on disk and the board
+reporting Inbox zero."
   :type '(choice (const :tag "Derive from `org-air-files'" nil) file)
   :group 'org-air)
 

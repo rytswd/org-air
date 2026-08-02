@@ -1,0 +1,277 @@
+#+title: Round 100 — Deslop: comments and documents worth reading
+#+state: complete
+#+FILETAGS: :docs:maintenance:
+
+* Summary
+
+A documentation-and-comment-only round.  No code was edited; no rendered
+byte moved.  The corpus carried 2,469 =R<N>= round tags, 318 =D-P<n>=
+decision markers and 50 =Decision <n>= codes across 11 modules — plus a
+long tail of design codes (=V6=, =D-P1.FIT=, =S5b=, =T4=, =F1=, =C1=) and
+changelog narration inside docstrings that reach the user through =C-h f=
+and =M-x=.  All of it is now gone or restated as a rule.
+
+The README was re-verified claim by claim against the code as it is, and
+the seven =air/context/*.md= files were brought to today's reality.
+
+* Before / after, per module
+
+| module              | comment lines |  =R<N>= refs | =D-P<n>= | =Decision <n>= |
+|---------------------+---------------+--------------+----------+----------------|
+| =org-air.el=        |      16 → 16  |      1 →  0  |   0 → 0  |        0 →  0  |
+| =org-air-bench.el=  |      62 → 62  |      3 →  0  |   0 → 0  |        0 →  0  |
+| =org-air-calendar.el= |    60 → 59  |     11 →  0  |   9 → 0  |        0 →  0  |
+| =org-air-classify.el= |    46 → 42  |     96 →  0  |   0 → 0  |        0 →  0  |
+| =org-air-faces.el=  |     107 → 107 |     47 →  0  |  17 → 0  |        0 →  0  |
+| =org-air-inbox.el=  |     191 → 181 |    168 →  0  |   0 → 0  |        8 →  0  |
+| =org-air-layout.el= |      54 → 50  |     15 →  0  |   5 → 0  |        0 →  0  |
+| =org-air-project.el= |    408 → 406 |    341 →  3  |  47 → 0  |        0 →  0  |
+| =org-air-query.el=  |     224 → 224 |    181 →  0  |   0 → 0  |        0 →  0  |
+| =org-air-review.el= |     216 → 214 |    156 →  0  |   1 → 0  |        0 →  0  |
+| =org-air-revisit.el= |    129 → 129 |     87 →  0  |   1 → 0  |        0 →  0  |
+| =org-air-view.el=   |   1921 → 1911 |   1373 →  0  | 254 → 0  |       42 →  0  |
+| *TOTAL*             | *3434 → 3401* | *2479 → 3*   | *334 → 0*| *50 → 0*       |
+
+The three surviving =R<N>= matches in =org-air-project.el= are not round
+tags: they are the literal =R4(+1) C14(+14)= per-directory count-summary
+format the project view renders (=R= = Ready).
+
+Comment *line* count barely moved, and that is the point: the round did
+not delete explanation, it deleted archaeology.  Almost every comment was
+rewritten in place — the round tag stripped, the changelog narration
+turned into the RULE it was evidence for, the sentence left standing.
+Sixteen comment blocks were removed outright.
+
+Also removed, though not in the counts above: the design-code decorations
+=V6=, =V3=, =D1=..=D7=, =D5a=..=D5f=, =D-P1.FIT/.PAD/.LOOK/.A=, =S1=..=S9=,
+=S5b=, =T1a=..=T7=, =F1/F5/F7/F9=, =C1/C2/C3=, =P1a=..=P3c=, =FIX-N=,
+=audit #N=, the ruling slugs (=xsqrnoyn=, =pxvlzyov=, =tynxttsz=) and
+=round-N= / =pre-RN= narration.
+
+* The rubric as applied
+
+KEPT — a comment earns its place when it is one of:
+
+1. *WHY-NOT rationale.*  A rejected alternative plus the reason, phrased
+   so the next reader cannot re-adopt it by accident.  Every such comment
+   was converted from the past tense ("R94 removed the file-mtime
+   fallback because…") to the present-tense rule ("There is deliberately
+   NO file-mtime fallback here, because…"), so it reads as a constraint
+   rather than a diary entry.
+2. *Non-obvious platform truth.*  =emacs --batch= keeps
+   =gc-cons-percentage= at 1.0; =string-width= allocates on a frame and
+   not in batch; Org parses only the planning line directly under a
+   heading; =cl-defstruct= installs a compiler macro that hides a
+   shadowed accessor from the byte-compiler; idle timers cannot fire
+   during =-l= load.
+3. *Invariants with their reason.*  The scroll seam, the
+   no-=mouse-face=-on-an-image rule, marks-are-validated-never-guessed,
+   filter⇔bucket agreement, the data-pure render law.
+4. *Performance rationale that stops a naive cleanup* from reintroducing
+   an O(n²) or a re-measurement — always with the measured pair of
+   numbers, never with the round that measured them.
+
+REMOVED:
+
+- round tags and decision codes used as decoration;
+- changelog narration where only the CURRENT behaviour matters;
+- comments restating the code, self-congratulation, and cross-references
+  to rounds a reader cannot act on;
+- "byte-identical to the old X" / "every golden holds" reassurance, which
+  is the test suite's job to state, not a comment's.
+
+ROUND-REFERENCE RULE: stripped by default; the RULE kept, the tag
+dropped.  No comment now cites an Air doc path, because none of them
+needed to: the rules were all self-contained once the tag was gone.
+
+DOCSTRINGS were held to the stricter bar — current behaviour, arguments
+and return value, no history at all — because they are what =C-h f= and
+=M-x= show.  Nothing that reaches the UI (help-table text, =message= /
+=user-error= wording, section titles, fold-row sentences) was touched.
+
+* Five comments KEPT, and why they earn their place
+
+1. =org-air-classify-updated= — "There is deliberately NO file-mtime
+   fallback here.  The mtime is a FILE-level fact answering a
+   HEADING-level question: it moves whenever ANY byte of the file moves —
+   including when org-air itself writes it — so a historyless heading in
+   a file you are working in reads as age 0."  The obvious "improvement"
+   (fall back to the file mtime when the slot is nil) is exactly the bug;
+   the comment names it and the measured cost (15 of 20 headings hidden).
+
+2. =org-air-layout--usable-columns= — "Do NOT switch this back to
+   =window-max-chars-per-line=: that is NOT bounded by the text-column
+   count."  A platform truth with a concrete failure mode (a font
+   narrower than the frame canonical cell overflows by one column).
+
+3. =org-air-face-cursor= — the hover face carries NO metric-changing
+   attribute and no =:extend=, because Emacs 30's =DRAW_MOUSE_FACE=
+   re-looks-up the SVG and would re-rasterise every pill in the row on
+   every hover crossing.  Cites the upstream commit and bug number; a
+   "tidier" face spec silently costs a rasterisation per mouse move.
+
+4. =org-air-view--sort-by-date= — "THE KEY IS COMPUTED ONCE PER ITEM, NOT
+   ONCE PER COMPARISON", with the measurement (~10,000 timestamp parses
+   per repaint on a 1000-row section, 25% of profile self time).  This is
+   the comment that stops a decorate/sort/undecorate form being
+   "simplified" back into a comparator.
+
+5. =org-air-inbox.el='s deadline field — "=org-air-item-deadline= is the
+   struct accessor.  It once collided with an interactive command of the
+   same name, which the lint dupdef rule now forbids… Keep this call
+   STATIC: =cl-defstruct='s compiler macro inlines it to an =aref=."  A
+   dupdef trap that byte compilation cannot see, stated at the call site
+   that would re-create it.
+
+* Five comments REMOVED, and why they did not
+
+1. =org-air-view.el=: ";; V3: the round-4/T7 buffer-box outer frame is
+   DROPPED — it shipped half-drawn…"  Two round codes and a design code
+   narrating a deletion.  Rewritten to the rule ("No buffer-box outer
+   frame: drawn half-way it reads as damage"), which is what a future
+   reader needs before adding one.
+
+2. =org-air-classify.el=: the entire "R95 CHANGED TWO THINGS HERE, both
+   of them coverage / 1. … 2. …" block in
+   =org-air-classify--untracked-p=.  Pure changelog.  The two *reasons*
+   survive as "WHY THE PLAN CLAUSE IS =--planned-p= AND NOT =--dated-p="
+   and "WHY AN INBOX DWELLER IS NOT UNTRACKED"; the round-by-round
+   accounting of who noticed what did not.
+
+3. =org-air-view.el=: ";; R74 (the sibling site): the trailing ✕ clear
+   glyph is DROPPED — it carried no keymap/button action…"  The
+   cross-reference to a sibling round was unactionable; the rule ("no ✕
+   here: it would be a promise the banner cannot honour") is not.
+
+4. =org-air-project.el=: "…re-verified and pinned at the R48 closeout.
+   R51-2 split the doc ROW ordering OUT deliberately… R25-3 dropped the
+   phantom =review= state… R80 registers =out=/=off= as first-class."
+   Four round tags in one docstring, three of them describing states of
+   the world that no longer exist.  What remains is the one fact a
+   maintainer needs: the LETTER order and the ROW order are different
+   contracts and may differ.
+
+5. =org-air-bench.el=: "INSTRUMENT R99 — the fourth blind spot, closed."
+   Self-congratulation as a file header.  Replaced with "WHY THIS FILE
+   REFUSES TO RUN IN BATCH", which is the question a reader opening
+   =org-air-bench.el= actually has.
+
+* Deliberately left
+
+- *Test files.*  Not edited, per the round's constraint —
+  =tests/org-air-test-init.el=, =tests/org-air-lint.el= and
+  =tests/org-air-known-failures.el= still carry =R98= / =R96= tags in
+  their commentary.  The test seat owns those.
+- *=air/v0.*/*.org= round documents.*  The historical record; untouched.
+  No index or state field was found wrong.
+- *=R4(+1) C14(+14)= in =org-air-project.el= (3 matches).*  Rendered
+  output format, not a round tag.
+- *Cache-version annotations* (=cache v2= … =cache v7=) on the
+  =org-air-item= slot groups.  These are load-bearing: adding a slot
+  requires a =org-air-view--cache-version= bump, and the per-group
+  annotations are how a maintainer knows which generation introduced
+  what.
+- *The measured numbers* (186s warm paint, 271.8s→3.41s, 0.275s→0.051s,
+  0.647s→0.044s, 15-of-20 hidden headings, ~55 ms per collection).  They
+  are the evidence a rule is not superstition; only the round that
+  produced them was dropped.
+- *UI strings.*  No =message=, =user-error=, help-table row, section
+  title or fold-row sentence was touched; several are pinned by goldens.
+
+* Documents
+
+** README.org
+
+Verified claim by claim against the code as it is now.  Confirmed
+accurate and left alone: the six-section model (Inbox / Overdue /
+Upcoming / High priority / Needs attention / conditional Untracked), the
+Untracked caps (4 rows, at most 2 per file), =org-air-attention-days='s
+default alist, =org-air-section-expand-max= 200,
+=org-air-project-dropped-states=, mark validation and pruning, the
+encrypted-file skip plus =org-air-scan-report=, the measured-only
+recency clock, and the =org-air-item-set-deadline= rename note.
+
+Two stale claims fixed:
+
+1. *The ambiguous-width list named the wrong glyph.*  The section on
+   right-edge glyphs in a fringe-less GUI listed "the =·= separator"
+   among the East-Asian /Ambiguous/ characters.  =org-air-chrome-separator=
+   defaults to =∙= (U+2219 BULLET OPERATOR, /Neutral/) precisely *because*
+   =·= (U+00B7) is Ambiguous — the README was describing the problem the
+   default already solves.  Corrected, with the reason.
+2. *The defcustom count.*  "the full ~140" → "~150" (measured: 154).
+
+** air/context/*.md
+
+- *OVERVIEW.md* — rewrote the bucket list (it still said
+  "Inbox / Needs-attention / Upcoming / High-priority / *Stale*"), added
+  the Revisit and Review surfaces and their files, added the data-pure
+  render principle, fixed the round-doc path (=air/v0.4/= → =air/v0.1/=),
+  and named =make check-gui= / =make bench-gui=.
+- *architecture.md* — added the missing invariants (no =mouse-face= on an
+  image position; data-pure render; filter⇔bucket agreement; validated
+  marks; the scroll/landing seam; the surface precondition), a new *The
+  cache* section stating the generation (=org-air-view--cache-version= 8,
+  discarded not migrated, bumped for a MEANING narrowing as well as a
+  shape change) and how it differs from =--cache-key=, the lint
+  duplicate-definition rule and the runtime struct-integrity rule, and a
+  new *What batch CANNOT see* section covering =gc-cons-percentage= 1.0,
+  =string-width= on a frame, =make check-gui= (with the idle-timer trap)
+  and =make bench-gui= (exit 2 = not measured).
+- *implementation-guide.md* — same bucket correction, the four extra
+  modules, the dupdef convention, the invariant list, the round-doc path,
+  and the gate section rewritten (the old "~16s" claim is now "about a
+  minute"; the batch-only caveat added).  Dropped the "Known follow-ups"
+  block, whose Round-15 items shipped long ago.
+- *interface-design.md* — "as shipped through round-14" removed; two
+  views → four; the buffer table gained the revisit/review buffers; the
+  rail order corrected (Calendar, *Filter*, Summary, Inspector, Actions);
+  layout section rewritten around =org-air-rail-placement=; the divider
+  section no longer "proposes" a round-15 decision that shipped; the
+  priority ramp corrected to A..E; inspector fields brought current
+  (=Updated=, no =stale-days=).
+- *air-conventions.md* — documented the =out= / =off= parked states and
+  org-air's terminal-negative family, since a doc author reading only
+  this file would think the vocabulary is six words.
+- *air-workflow.md* — deleted ten =<!-- TODO: Customize this section -->=
+  template placeholders that were never going to be acted on.
+- *ace-orchestration.md* — replaced the hard-coded round-10 monitor
+  =BASE= / revset / message with round-agnostic forms, and added the
+  batch-is-not-a-performance-verdict rule to the *Binary gate* section.
+
+* Defects noticed while reading (reported, NOT fixed)
+
+1. *Two stale comments asserting a classify fallback that no longer
+   exists.*  Both claimed the attention clock falls back to the file
+   mtime, which the measured-only clock removed:
+   - =org-air-query.el=, the =updated= slot comment: "nil falls back to
+     the file mtime in classify, never here";
+   - =org-air-query.el=, =org-air-query--item-at-point= =:updated=:
+     "classify then falls back to the file's scan-time mtime … which is
+     deliberately COARSE".
+   These are comments, so they were in this round's scope and *were*
+   corrected in place (to "nil means UNKNOWN: classify never substitutes
+   the file mtime"), but they are recorded here because they are a real
+   documentation defect a reader could have acted on.
+2. *No genuine code defect found.*  Everything else read as consistent
+   with the tests.
+
+* Verification
+
+- =make check= (COMPILED): =Ran 1367 tests, 1359 results as expected, 0
+  unexpected, 8 skipped=; =lint: ok (0 findings, all baselined)=.
+- =make test= after =rm -f *.elc= (INTERPRETED): =Ran 1367 tests, 1359
+  results as expected, 0 unexpected, 8 skipped=.
+- =make regen-mockups= is a byte no-op: after regeneration
+  =jj diff --summary= lists no file under =tests/=; the only modified
+  paths are the 12 =org-air*.el= sources, =README.org= and the seven
+  =air/context/*.md= files.
+- No code form was edited: the diff touches only comment lines, docstring
+  strings and the two document trees.
+
+* History
+- 2026-08-03: Round 100 complete.  2,479 round refs → 3 (all of them the
+  rendered =R4(+1)= summary format), 334 =D-P= markers → 0, 50 =Decision=
+  codes → 0, plus the design-code and ruling-slug vocabularies.  README
+  re-verified (2 stale claims fixed); all 7 =air/context= docs brought
+  current.  Gate green compiled and interpreted; goldens byte-identical.

@@ -221,7 +221,7 @@ The repo's ~flake.nix~ also exposes a devshell (~python3~ + ~emacs~ + ~make~); w
 
 ** ⚙️ Configuration
 
-org-air is useful out of the box; everything here is optional. These are the knobs most users actually tune — run ~M-x customize-group RET org-air RET~ for the full ~140.
+org-air is useful out of the box; everything here is optional. These are the knobs most users actually tune — run ~M-x customize-group RET org-air RET~ for the full ~150.
 
 | Variable                            | Default                                      | Meaning                                                                   |
 |-------------------------------------+----------------------------------------------+---------------------------------------------------------------------------|
@@ -276,7 +276,7 @@ If you want the number on *your* machine, ~M-x org-air-bench-expand-report~ meas
 
 *** Right-edge glyphs in a fringe-less GUI
 
-org-air sizes every line to the window's /usable/ columns, so with a zero right fringe nothing overflows the visible edge. A few header/legend glyphs (the ~·~ separator, ~…~, ~✕~, and the ~↑ ↓ → ↻~ arrows) are Unicode /East-Asian Ambiguous-width/ characters: Emacs measures them as one column (so the layout is exact), but some fonts /paint/ them two columns wide. If you run a fringe-less GUI and see a stray truncation glyph at the extreme right edge, that is a font/~char-width-table~ mismatch, not an org-air layout bug. The fix is a config one: either pick a font that renders those glyphs single-width, or tell Emacs to treat the ambiguous set as one column (e.g. keep the default ~east-asian-ambiguous~ / ~char-width-table~ mapping, or ~(set-language-environment "UTF-8")~). org-air's own width math already compensates for whatever ~char-width-table~ reports — it is purely the painted advance that can differ.
+org-air sizes every line to the window's /usable/ columns, so with a zero right fringe nothing overflows the visible edge. A few header/legend glyphs (~…~, ~✕~, and the ~↑ ↓ → ↻~ arrows) are Unicode /East-Asian Ambiguous-width/ characters: Emacs measures them as one column (so the layout is exact), but some fonts /paint/ them two columns wide. (The chrome separator is /not/ one of them: ~org-air-chrome-separator~ defaults to ~∙~ (U+2219 BULLET OPERATOR, /Neutral/) rather than the visually similar ~·~ (U+00B7 MIDDLE DOT, /Ambiguous/), precisely so the most-repeated glyph on the board cannot paint two columns wide.) If you run a fringe-less GUI and see a stray truncation glyph at the extreme right edge, that is a font/~char-width-table~ mismatch, not an org-air layout bug. The fix is a config one: either pick a font that renders those glyphs single-width, or tell Emacs to treat the ambiguous set as one column (e.g. keep the default ~east-asian-ambiguous~ / ~char-width-table~ mapping, or ~(set-language-environment "UTF-8")~). org-air's own width math already compensates for whatever ~char-width-table~ reports — it is purely the painted advance that can differ.
 
 ** 🗂️ Using org-air
 
